@@ -304,13 +304,17 @@ class DeleteAttachmentHandler(BaseAdminHandler):
     async def delete_attachment_code_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """حذف با انتخاب از لیست (با ID)"""
         query = update.callback_query
-        await query.answer()
+        # نکته: اینجا answer() را صدا نمی‌زنیم تا بتوانیم در صورت موفقیت alert نشان دهیم
+        # await query.answer()
+        
         lang = get_user_lang(update, context, self.db) or 'fa'
         
         if query.data == "admin_cancel":
+            await query.answer()
             return await self.admin_menu_return(update, context)
         
         if query.data == "nav_back":
+            await query.answer()
             return await self.handle_navigation_back(update, context)
         
         # دریافت ID از callback_data
@@ -331,14 +335,12 @@ class DeleteAttachmentHandler(BaseAdminHandler):
             pass
         
         if not att_to_delete:
+            await query.answer()
             try:
                 await safe_edit_message_text(query, t("attachment.not_found", lang))
             except BadRequest as e:
                 if "Message is not modified" in str(e):
-                    try:
-                        await query.answer()
-                    except Exception:
-                        pass
+                    pass
                 else:
                     raise
             return await self.admin_menu_return(update, context)
