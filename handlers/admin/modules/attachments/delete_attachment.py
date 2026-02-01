@@ -347,19 +347,9 @@ class DeleteAttachmentHandler(BaseAdminHandler):
         name = att_to_delete['name']
         
         if self.db.delete_attachment(category=category, weapon_name=weapon, code=code, mode=mode):
-            try:
-                await safe_edit_message_text(
-                    query,
-                    t("admin.delete.success", lang, name=name, mode=mode_name) + "\n\n" + t("admin.weapons.path", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category)) + f" > {weapon}"
-                )
-            except BadRequest as e:
-                if "Message is not modified" in str(e):
-                    try:
-                        await query.answer()
-                    except Exception:
-                        pass
-                else:
-                    raise
+            # نمایش آلرت موفقیت
+            await query.answer(t("admin.delete.success_alert", lang, name=name), show_alert=True)
+            
             # invalidate related caches
             try:
                 from core.cache.cache_manager import get_cache
@@ -368,26 +358,66 @@ class DeleteAttachmentHandler(BaseAdminHandler):
                 cache.invalidate_pattern("get_all_attachments")
                 cache.invalidate_pattern("get_weapon_attachments")
                 cache.invalidate_pattern("get_top_attachments")
-                # حذف کش شمارش دسته‌ها (در صورت تغییر مجموعه سلاح‌ها از طریق این جریان)
+                # حذف کش شمارش دسته‌ها
                 cache.delete("category_counts")
             except Exception:
                 pass
+            
+            # ارسال نوتیفیکیشن
             await self._auto_notify(context, 'delete_attachment', {
                 'category': category, 'weapon': weapon, 'code': code, 'name': name, 'mode': mode
             })
-        else:
-            try:
-                await safe_edit_message_text(query, t("admin.delete.error", lang))
-            except BadRequest as e:
-                if "Message is not modified" in str(e):
-                    try:
-                        await query.answer()
-                    except Exception:
+            
+            # رفرش کردن لیست - همان منطقی که در delete_attachment_weapon_selected داریم
+            attachments = self.db.get_all_attachments(category, weapon, mode=mode)
+            
+            if not attachments:
+                # اگر آیتمی نمانده، پیام "خالی" را نشان بده
+                keyboard = [
+                    [InlineKeyboardButton(t("admin.delete.buttons.back_to_weapons", lang), callback_data=f"dac_{category}")],
+                    [InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="admin_cancel")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                try:
+                    await safe_edit_message_text(
+                        query,
+                        t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n" + t("attachment.none", lang),
+                        reply_markup=reply_markup
+                    )
+                except BadRequest as e:
+                    if "Message is not modified" in str(e):
                         pass
-                else:
-                    raise
-        
-        return await self.admin_menu_return(update, context)
+                    else:
+                        raise
+                return DELETE_ATTACHMENT_CATEGORY
+            
+            else:
+                # اگر هنوز آیتم هست، لیست جدید را رندر کن
+                keyboard = []
+                for att in attachments:
+                    keyboard.append([InlineKeyboardButton(
+                        f"🗑️ {att['name']}", 
+                        callback_data=f"delatt_id_{att['id']}"
+                    )])
+                self._add_back_cancel_buttons(keyboard, show_back=True)
+                
+                try:
+                    await safe_edit_message_text(
+                        query,
+                        t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n" + t("admin.delete.choose_attachment", lang),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except BadRequest as e:
+                    if "Message is not modified" in str(e):
+                        pass
+                    else:
+                        raise
+                return DELETE_ATTACHMENT_SELECT
+                
+        else:
+            await query.answer(t("admin.delete.error", lang), show_alert=True)
+            return DELETE_ATTACHMENT_SELECT
     
     async def _rebuild_state_screen(self, update: Update, context: ContextTypes.DEFAULT_TYPE, state: int):
         """بازسازی صفحه برای هر state"""
