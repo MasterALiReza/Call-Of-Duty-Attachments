@@ -1,0 +1,25 @@
+# Project Review Checklist
+
+- [ ] Explore project structure <!-- id: 0 -->
+    - [x] List files in root directory <!-- id: 1 -->
+    - [x] Read README.md (if exists) <!-- id: 2 -->
+    - [x] Identify technology stack <!-- id: 3 -->
+- [ ] Analyze Code Quality <!-- id: 4 -->
+    - [x] Review main logic files <!-- id: 5 -->
+    - [x] Check for basic best practices <!-- id: 6 -->
+- [x] Summarize Findings <!-- id: 7 -->
+- [ ] Analyze Server Logs <!-- id: 8 -->
+    - [/] Locate log files (Not found) <!-- id: 9 -->
+    - [ ] Analyze errors <!-- id: 10 -->
+    - [ ] Propose fixes <!-- id: 11 -->
+    - [x] Fix Attachment Deletion Bug (ID Type Mismatch) <!-- id: 20 -->
+    - [x] Improve Attachment Deletion UX (Stay on list) <!-- id: 21 -->
+    - [x] Fix Missing Success Alert (Double Answer Bug) <!-- id: 22 -->
+- [x] Check GitHub Repository <!-- id: 12 -->
+    - [x] List Open Issues (None found) <!-- id: 13 -->
+    - [x] Check Latest Release (None found) <!-- id: 14 -->
+- [x] Check for Code Annotations (TODO/FIXME) <!-- id: 15 -->
+- [ ] Static Code Analysis <!-- id: 16 -->
+    - [x] Search for Tests (None found) <!-- id: 17 -->
+    - [x] Check Syntax (compileall) - Skipped (Env issue) <!-- id: 18 -->
+    - [x] Inspect suspicious comments (Verified benign) <!-- id: 19 -->
