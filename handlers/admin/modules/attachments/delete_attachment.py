@@ -346,7 +346,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
         code = att_to_delete['code']
         name = att_to_delete['name']
         
-        if self.db.delete_attachment(category, weapon, code, mode=mode):
+        if self.db.delete_attachment(category=category, weapon_name=weapon, code=code, mode=mode):
             try:
                 await safe_edit_message_text(
                     query,
