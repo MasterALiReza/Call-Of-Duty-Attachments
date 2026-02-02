@@ -349,11 +349,8 @@ class DeleteAttachmentHandler(BaseAdminHandler):
         name = att_to_delete['name']
         
         if self.db.delete_attachment(category=category, weapon_name=weapon, code=code, mode=mode):
-            # answer without alert
-            await query.answer()
-
-            # Text message for inline confirmation
-            success_msg = t("admin.delete.success_alert", lang, name=name) + "\n\n"
+            # Show success message as popup alert
+            await query.answer(t("admin.delete.success_alert", lang, name=name), show_alert=True)
             
             # invalidate related caches
             try:
@@ -387,7 +384,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
                 try:
                     await safe_edit_message_text(
                         query,
-                        success_msg + t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n" + t("attachment.none", lang),
+                        t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n" + t("attachment.none", lang),
                         reply_markup=reply_markup
                     )
                 except BadRequest as e:
@@ -410,7 +407,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
                 try:
                     await safe_edit_message_text(
                         query,
-                        success_msg + t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n" + t("admin.delete.choose_attachment", lang),
+                        t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n" + t("admin.delete.choose_attachment", lang),
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                 except BadRequest as e:
