@@ -353,7 +353,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
             await query.answer()
 
             # Text message for inline confirmation
-            success_msg = t("admin.delete.success_message", lang, name=name)
+            success_msg = t("admin.delete.success_alert", lang, name=name) + "\n\n"
             
             # invalidate related caches
             try:
