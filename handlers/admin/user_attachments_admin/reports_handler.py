@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 Reports Handler - مدیریت گزارش‌های کاربران
 """
@@ -22,23 +23,23 @@ cache = get_ua_cache(db, ttl_seconds=300)
 # RBAC helper
 role_manager = RoleManager(db)
 
-def has_ua_perm(user_id: int) -> bool:
+async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
     try:
-        if role_manager.is_super_admin(user_id):
+        if await role_manager.is_super_admin(user_id):
             return True
-        return role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
+        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
     except Exception:
-        return db.is_admin(user_id)
+        return await db.is_admin(user_id)
 
 
-async def show_reports_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_reports_list(update: Update, context: CustomContext):
     """نمایش لیست گزارش‌های pending"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if not has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
@@ -52,11 +53,11 @@ async def show_reports_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         from psycopg import sql  # optional
-        with db.get_connection() as conn:
+        async with await db.get_connection() as conn:
             cursor = conn.cursor(row_factory=dict_row)
             # تلاش برای اسکیما جدید (reporter_id/reported_at) و در صورت خطا fallback به اسکیما قدیمی (user_id/created_at)
             try:
-                cursor.execute(
+                await cursor.execute(
                     """
                     SELECT 
                         r.id,
@@ -79,7 +80,7 @@ async def show_reports_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     (ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
                 )
             except Exception:
-                cursor.execute(
+                await cursor.execute(
                     """
                     SELECT 
                         r.id,
@@ -101,19 +102,19 @@ async def show_reports_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     """,
                     (ITEMS_PER_PAGE, page * ITEMS_PER_PAGE),
                 )
-            reports = cursor.fetchall()
+            reports = await cursor.fetchall()
 
-            cursor.execute(
+            await cursor.execute(
                 """
                 SELECT COUNT(*) AS cnt FROM user_attachment_reports WHERE status = 'pending'
                 """
             )
-            total_row = cursor.fetchone()
+            total_row = await cursor.fetchone()
             total = int((total_row or {}).get('cnt') or 0)
-            cursor.close()
+            await cursor.close()
     except Exception as e:
-        logger.error(f"Error fetching reports: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
         return
     
     if not reports:
@@ -195,13 +196,13 @@ async def show_reports_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def show_report_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_report_detail(update: Update, context: CustomContext):
     """نمایش جزئیات گزارش"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if not has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
@@ -209,10 +210,10 @@ async def show_report_detail(update: Update, context: ContextTypes.DEFAULT_TYPE)
     report_id = int(query.data.replace('ua_admin_report_', ''))
     
     try:
-        with db.get_connection() as conn:
+        async with await db.get_connection() as conn:
             cursor = conn.cursor(row_factory=dict_row)
             try:
-                cursor.execute(
+                await cursor.execute(
                     """
                     SELECT 
                         r.id,
@@ -243,7 +244,7 @@ async def show_report_detail(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     (report_id,),
                 )
             except Exception:
-                cursor.execute(
+                await cursor.execute(
                     """
                     SELECT 
                         r.id,
@@ -273,16 +274,16 @@ async def show_report_detail(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     """,
                     (report_id,),
                 )
-            report_data = cursor.fetchone()
-            cursor.close()
+            report_data = await cursor.fetchone()
+            await cursor.close()
 
         if not report_data:
             await query.answer(t('admin.ua.reports.not_found', lang), show_alert=True)
             return
         
     except Exception as e:
-        logger.error(f"Error fetching report detail: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
         return
     
     rep_id = report_data.get('id')
@@ -376,13 +377,13 @@ async def show_report_detail(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.warning(f"Failed to delete UA report detail source message: {e}")
 
 
-async def delete_reported_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def delete_reported_attachment(update: Update, context: CustomContext):
     """حذف اتچمنت گزارش شده"""
     query = update.callback_query
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     admin_id = update.effective_user.id
-    if not has_ua_perm(admin_id):
+    if not await has_ua_perm(admin_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -391,10 +392,10 @@ async def delete_reported_attachment(update: Update, context: ContextTypes.DEFAU
     report_id = int(parts[1])
     
     try:
-        with db.transaction() as conn:
+        async with await db.transaction() as conn:
             cursor = conn.cursor(row_factory=dict_row)
             # دریافت اطلاعات اتچمنت و گزارش
-            cursor.execute(
+            await cursor.execute(
                 """
                 SELECT ua.user_id, ua.attachment_name, u.username, u.first_name
                 FROM user_attachments ua
@@ -403,9 +404,9 @@ async def delete_reported_attachment(update: Update, context: ContextTypes.DEFAU
                 """,
                 (att_id,),
             )
-            att_info = cursor.fetchone()
+            att_info = await cursor.fetchone()
             if not att_info:
-                cursor.close()
+                await cursor.close()
                 await query.answer(t('attachment.not_found', lang), show_alert=True)
                 return
 
@@ -415,10 +416,10 @@ async def delete_reported_attachment(update: Update, context: ContextTypes.DEFAU
             first_name = att_info.get('first_name')
 
             # حذف اتچمنت
-            cursor.execute("DELETE FROM user_attachments WHERE id = %s", (att_id,))
+            await cursor.execute("DELETE FROM user_attachments WHERE id = %s", (att_id,))
 
             # به‌روزرسانی وضعیت گزارش (PostgreSQL timestamp)
-            cursor.execute(
+            await cursor.execute(
                 """
                 UPDATE user_attachment_reports 
                 SET status = 'resolved', resolved_by = %s, resolved_at = NOW()
@@ -426,23 +427,23 @@ async def delete_reported_attachment(update: Update, context: ContextTypes.DEFAU
                 """,
                 (admin_id, report_id),
             )
-            cursor.close()
+            await cursor.close()
         
         # invalidate stats cache to refresh counts in admin menu
         try:
-            cache.invalidate('stats')
-            cache.invalidate('count_')
+            await cache.invalidate('stats')
+            await cache.invalidate('count_')
         except Exception:
             pass
 
         # اخطار به صاحب اتچمنت
         strike_value = 0.5
-        db.update_submission_stats(owner_id, add_violation=1, add_strike=strike_value)
+        await db.update_submission_stats(owner_id, add_violation=1, add_strike=strike_value)
         
         # بررسی ban
-        stats = db.get_user_submission_stats(owner_id)
+        stats = await db.get_user_submission_stats(owner_id)
         if stats['strike_count'] >= 3.0 and not stats['is_banned']:
-            db.ban_user_from_submissions(
+            await db.ban_user_from_submissions(
                 owner_id,
                 t('admin.ua.reports.auto_ban.reason', lang, count=f"{stats['strike_count']:.1f}"),
                 banned_by=admin_id
@@ -473,15 +474,15 @@ async def delete_reported_attachment(update: Update, context: ContextTypes.DEFAU
         await show_reports_list(update, context)
         
     except Exception as e:
-        logger.error(f"Error deleting reported attachment: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
-async def warn_owner_about_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def warn_owner_about_report(update: Update, context: CustomContext):
     query = update.callback_query
     
     admin_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if not has_ua_perm(admin_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
@@ -495,10 +496,10 @@ async def warn_owner_about_report(update: Update, context: ContextTypes.DEFAULT_
         return
     
     try:
-        with db.transaction() as conn:
+        async with await db.transaction() as conn:
             cursor = conn.cursor(row_factory=dict_row)
             # دریافت اطلاعات لازم برای پیام
-            cursor.execute(
+            await cursor.execute(
                 """
                 SELECT ua.attachment_name, u.username, u.first_name
                 FROM user_attachment_reports r
@@ -508,13 +509,13 @@ async def warn_owner_about_report(update: Update, context: ContextTypes.DEFAULT_
                 """,
                 (report_id,),
             )
-            row = cursor.fetchone()
+            row = await cursor.fetchone()
             att_name = (row or {}).get('attachment_name') or ""
             username = (row or {}).get('username')
             first_name = (row or {}).get('first_name')
             
             # بروزرسانی وضعیت گزارش
-            cursor.execute(
+            await cursor.execute(
                 """
                 UPDATE user_attachment_reports 
                 SET status = 'resolved', resolved_by = %s, resolved_at = NOW()
@@ -522,21 +523,21 @@ async def warn_owner_about_report(update: Update, context: ContextTypes.DEFAULT_
                 """,
                 (admin_id, report_id),
             )
-            cursor.close()
+            await cursor.close()
         
         # invalidate stats cache to refresh counts immediately
         try:
-            cache.invalidate('stats')
-            cache.invalidate('count_')
+            await cache.invalidate('stats')
+            await cache.invalidate('count_')
         except Exception:
             pass
 
         # ثبت اخطار
         strike_value = 0.5
-        db.update_submission_stats(owner_id, add_violation=1, add_strike=strike_value)
-        stats = db.get_user_submission_stats(owner_id)
+        await db.update_submission_stats(owner_id, add_violation=1, add_strike=strike_value)
+        stats = await db.get_user_submission_stats(owner_id)
         if stats['strike_count'] >= 3.0 and not stats['is_banned']:
-            db.ban_user_from_submissions(
+            await db.ban_user_from_submissions(
                 owner_id,
                 t('admin.ua.reports.auto_ban.reason', lang, count=f"{stats['strike_count']:.1f}")
             )
@@ -566,16 +567,16 @@ async def warn_owner_about_report(update: Update, context: ContextTypes.DEFAULT_
         await show_reports_list(update, context)
     
     except Exception as e:
-        logger.error(f"Error warning owner about report: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
-async def dismiss_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def dismiss_report(update: Update, context: CustomContext):
     """رد کردن گزارش (بدون اقدام)"""
     query = update.callback_query
     
     admin_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if not has_ua_perm(admin_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
@@ -583,9 +584,9 @@ async def dismiss_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     report_id = int(query.data.replace('ua_admin_report_dismiss_', ''))
     
     try:
-        with db.transaction() as conn:
+        async with await db.transaction() as conn:
             cursor = conn.cursor(row_factory=dict_row)
-            cursor.execute(
+            await cursor.execute(
                 """
                 UPDATE user_attachment_reports 
                 SET status = 'dismissed', resolved_by = %s, resolved_at = NOW()
@@ -593,12 +594,12 @@ async def dismiss_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 """,
                 (admin_id, report_id),
             )
-            cursor.close()
+            await cursor.close()
         
         # invalidate stats cache so pending_reports count updates
         try:
-            cache.invalidate('stats')
-            cache.invalidate('count_')
+            await cache.invalidate('stats')
+            await cache.invalidate('count_')
         except Exception:
             pass
 
@@ -608,8 +609,8 @@ async def dismiss_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_reports_list(update, context)
         
     except Exception as e:
-        logger.error(f"Error dismissing report: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
 # Export handlers

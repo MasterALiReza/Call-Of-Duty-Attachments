@@ -118,6 +118,17 @@ class OptimizedBroadcaster:
             f"in {duration:.2f}s ({stats['rate_per_second']}/s)"
         )
         
+        # ✅ Record Broadcast Metrics
+        try:
+            from utils.metrics import get_metrics
+            get_metrics().broadcast_metrics.record_broadcast(
+                self.success_count, 
+                self.fail_count, 
+                duration
+            )
+        except Exception as me:
+            logger.warning(f"Failed to record broadcast metrics: {me}")
+        
         return stats
     
     async def _send_to_user(

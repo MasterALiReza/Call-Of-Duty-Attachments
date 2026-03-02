@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 Stats Handler - آمار و گزارش‌های سیستم اتچمنت کاربران
 """
@@ -20,23 +21,23 @@ cache = get_ua_cache(db, ttl_seconds=300)  # 5 minutes cache
 # RBAC helper
 role_manager = RoleManager(db)
 
-def has_ua_perm(user_id: int) -> bool:
+async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
     try:
-        if role_manager.is_super_admin(user_id):
+        if await role_manager.is_super_admin(user_id):
             return True
-        return role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
+        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
     except Exception:
-        return db.is_admin(user_id)
+        return await db.is_admin(user_id)
 
 
-async def show_ua_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_ua_stats(update: Update, context: CustomContext):
     """نمایش آمار کامل سیستم اتچمنت کاربران"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if not has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
@@ -49,7 +50,7 @@ async def show_ua_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         force_refresh = 'refresh' in query.data if query.data else False
         
         # دریافت آمار اصلی از cache
-        stats = cache.get_stats(force_refresh=force_refresh)
+        stats = await cache.get_stats(force_refresh=force_refresh)
         if not stats:
             logger.error("Failed to get stats from cache")
             await query.answer(t('error.generic', lang), show_alert=True)
@@ -77,18 +78,18 @@ async def show_ua_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             approval_rate = (approved_count / total_attachments) * 100
         
         # دریافت top weapons از cache
-        top_weapons = cache.get_top_weapons(limit=10, force_refresh=force_refresh)
+        top_weapons = await cache.get_top_weapons(limit=10, force_refresh=force_refresh)
         
         # دریافت top users از cache
-        top_users = cache.get_top_users(limit=5, force_refresh=force_refresh)
+        top_users = await cache.get_top_users(limit=5, force_refresh=force_refresh)
         
         # محاسبه زمان اجرا
         elapsed_time = (time.time() - start_time) * 1000
         logger.info(f"Stats loaded in {elapsed_time:.2f}ms (from {'fresh calculation' if force_refresh else 'cache'})")
         
     except Exception as e:
-        logger.error(f"Error fetching UA stats: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
         return
     
     # ساخت پیام
@@ -165,13 +166,13 @@ async def show_ua_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def show_approved_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_approved_list(update: Update, context: CustomContext):
     """نمایش لیست اتچمنت‌های تایید شده"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if not has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
@@ -186,15 +187,15 @@ async def show_approved_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         # استفاده از cache برای COUNT
         start_time = time.time()
-        total = cache.get_paginated_count('approved')
+        total = await cache.get_paginated_count('approved')
         
         # دریافت لیست (این یکی cache نداره چون pagination داره)
-        approved = db.get_user_attachments_by_status('approved', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
+        approved = await db.get_user_attachments_by_status('approved', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
         
         # Batch load usernames برای جلوگیری از N+1
         if approved:
             user_ids = [att['user_id'] for att in approved]
-            users_data = cache.batch_get_users(user_ids)
+            users_data = await cache.batch_get_users(user_ids)
             for att in approved:
                 user_info = users_data.get(att['user_id'], {})
                 if not att.get('username'):
@@ -267,14 +268,14 @@ async def show_approved_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 
-async def show_rejected_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_rejected_list(update: Update, context: CustomContext):
     """نمایش لیست اتچمنت‌های رد شده"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -288,15 +289,15 @@ async def show_rejected_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         # استفاده از cache برای COUNT
         start_time = time.time()
-        total = cache.get_paginated_count('rejected')
+        total = await cache.get_paginated_count('rejected')
         
         # دریافت لیست
-        rejected = db.get_user_attachments_by_status('rejected', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
+        rejected = await db.get_user_attachments_by_status('rejected', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
         
         # Batch load usernames
         if rejected:
             user_ids = [att['user_id'] for att in rejected]
-            users_data = cache.batch_get_users(user_ids)
+            users_data = await cache.batch_get_users(user_ids)
             for att in rejected:
                 user_info = users_data.get(att['user_id'], {})
                 if not att.get('username'):
@@ -370,13 +371,13 @@ async def show_rejected_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 
-async def view_approved_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def view_approved_attachment(update: Update, context: CustomContext):
     """نمایش جزئیات اتچمنت تایید شده"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if not has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
@@ -384,7 +385,7 @@ async def view_approved_attachment(update: Update, context: ContextTypes.DEFAULT
     attachment_id = int(query.data.replace('ua_admin_view_approved_', ''))
     
     # دریافت اتچمنت
-    attachment = db.get_user_attachment(attachment_id)
+    attachment = await db.get_user_attachment(attachment_id)
     
     if not attachment:
         await query.answer(t('attachment.not_found', lang), show_alert=True)
@@ -395,7 +396,7 @@ async def view_approved_attachment(update: Update, context: ContextTypes.DEFAULT
     from config.config import GAME_MODES, WEAPON_CATEGORIES
     
     mode_name = t(f"mode.{attachment['mode']}_short", lang)
-    category_name = WEAPON_CATEGORIES.get(attachment['category'], attachment['category'])
+    category_name = t(f"category.{attachment['category']}", 'en')
     weapon_name = attachment.get('custom_weapon_name', attachment.get('weapon_name', t('common.unknown', lang)))
     username = attachment.get('username') or t('user.anonymous', lang)
     description = attachment.get('description') or t('common.no_description', lang)

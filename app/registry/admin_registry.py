@@ -14,22 +14,22 @@ from telegram.ext import (
 
 from .base_registry import BaseHandlerRegistry
 from handlers.admin.modules.feedback import FeedbackAdminHandler
+from utils.i18n import build_regex_for_key
 
 
 class AdminHandlerRegistry(BaseHandlerRegistry):
     """ثبت handlers مربوط به ادمین"""
     
-    def __init__(self, application, db, bot_instance):
+    def __init__(self, application, db):
         """
         Args:
             application: Telegram Application
             db: Database adapter
-            bot_instance: Instance of CODMAttachmentsBot
         """
         super().__init__(application, db)
-        self.bot = bot_instance
-        self.admin_handlers = bot_instance.admin_handlers
-        # self.user_handlers = bot_instance.user_handlers  # TODO: Fix - user_handlers doesn't exist
+        from core.container import get_container
+        container = get_container()
+        self.admin_handlers = container.admin
         self.user_handlers = None  # Temporary fix
         self.feedback_admin = FeedbackAdminHandler(db)
     
@@ -44,6 +44,14 @@ class AdminHandlerRegistry(BaseHandlerRegistry):
         این handler فقط END برمی‌گرداند تا channel handler بتواند کار کند
         """
         # این callback بدون پاسخ می‌مانه چون channel handler جواب می‌ده
+        from telegram.ext import ConversationHandler
+        return ConversationHandler.END
+
+    async def _exit_for_contact(self, update, context):
+        """
+        خروج از ConversationHandler ادمین برای اجازه به contact handler
+        این handler فقط END برمی‌گرداند تا contact handler بتواند کار کند
+        """
         from telegram.ext import ConversationHandler
         return ConversationHandler.END
 
@@ -93,12 +101,20 @@ class AdminHandlerRegistry(BaseHandlerRegistry):
                 MessageHandler(filters.Regex('^پنل ادمین$'), self.admin_handlers.admin_start_msg),
                 MessageHandler(filters.Regex('^Admin Panel$'), self.admin_handlers.admin_start_msg),
                 CallbackQueryHandler(self.admin_handlers.admin_menu_return, pattern="^admin_return$"),
-                CallbackQueryHandler(self.admin_handlers.admin_menu, pattern="^admin_")
+                CallbackQueryHandler(self.admin_handlers.admin_menu, pattern="^(admin_|adm_|gmode_|gsel_|gop_|cmm_|wmm_|wmcat_|wmwpn_|wmact_|wmconf_|text_edit_|cat_clear_|nav_back|fb_|manage_|add_|view_|role_|notif_|sched_|tmpl_|add_admin|remove_admin|edit_admin)")
             ],
             states=get_admin_conversation_states(self.admin_handlers),
             fallbacks=[
+                # Commands to emergency exit/reset
+                CommandHandler("start", self.admin_handlers.admin_menu_return),
+                CommandHandler("admin", self.admin_handlers.admin_menu_return),
+                CommandHandler("cancel", self.admin_handlers.admin_menu_return),
+                
                 # خروج از مکالمه admin برای ورود به channel handler
                 CallbackQueryHandler(self._exit_for_channel_management, pattern="^channel_management$"),
+                # خروج از مکالمه admin برای ورود به contact handler
+                CallbackQueryHandler(self._exit_for_contact, pattern="^contact"),
+                MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.contact')), self._exit_for_contact),
                 CallbackQueryHandler(self.admin_handlers.admin_menu, pattern="^admin_exit$"),
                 CallbackQueryHandler(self.admin_handlers.admin_menu_return, pattern="^admin_cancel$"),
                 CallbackQueryHandler(self.admin_handlers.admin_menu_return, pattern="^admin_back$"),
@@ -134,8 +150,8 @@ class AdminHandlerRegistry(BaseHandlerRegistry):
             pattern="^fb_comments$"
         ))
         self.application.add_handler(CallbackQueryHandler(
-            self.feedback_admin.show_detailed_stats, 
-            pattern="^fb_detailed$"
+            self.feedback_admin.show_weekly_trend, 
+            pattern="^fb_trend$"
         ))
         # Search
         self.application.add_handler(CallbackQueryHandler(

@@ -1,3 +1,4 @@
+from core.context import CustomContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from datetime import datetime
@@ -18,11 +19,11 @@ class HelpHandler:
         
     @require_channel_membership
     @log_user_action("help_command")
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def help_command(self, update: Update, context: CustomContext):
         """نمایش راهنما (Callback)"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="main_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -35,9 +36,9 @@ class HelpHandler:
     
     @require_channel_membership
     @log_user_action("help_command_msg")
-    async def help_command_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def help_command_msg(self, update: Update, context: CustomContext):
         """نمایش راهنما از طریق پیام"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="main_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)

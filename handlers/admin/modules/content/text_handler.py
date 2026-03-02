@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول مدیریت متون ربات (Bot Texts)
 مسئول: ویرایش پیام‌های خوش‌آمد و راهنما
@@ -38,7 +39,7 @@ class TextHandler(BaseAdminHandler):
     # ==================== Main Menu ====================
     
     @require_permission(Permission.MANAGE_TEXTS)
-    async def texts_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def texts_menu(self, update: Update, context: CustomContext):
         """
         منوی ویرایش پیام‌های عمومی ربات (دو‌زبانه)
         
@@ -48,7 +49,7 @@ class TextHandler(BaseAdminHandler):
         """
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
 
         text = (
             t("admin.texts.menu.title", lang) + "\n\n" +
@@ -68,7 +69,7 @@ class TextHandler(BaseAdminHandler):
     # ==================== Edit Start ====================
     
     @require_permission(Permission.MANAGE_TEXTS)
-    async def text_edit_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def text_edit_start(self, update: Update, context: CustomContext):
         """
         شروع ویرایش یکی از پیام‌ها (با انتخاب زبان)
         
@@ -86,7 +87,7 @@ class TextHandler(BaseAdminHandler):
         query = update.callback_query
         await query.answer()
 
-        lang_ui = get_user_lang(update, context, self.db) or 'fa'
+        lang_ui = await get_user_lang(update, context, self.db) or 'fa'
         data = query.data
 
         # مرحله 1: انتخاب زبان برای کلید انتخابی
@@ -141,7 +142,7 @@ class TextHandler(BaseAdminHandler):
     # ==================== Edit Received ====================
     
     @require_permission(Permission.MANAGE_TEXTS)
-    async def text_edit_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def text_edit_received(self, update: Update, context: CustomContext):
         """
         دریافت متن جدید و ذخیره
         
@@ -156,14 +157,14 @@ class TextHandler(BaseAdminHandler):
         4. نمایش پیام تایید
         """
         if not update.message or not update.message.text:
-            lang_ui = get_user_lang(update, context, self.db) or 'fa'
+            lang_ui = await get_user_lang(update, context, self.db) or 'fa'
             await update.message.reply_text(t('admin.texts.error.text_only', lang_ui))
             return TEXT_EDIT
 
         key = context.user_data.get('text_key')
         edit_lang = context.user_data.get('text_lang')
         if key not in ('welcome', 'help.text') or edit_lang not in ('fa', 'en'):
-            lang_ui = get_user_lang(update, context, self.db) or 'fa'
+            lang_ui = await get_user_lang(update, context, self.db) or 'fa'
             await update.message.reply_text(t('admin.texts.error.invalid_key', lang_ui))
             logger.error(f"Invalid text key/lang: key={key} lang={edit_lang}")
             return ADMIN_MENU
@@ -178,7 +179,7 @@ class TextHandler(BaseAdminHandler):
         except Exception:
             pass
 
-        lang_ui = get_user_lang(update, context, self.db) or 'fa'
+        lang_ui = await get_user_lang(update, context, self.db) or 'fa'
         if ok:
             await update.message.reply_text(t('admin.texts.saved', lang_ui))
             logger.info(f"Text {key} ({edit_lang}) updated successfully")
@@ -296,21 +297,13 @@ class TextHandler(BaseAdminHandler):
             
             if not replaced:
                 logger.error(f"Could not find key {key} in config.py")
-                # به‌روزرسانی در حافظه به عنوان fallback
-                try:
-                    from config.config import MESSAGES
-                    MESSAGES[key] = new_value_norm
-                except Exception:
-                    pass
                 return False
             
             # نوشتن محتوای جدید در فایل
             with open(config_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            # به‌روزرسانی در حافظه
-            from config.config import MESSAGES
-            MESSAGES[key] = new_value_norm
+            # به‌روزرسانی در حافظه (منسوخ شده، حذف شد)
             
             logger.info(f"Successfully persisted text for key: {key}")
             return True
@@ -320,10 +313,5 @@ class TextHandler(BaseAdminHandler):
         except Exception as e:
             logger.error(f"Error persisting message text: {e}")
         
-        # در صورت هرگونه خطا، حداقل در حافظه به‌روزرسانی می‌کنیم
-        try:
-            from config.config import MESSAGES
-            MESSAGES[key] = new_value_norm
-        except Exception:
-            pass
+        # در صورت هرگونه خطا، خطا ثبت شده است
         return False

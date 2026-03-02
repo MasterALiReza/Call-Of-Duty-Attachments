@@ -57,7 +57,7 @@ class ContactSystem:
     # ==================== Ticket Management ====================
     
     @log_db_operation("create_ticket")
-    def create_ticket(self, user_id: int, category: str, subject: str,
+    async def create_ticket(self, user_id: int, category: str, subject: str,
                      description: str, priority: str = "medium",
                      attachments: List[str] = None) -> Optional[int]:
         """
@@ -75,7 +75,7 @@ class ContactSystem:
             ticket_id یا None در صورت خطا
         """
         try:
-            ticket_id = self.db.add_ticket(
+            ticket_id = await self.db.add_ticket(
                 user_id=user_id,
                 category=category,
                 subject=subject,
@@ -92,15 +92,15 @@ class ContactSystem:
             log_exception(logger, e, "create_ticket")
             return None
     
-    def get_ticket(self, ticket_id: int) -> Optional[Dict]:
+    async def get_ticket(self, ticket_id: int) -> Optional[Dict]:
         """دریافت اطلاعات یک تیکت"""
         try:
-            return self.db.get_ticket(ticket_id)
+            return await self.db.get_ticket(ticket_id)
         except Exception as e:
             logger.error(f"Error getting ticket {ticket_id}: {e}")
             return None
     
-    def get_user_tickets(self, user_id: int, status: Optional[str] = None) -> List[Dict]:
+    async def get_user_tickets(self, user_id: int, status: Optional[str] = None) -> List[Dict]:
         """
         دریافت تیکت‌های یک کاربر
         
@@ -112,12 +112,12 @@ class ContactSystem:
             لیست تیکت‌ها
         """
         try:
-            return self.db.get_user_tickets(user_id, status)
+            return await self.db.get_user_tickets(user_id, status)
         except Exception as e:
             logger.error(f"Error getting user tickets: {e}")
             return []
     
-    def add_ticket_reply(self, ticket_id: int, user_id: int, 
+    async def add_ticket_reply(self, ticket_id: int, user_id: int, 
                         message: str, is_admin: bool = False,
                         attachments: List[str] = None) -> bool:
         """
@@ -134,7 +134,7 @@ class ContactSystem:
             موفقیت/عدم موفقیت
         """
         try:
-            success = self.db.add_ticket_reply(
+            success = await self.db.add_ticket_reply(
                 ticket_id=ticket_id,
                 user_id=user_id,
                 message=message,
@@ -145,10 +145,10 @@ class ContactSystem:
             if success:
                 # اگر ادمین پاسخ داد، وضعیت را به "waiting_user" تغییر بده
                 if is_admin:
-                    self.update_ticket_status(ticket_id, TicketStatus.WAITING_USER.value)
+                    await self.update_ticket_status(ticket_id, TicketStatus.WAITING_USER.value)
                 # اگر کاربر پاسخ داد، وضعیت را به "in_progress" تغییر بده
                 else:
-                    self.update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS.value)
+                    await self.update_ticket_status(ticket_id, TicketStatus.IN_PROGRESS.value)
                 
                 logger.info(f"Reply added to ticket {ticket_id} by {'admin' if is_admin else 'user'} {user_id}")
             
@@ -159,18 +159,18 @@ class ContactSystem:
             log_exception(logger, e, "add_ticket_reply")
             return False
     
-    def get_ticket_replies(self, ticket_id: int) -> List[Dict]:
+    async def get_ticket_replies(self, ticket_id: int) -> List[Dict]:
         """دریافت تمام پاسخ‌های یک تیکت"""
         try:
-            return self.db.get_ticket_replies(ticket_id)
+            return await self.db.get_ticket_replies(ticket_id)
         except Exception as e:
             logger.error(f"Error getting ticket replies: {e}")
             return []
     
-    def update_ticket_status(self, ticket_id: int, new_status: str) -> bool:
+    async def update_ticket_status(self, ticket_id: int, new_status: str) -> bool:
         """به‌روزرسانی وضعیت تیکت"""
         try:
-            success = self.db.update_ticket_status(ticket_id, new_status)
+            success = await self.db.update_ticket_status(ticket_id, new_status)
             if success:
                 logger.info(f"Ticket {ticket_id} status updated to {new_status}")
             return success
@@ -178,10 +178,10 @@ class ContactSystem:
             logger.error(f"Error updating ticket status: {e}")
             return False
     
-    def update_ticket_priority(self, ticket_id: int, new_priority: str) -> bool:
+    async def update_ticket_priority(self, ticket_id: int, new_priority: str) -> bool:
         """به‌روزرسانی اولویت تیکت"""
         try:
-            success = self.db.update_ticket_priority(ticket_id, new_priority)
+            success = await self.db.update_ticket_priority(ticket_id, new_priority)
             if success:
                 logger.info(f"Ticket {ticket_id} priority updated to {new_priority}")
             return success
@@ -189,10 +189,10 @@ class ContactSystem:
             logger.error(f"Error updating ticket priority: {e}")
             return False
     
-    def assign_ticket(self, ticket_id: int, admin_id: int) -> bool:
+    async def assign_ticket(self, ticket_id: int, admin_id: int) -> bool:
         """اختصاص تیکت به یک ادمین"""
         try:
-            success = self.db.assign_ticket(ticket_id, admin_id)
+            success = await self.db.assign_ticket(ticket_id, admin_id)
             if success:
                 logger.info(f"Ticket {ticket_id} assigned to admin {admin_id}")
             return success
@@ -200,10 +200,10 @@ class ContactSystem:
             logger.error(f"Error assigning ticket: {e}")
             return False
     
-    def close_ticket(self, ticket_id: int, admin_id: int, resolution: str = "") -> bool:
+    async def close_ticket(self, ticket_id: int, admin_id: int, resolution: str = "") -> bool:
         """بستن تیکت"""
         try:
-            success = self.db.close_ticket(ticket_id, admin_id, resolution)
+            success = await self.db.close_ticket(ticket_id, admin_id, resolution)
             if success:
                 logger.info(f"Ticket {ticket_id} closed by admin {admin_id}")
             return success
@@ -213,7 +213,7 @@ class ContactSystem:
     
     # ==================== FAQ Management ====================
     
-    def get_faqs(self, category: Optional[str] = None, lang: Optional[str] = None) -> List[Dict]:
+    async def get_faqs(self, category: Optional[str] = None, lang: Optional[str] = None) -> List[Dict]:
         """
         دریافت سوالات متداول
         
@@ -224,25 +224,25 @@ class ContactSystem:
             لیست FAQ ها
         """
         try:
-            return self.db.get_faqs(category, lang)
+            return await self.db.get_faqs(category, lang)
         except Exception as e:
             logger.error(f"Error getting FAQs: {e}")
             return []
     
-    def search_faqs(self, query: str, lang: Optional[str] = None) -> List[Dict]:
+    async def search_faqs(self, query: str, lang: Optional[str] = None) -> List[Dict]:
         """جستجو در FAQ ها"""
         try:
-            return self.db.search_faqs(query, lang)
+            return await self.db.search_faqs(query, lang)
         except Exception as e:
             logger.error(f"Error searching FAQs: {e}")
             return []
     
-    def add_faq(self, question: str, answer: str, category: str = "general", lang: Optional[str] = None) -> bool:
+    async def add_faq(self, question: str, answer: str, category: str = "general", lang: Optional[str] = None) -> bool:
         """افزودن FAQ جدید (فقط ادمین)"""
         try:
             if lang is None:
                 lang = 'fa'
-            success = self.db.add_faq(question, answer, category, lang)
+            success = await self.db.add_faq(question, answer, category, lang)
             if success:
                 logger.info(f"FAQ added: {question[:50]}... [{lang}]")
             return success
@@ -250,33 +250,33 @@ class ContactSystem:
             logger.error(f"Error adding FAQ: {e}")
             return False
     
-    def increment_faq_views(self, faq_id: int) -> bool:
+    async def increment_faq_views(self, faq_id: int) -> bool:
         """افزایش تعداد بازدید یک FAQ"""
         try:
-            return self.db.increment_faq_views(faq_id)
+            return await self.db.increment_faq_views(faq_id)
         except Exception as e:
             logger.error(f"Error incrementing FAQ views: {e}")
             return False
     
-    def mark_faq_helpful(self, faq_id: int, helpful: bool = True) -> bool:
+    async def mark_faq_helpful(self, faq_id: int, helpful: bool = True) -> bool:
         """ثبت رای مفید/نامفید برای FAQ"""
         try:
-            return self.db.mark_faq_helpful(faq_id, helpful)
+            return await self.db.mark_faq_helpful(faq_id, helpful)
         except Exception as e:
             logger.error(f"Error marking FAQ helpful (id={faq_id}, helpful={helpful}): {e}")
             return False
     
-    def vote_faq(self, user_id: int, faq_id: int, helpful: bool = True) -> dict:
+    async def vote_faq(self, user_id: int, faq_id: int, helpful: bool = True) -> dict:
         """ثبت/تغییر رأی کاربر برای FAQ (هر کاربر حداکثر ۱ رأی)"""
         try:
-            return self.db.vote_faq(user_id, faq_id, helpful)
+            return await self.db.vote_faq(user_id, faq_id, helpful)
         except Exception as e:
             logger.error(f"Error voting faq (user={user_id}, faq={faq_id}, helpful={helpful}): {e}")
             return {"success": False, "action": "error"}
     
     # ==================== Feedback System ====================
     
-    def submit_feedback(self, user_id: int, rating: int, 
+    async def submit_feedback(self, user_id: int, rating: int, 
                        category: str = "general",
                        message: str = "") -> bool:
         """
@@ -296,7 +296,7 @@ class ContactSystem:
                 logger.warning(f"Invalid rating: {rating}")
                 return False
             
-            success = self.db.add_feedback(user_id, rating, category, message)
+            success = await self.db.add_feedback(user_id, rating, category, message)
             if success:
                 logger.info(f"Feedback submitted by user {user_id}: {rating}⭐")
             return success
@@ -306,17 +306,17 @@ class ContactSystem:
             log_exception(logger, e, "submit_feedback")
             return False
     
-    def get_feedback_stats(self) -> Dict:
+    async def get_feedback_stats(self) -> Dict:
         """دریافت آمار بازخوردها"""
         try:
-            return self.db.get_feedback_stats()
+            return await self.db.get_feedback_stats()
         except Exception as e:
             logger.error(f"Error getting feedback stats: {e}")
             return {}
     
     # ==================== Statistics ====================
     
-    def get_ticket_stats(self, admin_id: Optional[int] = None) -> Dict:
+    async def get_ticket_stats(self, admin_id: Optional[int] = None) -> Dict:
         """
         دریافت آمار تیکت‌ها
         
@@ -327,15 +327,15 @@ class ContactSystem:
             دیکشنری حاوی آمار
         """
         try:
-            return self.db.get_ticket_stats(admin_id)
+            return await self.db.get_ticket_stats(admin_id)
         except Exception as e:
             logger.error(f"Error getting ticket stats: {e}")
             return {}
     
-    def get_pending_tickets_count(self) -> int:
+    async def get_pending_tickets_count(self) -> int:
         """تعداد تیکت‌های باز و در انتظار"""
         try:
-            stats = self.get_ticket_stats()
+            stats = await self.get_ticket_stats()
             return stats.get('open', 0) + stats.get('in_progress', 0)
         except Exception as e:
             logger.error(f"Error getting pending tickets count: {e}")
@@ -379,7 +379,7 @@ class ContactSystem:
         }
         return status_map.get(status, status)
     
-    def get_suggested_faqs(self, ticket_description: str, limit: int = 3, lang: Optional[str] = None) -> List[Dict]:
+    async def get_suggested_faqs(self, ticket_description: str, limit: int = 3, lang: Optional[str] = None) -> List[Dict]:
         """
         پیشنهاد FAQ های مرتبط قبل از ثبت تیکت
         
@@ -392,7 +392,7 @@ class ContactSystem:
         """
         try:
             # جستجو در FAQ ها
-            results = self.search_faqs(ticket_description, lang)
+            results = await self.search_faqs(ticket_description, lang)
             return results[:limit] if results else []
         except Exception as e:
             logger.error(f"Error getting suggested FAQs: {e}")

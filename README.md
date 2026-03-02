@@ -1,461 +1,50 @@
-# 🎮 CODM Attachments Bot
+# 🎮 CoDM Attachments Bot
 
-<div align="center">
+Advanced Telegram Bot for managing and sharing Call of Duty: Mobile loadouts. Built with Python and PostgreSQL.
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-316192.svg)](https://www.postgresql.org/)
-[![Telegram Bot](https://img.shields.io/badge/Telegram-Bot-26A5E4.svg)](https://core.telegram.org/bots)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**ربات تلگرام پیشرفته برای مدیریت و اشتراک‌گذاری اتچمنت‌های Call of Duty Mobile**
+## ✨ Key Features
 
-مدیریت جامع اتچمنت‌ها | جستجوی هوشمند | پنل ادمین قدرتمند | آنالیتیکس پیشرفته
+- **Smart Search**: Fuzzy & Full-Text search for attachments.
+- **Inline Mode**: Search and share loadouts directly in any chat.
+- **Game Modes**: Support for both Battle Royale (BR) and Multiplayer (MP).
+- **Admin Panel**: Comprehensive dashboard, user submission review, and broadcast system.
+- **RBAC**: Role-Based Access Control for administrators.
+- **Analytics**: Deep insights into search trends and user activity.
+- **Automated Backups**: Scheduled database and configuration backups.
 
-[نصب و راه‌اندازی](#-نصب-سریع) •
-[فیچرها](#-ویژگی‌های-اصلی) •
-[پشتیبانی](#-پشتیبانی)
+## 🚀 Quick Deployment (Linux)
 
-</div>
-
----
-
-## 📖 درباره پروژه
-
-CODM Attachments Bot یک ربات تلگرام حرفه‌ای و تمام‌عیار برای مدیریت، ذخیره‌سازی و اشتراک‌گذاری اتچمنت‌های Call of Duty Mobile است. این ربات با معماری Modular و الگوی Factory Pattern طراحی شده و قابلیت‌های گسترده‌ای برای کاربران و ادمین‌ها فراهم می‌کند.
-
-### 🎯 اهداف پروژه
-
-- **مدیریت متمرکز**: یک پلتفرم یکپارچه برای تمام اتچمنت‌های بازی
-- **دسترسی آسان**: جستجوی سریع و هوشمند با Fuzzy Search و Full-Text Search
-- **تجربه کاربری عالی**: رابط کاربری ساده و بصری با Inline Mode
-- **مقیاس‌پذیری**: طراحی برای پشتیبانی از هزاران کاربر همزمان
-- **امنیت بالا**: سیستم RBAC، Rate Limiting و محافظت در برابر SQL Injection
-
-## ✨ ویژگی‌های اصلی
-
-### 👥 بخش کاربران
-
-- 🔍 **جستجوی پیشرفته**: Fuzzy Search با الگوریتم Levenshtein و Full-Text Search با PostgreSQL pg_trgm
-- 🎯 **Inline Mode**: دسترسی سریع به اتچمنت‌ها در هر چت بدون باز کردن ربات
-- 🪂 **دو حالت بازی**: پشتیبانی کامل از Battle Royale (BR) و Multiplayer (MP)
-- 🔫 **127 سلاح در 8 دسته**: Assault Rifle، SMG، LMG، Sniper، Marksman، Shotgun، Pistol، Launcher
-- 💡 **اتچمنت‌های پیشنهادی هوشمند**: سیستم توصیه اتچمنت بر اساس محبوبیت و بازخورد
-- 📤 **ارسال اتچمنت توسط کاربران**: امکان ثبت و اشتراک‌گذاری اتچمنت‌های شخصی
-- 👍👎 **سیستم فیدبک**: لایک و دیسلایک اتچمنت‌ها با آمار زنده
-- 📚 **راهنماهای تعاملی**: سیستم راهنمای جامع با تصاویر و ویدیوهای آموزشی
-- ❓ **سیستم FAQ**: پاسخ سریع به سوالات متداول با دسته‌بندی
-- 📞 **سیستم تیکتینگ**: ارتباط مستقیم با پشتیبانی
-
-### 👨‍💼 پنل ادمین حرفه‌ای
-
-- ➕ **مدیریت کامل اتچمنت‌ها**: افزودن، ویرایش، حذف با رابط کاربری ساده
-- 🏆 **مدیریت Top Attachments**: تنظیم و مدیریت اتچمنت‌های برتر
-- ✅ **تایید/رد اتچمنت‌های کاربران**: سیستم بررسی و تایید ارسال‌های کاربران
-- 📊 **داشبورد آنالیتیکس پیشرفته**: 
-  - آمار جستجوها (محبوب‌ترین، بی‌نتیجه‌ترین)
-  - آمار اتچمنت‌ها (پربازدیدترین، محبوب‌ترین، بحث‌برانگیزترین)
-  - آمار کاربران (فعال‌ترین، تعداد کل، رشد)
-  - نمودارهای تعاملی و گزارش‌های تفصیلی
-- 🔐 **سیستم RBAC**: مدیریت نقش‌ها و دسترسی‌های ادمین‌ها
-- 📢 **سیستم Broadcast**: ارسال اعلان به کاربران با پیشنمایش و تایید
-- 📋 **مدیریت FAQ**: افزودن، ویرایش، حذف سوالات متداول
-- 🎫 **مدیریت تیکت‌ها**: پاسخگویی و بستن تیکت‌های کاربران
-- 💾 **Backup & Restore**: پشتیبان‌گیری خودکار و بازیابی دیتابیس
-- 📈 **گزارش‌های پیشرفته**: صدور گزارش‌های جامع با فیلترهای زمانی
-
-## 🏛️ معماری و طراحی
-
-### 🏭 الگوی طراحی
-
-پروژه با رویکرد **Modular Architecture** و **Factory Pattern** طراحی شده که مزایای عمده آن شامل:
-
-- **🧩 Modular Structure**: جداسازی کامل مسئولیت‌ها (Separation of Concerns)
-- **🏭 Factory Pattern**: مدیریت متمرکز ساخت handlers با `BotApplicationFactory`
-- **📚 Registry Pattern**: ثبت خودکار و منظم handlers
-- **📦 Database Adapter**: پشتیبانی چند دیتابیس با یک Interface یکسان
-- **💾 Smart Caching**: کش چند لایه با TTL دینامیک
-- **🔒 Security Layers**: RBAC، Rate Limiting، SQL Injection Prevention
-
-### 🛠️ تکنولوژی‌های بهکار رفته
-
-#### Core Technologies
-- **Python 3.10+**: زبان اصلی با Type Hints
-- **python-telegram-bot 21.5**: فریمورک Telegram Bot API
-- **PostgreSQL 14+**: دیتابیس اصلی با قابلیت‌های پیشرفته
-- **psycopg3**: Driver مدرن PostgreSQL با Connection Pooling
-
-#### Search & Performance
-- **FuzzyWuzzy + Levenshtein**: Fuzzy Search برای جستجوی تقریبی
-- **PostgreSQL pg_trgm**: Full-Text Search برای جستجوی سریع
-- **Connection Pool**: مدیریت بهینه کانکشن‌ها (20 connections)
-- **Smart Cache Manager**: کش چند لایه با TTL متغیر
-
-#### Automation & Scheduling
-- **APScheduler**: زمان‌بندی اعلانات و بکاپ‌ها
-- **Schedule**: وظایف تکراری و دوره‌ای
-
-#### Data Processing
-- **feedparser**: پردازش RSS/Atom feeds
-- **BeautifulSoup4 + lxml**: Web scraping و پردازش HTML
-
-### 📏 منطق ساخت پروژه
-
-1. **ماژولاریتی**: هر بخش مستقل و قابل توسعه است
-2. **مقیاس‌پذیری**: طراحی برای پشتیبانی از هزاران کاربر
-3. **کارایی**: استفاده از Connection Pooling، Caching و بهینه‌سازی Queryها
-4. **امنیت**: چندین لایه امنیتی (RBAC، Rate Limiting، Prepared Statements)
-5. **نگهداری**: کد تمیز با Type Hints، Docstrings و مستندسازی کامل
-
-## 📋 پیش‌نیازها
-
-- **Python**: 3.10 یا بالاتر
-- **PostgreSQL**: 14 یا بالاتر
-- **Telegram Bot Token**: از [@BotFather](https://t.me/BotFather)
-- **RAM**: حداقل 512MB (پیشنهادی: 1GB+)
-- **Storage**: حداقل 1GB برای دیتابیس و لاگ‌ها
-
-## 🚀 نصب سریع (Easy Install)
-
-برای نصب روی سرور Ubuntu 24.04:
+To install on a Linux server (Ubuntu/Debian recommended):
 
 ```bash
-# 1. کلون پروژه
 git clone https://github.com/MasterALiReza/CoDM-Attach.git
 cd CoDM-Attach
-
-# 2. اجرای اسکریپت نصب
 sudo bash deploy.sh
 ```
 
-**ویژگی‌های اسکریپت پیشرفته deploy.sh:**
+The `deploy.sh` script handles:
+- System dependency installation (Python, PostgreSQL).
+- Database & User creation.
+- Virtual environment setup.
+- Systemd service configuration.
 
-📋 **منوی تعاملی:**
-- 1️⃣ نصب کامل ربات (Install)
-- 2️⃣ حذف کامل (Uninstall)
-- 3️⃣ به‌روزرسانی (Update)
-- 4️⃣-6️⃣ مدیریت سرویس (Start/Stop/Restart)
-- 7️⃣ نمایش وضعیت
-- 8️⃣ مشاهده لاگ‌ها
-- 9️⃣ بکاپ
+## 🛠️ Management
 
-⚙️ **راه‌اندازی خودکار:**
-- ✅ نصب PostgreSQL و Python
-- ✅ ایجاد دیتابیس با 3 حالت:
-  - خودکار (پیشنهادی) - رمز عبور امن تولید می‌شود
-  - سفارشی - ورود دستی اطلاعات
-  - دیتابیس خارجی
-- ✅ تنظیم schema و seed data
-- ✅ افزودن خودکار Super Admin
-- ✅ راه‌اندازی سرویس systemd
-
-### مدیریت ربات بعد از نصب
-
+After installation, use the management tool:
 ```bash
-# اجرای منوی مدیریت
-sudo bash deploy.sh
-
-# یا استفاده از systemctl
-sudo systemctl start codm-bot
-sudo systemctl status codm-bot
-sudo journalctl -u codm-bot -f
-```
-
----
-
-## 🎛️ ابزار مدیریت (wx-attach)
-
-بعد از نصب، از ابزار خط فرمان `wx-attach` برای مدیریت ربات استفاده کنید:
-
-```bash
-# منوی تعاملی
 wx-attach
-
-# دستورات سریع
-wx-attach start     # شروع ربات
-wx-attach stop      # توقف ربات
-wx-attach restart   # راه‌اندازی مجدد
-wx-attach status    # وضعیت سیستم
-wx-attach logs      # مشاهده لاگ‌ها
 ```
 
-### قابلیت‌های منوی تعاملی
+## 📖 Documentation
+Detailed documentation for specific modules can be found in the `/docs` directory.
 
-| گزینه | شرح |
-|-------|-----|
-| 1-3 | Start/Stop/Restart ربات |
-| 4 | داشبورد وضعیت (اتصال DB، Telegram، سیستم) |
-| 5 | مشاهده لاگ‌های زنده |
-| 6 | مدیریت ادمین‌ها (افزودن/حذف/لیست) |
-| 7 | تنظیمات (ویرایش Token، DB URL) |
-| 8 | ابزارهای دیتابیس (تست، بکاپ، ریست) |
+## 🤝 Contributing
+Contributions are welcome! Please read the contribution guidelines before submitting a PR.
 
----
+## 📜 License
+This project is licensed under the MIT License - see the `LICENSE` file for details.
 
-## 🛠️ نصب دستی
-
-### 1. نصب Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. تنظیمات
-
-کپی کردن فایل تنظیمات:
-```bash
-copy .env.example .env
-```
-
-ویرایش `.env` و تنظیم موارد زیر:
-```bash
-# Telegram
-BOT_TOKEN=your_bot_token_here
-SUPER_ADMIN_ID=123456789
-
-# PostgreSQL
-DATABASE_BACKEND=postgres
-DATABASE_URL=postgresql://username:password@localhost:5432/codm_bot
-DB_POOL_SIZE=20
-DB_POOL_MAX_OVERFLOW=10
-```
-
-### 3. راه‌اندازی Database
-
-```bash
-# ایجاد/به‌روزرسانی schema PostgreSQL
-python scripts/apply_sql.py
-```
-
-### 4. اجرای Bot
-
-```bash
-python main.py
-```
-
-## 🔧 اسکریپت‌های مدیریتی
-
-### ابزار CLI اصلی
-```bash
-# منوی مدیریت تعاملی (توصیه شده)
-wx-attach
-
-# بررسی سلامت سیستم
-python scripts/health_check.py
-```
-
-### دیتابیس
-```bash
-# تست اتصال دیتابیس
-python scripts/health_check.py --json
-
-# اعمال schema
-python scripts/setup_database.py
-```
-
-## 🐳 Docker
-
-```bash
-# ساخت image
-docker build -t codm-bot .
-
-# اجرا
-docker-compose up -d
-```
-
-## ⚡ Performance و بهینه‌سازی
-
-### 📊 شاخص‌های کلیدی
-
-- **ظرفیت همزمان**: 500-800 کاربر فعال
-- **Response Time**: 50-150ms (متوسط)
-- **Query Performance**: < 100ms برای 95% queries
-- **Cache Hit Rate**: 75-85%
-- **Throughput**: 1000+ درخواست در دقیقه
-
-### ⚙️ بهینه‌سازی‌های اعمال شده
-
-#### Database Layer
-- **Connection Pooling**: 20 connection با max overflow 10
-- **Prepared Statements**: کاهش overhead parsing
-- **Batch Operations**: کاهش تعداد queries
-- **Indexes Optimization**: 
-  - B-tree indexes برای جستجوی دقیق
-  - GIN indexes برای Full-Text Search
-  - Composite indexes برای queries ترکیبی
-
-#### Caching Strategy
-- **Multi-Layer Cache**:
-  - L1: In-memory cache (سریع‌ترین)
-  - L2: Database cache (پایدار)
-- **Smart TTL**: TTL دینامیک بر اساس نوع داده
-  - Categories: 1 ساعت
-  - Weapons: 30 دقیقه
-  - Attachments: 5 دقیقه
-  - Users: 10 دقیقه
-- **Cache Invalidation**: حذف خودکار cache منقضی شده
-
-#### Query Optimization
-- **Lazy Loading**: بارگذاری تنها داده‌های مورد نیاز
-- **Pagination**: جلوگیری از بارگذاری دیتای اضافی
-- **Projection**: انتخاب ستون‌های خاص بجای SELECT *
-
-## 🔐 امنیت و محافظت
-
-### 🛡️ لایه‌های امنیتی
-
-#### Database Security
-- **SQL Injection Prevention**: استفاده از Prepared Statements
-- **Connection Security**: SSL/TLS برای اتصال دیتابیس
-- **Credential Management**: Environment Variables (هیچ credential در کد نیست)
-- **ACID Transactions**: تضمین یکپارچگی دیتا
-
-#### Access Control
-- **RBAC (Role-Based Access Control)**:
-  - تعریف نقش‌های مختلف (Super Admin, Admin, Moderator)
-  - مدیریت permissions بر اساس نقش
-  - Audit log برای اقدامات ادمین‌ها
-- **Rate Limiting**: محدودیت تعداد درخواست‌ها از هر کاربر
-- **User Validation**: اعتبارسنجی ورودی‌های کاربر
-
-#### Application Security
-- **Input Validation**: اعتبارسنجی تمام ورودی‌ها
-- **Content Filtering**: جلوگیری از محتوای مخرب
-- **Error Handling**: عدم نمایش اطلاعات حساس در خطاها
-- **Logging**: ثبت تمام فعالیت‌های مهم
-
-### 🔒 Best Practices
-
-- تفکیک محیط‌های Development و Production
-- بکاپ خودکار روزانه
-- مانیتورینگ و الرت سیستم
-- به‌روزرسانی منظم dependencies
-
-## 🚀 فیچرهای پیاده‌سازی شده
-
-### ✅ Core Features (100%)
-
-- ✅ **Modular Architecture**: جداسازی کامل مسئولیت‌ها با Factory و Registry Pattern
-- ✅ **PostgreSQL Integration**: پشتیبانی کامل با Connection Pooling
-- ✅ **Smart Caching**: کش چند لایه با TTL دینامیک
-- ✅ **Advanced Search**: Fuzzy + Full-Text Search
-- ✅ **Inline Mode**: پشتیبانی کامل Inline Queries
-- ✅ **User Attachments**: ارسال و مدیریت اتچمنت‌های کاربران
-- ✅ **Feedback System**: لایک/دیسلایک با آمار زنده
-- ✅ **RBAC**: سیستم مدیریت نقش‌ها و دسترسی‌ها
-
-### ✅ Admin Panel (100%)
-
-- ✅ **Dashboard Analytics**: داشبورد جامع با نمودارهای تعاملی
-- ✅ **Attachment Management**: CRUD کامل اتچمنت‌ها
-- ✅ **Top Attachments**: مدیریت اتچمنت‌های برتر
-- ✅ **Suggested Attachments**: سیستم توصیه هوشمند
-- ✅ **User Submissions Review**: بررسی و تایید/رد ارسال‌وها
-- ✅ **Broadcast System**: ارسال اعلان با پیشنمایش
-- ✅ **Backup & Restore**: بکاپ خودکار و بازیابی
-- ✅ **FAQ Management**: مدیریت کامل سوالات متداول
-- ✅ **Ticket System**: سیستم تیکتینگ حرفه‌ای
-
-### ✅ Advanced Features (100%)
-
-- ✅ **Advanced Analytics**: آنالیتیکس عمیق با فیلترهای زمانی
-- ✅ **Health Checks**: بررسی خودکار سلامت سیستم
-- ✅ **Data Validation**: اعتبارسنجی جامع داده‌ها
-- ✅ **Notification Scheduler**: زمان‌بندی اعلانات
-- ✅ **Channel Management**: مدیریت کانال اجباری با priority
-- ✅ **Content Filtering**: فیلترینگ محتوای نامناسب
-
-## 🛝oufe0f Roadmap و فیچرهای آینده
-
-### 📌 در دست بررسی
-
-- 🚧 **Webhook Mode**: پشتیبانی از Webhook برای deployment بهتر
-- 🚧 **Multi-language Support**: پشتیبانی از زبان‌های مختلف
-- 🚧 **Advanced Reporting**: گزارش‌های تفصیلی با نمودارهای PDF
-
-### 🔮 برنامه آینده
-
-- ⚡ **GraphQL API**: API برای اینتگریشن با سیستم‌های دیگر
-- 👥 **Social Features**: لایک، کامنت، فالو کاربران
-- 📱 **Mobile App**: اپلیکیشن موبایل با React Native
-- 🤖 **AI Recommendations**: توصیه اتچمنت با Machine Learning
-- 🎮 **Game Integration**: اینتگریشن مستقیم با CODM
-
-## 🤝 مشارکت
-
-ما از مشارکت شما استقبال می‌کنیم! برای مشارکت در پروژه:
-
-1. **Fork** کردن پروژه
-2. **Branch** جدید بسازید
-   ```bash
-   git checkout -b feature/amazing-feature
-   ```
-3. **Commit** تغییرات
-   ```bash
-   git commit -m 'Add amazing feature'
-   ```
-4. **Push** به branch
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-5. **Pull Request** باز کنید
-
-### 📜 راهنمای مشارکت
-
-- کد تمیز و خوانا بنویسید
-- Type Hints استفاده کنید
-- Docstrings مناسب اضافه کنید
-- تست کنید قبل از commit
-- از استانداردهای PEP 8 پیروی کنید
-
-## 📝 License
-
-این پروژه تحت لایسنس [MIT](LICENSE) منتشر شده است. استفاده آزاد و متن‌باز برای همه.
-
-## 📞 پشتیبانی و تماس
-
-### 🐛 گزارش مشکلات
-
-برای گزارش باگ‌ها یا مشکلات:
-- از بخش [GitHub Issues](../../issues) استفاده کنید
-- مشکل را به طور کامل شرح دهید
-- لاگ‌های مربوطه را ضمیمه کنید
-
-### 💡 پیشنهاد فیچر
-
-برای پیشنهاد فیچرهای جدید:
-- یک [Feature Request](../../issues/new) باز کنید
-- مورد استفاده و مزیت را شرح دهید
-- به بحث‌ها بپیوندید و نظر دهید
-
-### 👯 جامعه
-
-عضو جامعه CODM شوید:
-- 👥 به کاربران دیگر کمک کنید
-- 💬 در بحث‌ها شرکت کنید
-- ⭐ به پروژه ستاره بدهید
-- 🔄 پروژه را Share کنید
-
----
-
-<div align="center">
-
-### 🎉 تشکر ویژه
-
-از تمام کسانی که در توسعه و بهبود این پروژه مشارکت کرده‌اند، سپاسگزاریم!
-
-**توسعه یافته با ❤️ برای جامعه CODM**
-
-[![GitHub stars](https://img.shields.io/github/stars/MasterALiReza/CoDM-Attach?style=social)](https://github.com/MasterALiReza/CoDM-Attach/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/MasterALiReza/CoDM-Attach?style=social)](https://github.com/MasterALiReza/CoDM-Attach/network/members)
-
-</div>
-
----
-
-<div align="center">
-
-**Made with Python 🐍 | Powered by PostgreSQL 🐘 | Built for Gamers 🎮**
-
-© 2024 CODM Attachments Bot. All rights reserved.
-
-</div>

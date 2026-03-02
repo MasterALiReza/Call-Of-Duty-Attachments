@@ -1,3 +1,4 @@
+from core.context import CustomContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from datetime import datetime
@@ -18,7 +19,7 @@ class NotificationHandler:
         self.db = db
         self.subs = subs
         
-    async def admin_exit_and_notifications(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_exit_and_notifications(self, update: Update, context: CustomContext):
         """خروج از پنل ادمین و نمایش تنظیمات اعلان‌ها"""
         # Flag برای جلوگیری از duplicate توسط handler عمومی
         context.user_data['_notification_shown'] = True
@@ -28,12 +29,12 @@ class NotificationHandler:
         return ConversationHandler.END
     
     @require_channel_membership
-    async def notification_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notification_settings(self, update: Update, context: CustomContext):
         """منوی تنظیمات اعلان‌های کاربر - یکپارچه برای message و callback"""
         user_id = update.effective_user.id
         notif_mgr = NotificationManager(self.db, self.subs)
-        prefs = notif_mgr.get_user_preferences(user_id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        prefs = await notif_mgr.get_user_preferences(user_id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         enabled = prefs.get('enabled', True)
         modes = prefs.get('modes', ['br', 'mp'])
@@ -85,7 +86,7 @@ class NotificationHandler:
         else:
             await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
             
-    async def notification_settings_with_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notification_settings_with_check(self, update: Update, context: CustomContext):
         """Wrapper برای handler عمومی - چک می‌کنه که duplicate نباشه"""
         # اگر flag وجود داشت، skip کن (قبلاً از state handler نشون داده شده)
         if context.user_data.pop('_notification_shown', False):
@@ -93,16 +94,16 @@ class NotificationHandler:
         return await self.notification_settings(update, context)
         
     @log_user_action("notification_toggle")
-    async def notification_toggle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notification_toggle(self, update: Update, context: CustomContext):
         """فعال/غیرفعال کردن کلی اعلان‌ها"""
         query = update.callback_query
         await query.answer()
         
         user_id = query.from_user.id
         notif_mgr = NotificationManager(self.db, self.subs)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
-        if notif_mgr.toggle_user_notifications(user_id):
+        if await notif_mgr.toggle_user_notifications(user_id):
             await query.answer(t('success.generic', lang), show_alert=False)
         else:
             await query.answer(t('error.generic', lang), show_alert=True)
@@ -110,7 +111,7 @@ class NotificationHandler:
         return await self.notification_settings(update, context)
     
     @log_user_action("notification_toggle_mode")
-    async def notification_toggle_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notification_toggle_mode(self, update: Update, context: CustomContext):
         """فعال/غیرفعال کردن نوتیف برای یک مود خاص"""
         query = update.callback_query
         await query.answer()
@@ -119,9 +120,9 @@ class NotificationHandler:
         mode = query.data.replace("user_notif_mode_", "")
         
         notif_mgr = NotificationManager(self.db, self.subs)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
-        if notif_mgr.toggle_user_mode(user_id, mode):
+        if await notif_mgr.toggle_user_mode(user_id, mode):
             await query.answer(t('success.generic', lang), show_alert=False)
         else:
             await query.answer(t('error.generic', lang), show_alert=True)
@@ -129,7 +130,7 @@ class NotificationHandler:
         return await self.notification_settings(update, context)
     
     @log_user_action("notification_events_menu")
-    async def notification_events_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notification_events_menu(self, update: Update, context: CustomContext):
         """منوی انتخاب رویدادها برای دریافت اعلان"""
         
         query = update.callback_query
@@ -137,8 +138,8 @@ class NotificationHandler:
         
         user_id = query.from_user.id
         notif_mgr = NotificationManager(self.db, self.subs)
-        prefs = notif_mgr.get_user_preferences(user_id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        prefs = await notif_mgr.get_user_preferences(user_id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         events = prefs.get('events', {})
         
         text = t('notification.events.title', lang) + "\n\n" + t('notification.events.desc', lang) + "\n\n"
@@ -177,7 +178,7 @@ class NotificationHandler:
         )
         
     @log_user_action("notification_toggle_event")
-    async def notification_toggle_event(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notification_toggle_event(self, update: Update, context: CustomContext):
         """فعال/غیرفعال کردن یک رویداد خاص"""
         query = update.callback_query
         await query.answer()
@@ -186,34 +187,34 @@ class NotificationHandler:
         event_key = query.data.replace("user_notif_event_", "")
         
         notif_mgr = NotificationManager(self.db, self.subs)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
-        if notif_mgr.toggle_user_event(user_id, event_key):
+        if await notif_mgr.toggle_user_event(user_id, event_key):
             await query.answer(t('success.generic', lang), show_alert=False)
         else:
             await query.answer(t('error.generic', lang), show_alert=True)
             
         return await self.notification_events_menu(update, context)
 
-    async def subscribe_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def subscribe_cmd(self, update: Update, context: CustomContext):
         """عضویت در لیست اعلان‌ها"""
         user_id = update.effective_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if self.subs.add(user_id):
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if await self.subs.add(user_id):
             await update.message.reply_text(t('subscription.joined', lang))
         else:
             await update.message.reply_text(t('subscription.already_member', lang))
 
-    async def unsubscribe_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def unsubscribe_cmd(self, update: Update, context: CustomContext):
         """لغو عضویت در لیست اعلان‌ها"""
         user_id = update.effective_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if self.subs.remove(user_id):
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if await self.subs.remove(user_id):
             await update.message.reply_text(t('subscription.unsubscribed', lang))
         else:
             await update.message.reply_text(t('subscription.not_member', lang))
 
-    async def view_attachment_from_notification(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def view_attachment_from_notification(self, update: Update, context: CustomContext):
         """نمایش اتچمنت از اعلان: attm__{category}__{weapon}__{code}__{mode}"""
         from utils.logger import get_logger, log_exception
         logger = get_logger('user', 'user.log')
@@ -228,7 +229,7 @@ class NotificationHandler:
             
             if len(parts) != 4:
                 logger.error(f"Invalid callback format: {query.data}")
-                lang = get_user_lang(update, context, self.db) or 'fa'
+                lang = await get_user_lang(update, context, self.db) or 'fa'
                 await query.answer(t('error.generic', lang), show_alert=True)
                 return
             
@@ -238,44 +239,45 @@ class NotificationHandler:
         except Exception as e:
             logger.error(f"Error parsing notification callback: {e}")
             log_exception(logger, e, "context")
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t('error.generic', lang), show_alert=True)
             return
         
         # دریافت اتچمنت از دیتابیس
-        attachments = self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
         selected = next((att for att in attachments if att.get('code') == code), None)
         
         if not selected:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t('attachment.not_found', lang), show_alert=True)
             return
         
         # ارسال اتچمنت
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_short = t(f"mode.{mode}_btn", lang)
-        cat_name = t(f"category.{category}", lang)
+        cat_name = t(f"category.{category}", 'en')
         caption = f"**{selected['name']}**\n"
         caption += f"{t('weapon.label', lang)}: {weapon} ({cat_name})\n"
         caption += f"{t('mode.label', lang)}: {mode_short}\n"
         caption += f"{t('attachment.code', lang)}: `{selected['code']}`\n\n{t('attachment.tap_to_copy', lang)}"
         # آمار بازخورد + ثبت بازدید
         att_id = selected.get('id')
-        stats = self.db.get_attachment_stats(att_id, period='all') if att_id else {}
+        stats = await self.db.get_attachment_stats(att_id, period='all') if att_id else {}
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         if att_id:
-            self.db.track_attachment_view(query.from_user.id, att_id)
+            await self.db.track_attachment_view(query.from_user.id, att_id)
         feedback_kb = None
         if att_id:
-            feedback_kb = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(f"👍 {like_count}", callback_data=f"att_like_{att_id}"),
-                    InlineKeyboardButton(f"👎 {dislike_count}", callback_data=f"att_dislike_{att_id}")
-                ],
-                [InlineKeyboardButton(t('attachment.copy_code', lang), callback_data=f"att_copy_{att_id}")],
-                [InlineKeyboardButton(t('attachment.feedback', lang), callback_data=f"att_fb_{att_id}")]
-            ])
+            from core.container import get_container
+            fb_handler = get_container().feedback_handler
+            feedback_kb = InlineKeyboardMarkup(fb_handler.build_attachment_keyboard(
+                att_id, 
+                like_count=like_count, 
+                dislike_count=dislike_count, 
+                lang=lang,
+                mode=mode
+            ))
         
         try:
             if selected.get('image'):

@@ -20,7 +20,7 @@ class NotificationScheduler:
 
     def __init__(self, db, subscribers: Optional[Subscribers] = None):
         self.db = db
-        self.subscribers = subscribers or Subscribers()
+        self.subscribers = subscribers or Subscribers(db_adapter=self.db)
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self._broadcaster = OptimizedBroadcaster(max_concurrent=30, delay_between_batches=1.0)
@@ -52,13 +52,17 @@ class NotificationScheduler:
 
     async def _run_loop(self, application):
         """Main loop: check due schedules every 60 seconds."""
+        # Ensure subscribers schema is initialized
+        if hasattr(self.subscribers, 'initialize'):
+            await self.subscribers.initialize()
+            
         # Use UTC for consistency with PostgreSQL TIMESTAMPTZ
         check_interval_seconds = 60
         while self._running:
             try:
                 now = datetime.now(timezone.utc)
                 # Fetch due schedules
-                due_items = self.db.get_due_scheduled_notifications(now)
+                due_items = await self.db.get_due_scheduled_notifications(now)
                 if due_items:
                     logger.info(f"Found {len(due_items)} due scheduled notifications")
                 for item in due_items:
@@ -67,7 +71,7 @@ class NotificationScheduler:
                         # Compute next run
                         interval_hours = int(item.get('interval_hours') or 0)
                         next_run_at = now + timedelta(hours=interval_hours)
-                        self.db.mark_schedule_sent(item['id'], now, next_run_at)
+                        await self.db.mark_schedule_sent(item['id'], now, next_run_at)
                     except Exception as e:
                         logger.error(f"Error sending scheduled notification id={item.get('id')}: {e}")
                 # Sleep
@@ -88,7 +92,7 @@ class NotificationScheduler:
         photo_id = item.get('photo_file_id')
         parse_mode = item.get('parse_mode') or 'Markdown'
 
-        user_ids = self.subscribers.all()
+        user_ids = await self.subscribers.all()
         if not user_ids:
             logger.info("No subscribers to send scheduled notification")
             return
@@ -139,7 +143,7 @@ class NotificationScheduler:
         # Remove blocked users
         for uid in stats.get('blocked_users', []) or []:
             try:
-                self.subscribers.remove(uid)
+                await self.subscribers.remove(uid)
             except Exception:
                 pass
         logger.info(

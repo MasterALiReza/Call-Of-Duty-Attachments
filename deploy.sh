@@ -324,26 +324,26 @@ setup_bot_config() {
     
     print_success "Bot token saved"
     
-    # Admin ID
-    echo ""
-    echo -e "${WHITE}Super Admin Telegram ID:${NC}"
-    echo -e "${CYAN}💡 Get your ID from @userinfobot${NC}"
-    echo ""
-    
-    while true; do
-        echo -e -n "${YELLOW}Telegram User ID: ${NC}"
-        read SUPER_ADMIN_ID
-        
-        if [ -z "$SUPER_ADMIN_ID" ]; then
-            print_error "ID cannot be empty"
-        elif [[ ! "$SUPER_ADMIN_ID" =~ ^[0-9]+$ ]]; then
-            print_error "ID must be a number"
-        else
-            break
-        fi
-    done
-    
     print_success "Super Admin set"
+
+    # Bot Mode
+    echo ""
+    echo -e "${WHITE}Bot Mode:${NC}"
+    echo -e "  ${GREEN}1.${NC} Polling (Standard)"
+    echo "  ${GREEN}2.${NC} Webhook (Recommended for high traffic)"
+    echo ""
+    echo -e -n "${YELLOW}Your choice [1/2]: ${NC}"
+    read mode_choice
+    if [ "$mode_choice" == "2" ]; then
+        BOT_MODE="webhook"
+        echo -e -n "${YELLOW}Webhook URL (e.g. https://domain.com): ${NC}"
+        read WEBHOOK_URL
+        echo -e -n "${YELLOW}Webhook Port [8443]: ${NC}"
+        read WEBHOOK_PORT
+        WEBHOOK_PORT=${WEBHOOK_PORT:-8443}
+    else
+        BOT_MODE="polling"
+    fi
 }
 
 create_env_file() {
@@ -358,6 +358,16 @@ create_env_file() {
 # Telegram Bot
 BOT_TOKEN=$BOT_TOKEN
 SUPER_ADMIN_ID=$SUPER_ADMIN_ID
+BOT_MODE=${BOT_MODE:-polling}
+
+# Webhook (if mode=webhook)
+WEBHOOK_URL=$WEBHOOK_URL
+WEBHOOK_PORT=${WEBHOOK_PORT:-8443}
+WEBHOOK_PATH=bot/$BOT_TOKEN
+
+# Network/Proxy (Optional)
+# BOT_PROXY_URL=http://user:pass@host:port
+# BOT_REQUEST_TIMEOUT=60
 
 # Database
 DATABASE_URL=$DATABASE_URL
@@ -457,9 +467,10 @@ install_bot() {
     print_step "Copying project files..."
     rsync -av --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' \
         --exclude='.env' --exclude='venv' --exclude='.agent_venv' \
-        --exclude='logs/*' --exclude='backups/*' \
-        --exclude='.vscode' --exclude='.idea' \
+        --exclude='logs/*' --exclude='backups/*' --exclude='tests/*' \
+        --exclude='.vscode' --exclude='.idea' --exclude='.pytest_cache' \
         --exclude='deploy.bat' --exclude='setup_windows.ps1' --exclude='*.spec' \
+        --exclude='tmp_dump_roles.py' \
         "$SCRIPT_DIR/" "$INSTALL_DIR/" >/dev/null
     
     chown -R $BOT_USER:$BOT_USER "$INSTALL_DIR"

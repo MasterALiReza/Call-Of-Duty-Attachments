@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 مدیریت اتچمنت‌های پیشنهادی
 ⚠️ این کد عیناً از user_handlers.py خط 1874-2309 کپی شده
@@ -21,15 +22,15 @@ class SuggestedHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("suggested_attachments_select_mode")
-    async def suggested_attachments_select_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def suggested_attachments_select_mode(self, update: Update, context: CustomContext):
         """انتخاب mode برای اتچمنت‌های پیشنهادی"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # بررسی تعداد اتچمنت‌های پیشنهادی
-        br_count = self.db.get_suggested_count('br')
-        mp_count = self.db.get_suggested_count('mp')
+        br_count = await self.db.get_suggested_count('br')
+        mp_count = await self.db.get_suggested_count('mp')
         
         keyboard = []
         # دکمه‌ها به صورت دو ستونه - BR راست، MP چپ
@@ -73,13 +74,13 @@ class SuggestedHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("suggested_attachments_select_mode_msg")
-    async def suggested_attachments_select_mode_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def suggested_attachments_select_mode_msg(self, update: Update, context: CustomContext):
         """انتخاب mode برای اتچمنت‌های پیشنهادی (از طریق پیام)"""
         from datetime import datetime
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         # بررسی تعداد اتچمنت‌های پیشنهادی
-        br_count = self.db.get_suggested_count('br')
-        mp_count = self.db.get_suggested_count('mp')
+        br_count = await self.db.get_suggested_count('br')
+        mp_count = await self.db.get_suggested_count('mp')
         
         keyboard = []
         # دکمه‌ها به صورت دو ستونه - BR راست، MP چپ
@@ -109,7 +110,7 @@ class SuggestedHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("suggested_media_with_mode")
-    async def suggested_media_with_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def suggested_media_with_mode(self, update: Update, context: CustomContext):
         """نمایش لیست سلاح‌هایی که اتچمنت پیشنهادی دارند"""
         query = update.callback_query
         await query.answer()
@@ -119,8 +120,8 @@ class SuggestedHandler(BaseUserHandler):
         context.user_data['suggested_mode'] = mode
         
         # دریافت اتچمنت‌های پیشنهادی
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        items = self.db.get_suggested_ranked(mode)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        items = await self.db.get_suggested_ranked(mode)
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_btn', lang)}"
         
         if not items:
@@ -207,7 +208,7 @@ class SuggestedHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("suggested_weapon_attachments")
-    async def suggested_weapon_attachments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def suggested_weapon_attachments(self, update: Update, context: CustomContext):
         """نمایش لیست اتچمنت‌های پیشنهادی یک سلاح"""
         query = update.callback_query
         await query.answer()
@@ -218,12 +219,12 @@ class SuggestedHandler(BaseUserHandler):
         weapon_key = parts[1]  # category__weapon
         category, weapon = weapon_key.split("__")
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_btn', lang)}"
-        cat_name = t(f"category.{category}", lang)
+        cat_name = t(f"category.{category}", 'en')
         
         # دریافت اتچمنت‌های پیشنهادی با فیلتر
-        weapon_attachments = self.db.get_suggested_ranked(mode, category=category, weapon=weapon)
+        weapon_attachments = await self.db.get_suggested_ranked(mode, category=category, weapon=weapon)
         
         if not weapon_attachments:
             await safe_edit_message_text(
@@ -257,7 +258,7 @@ class SuggestedHandler(BaseUserHandler):
         keyboard.append([InlineKeyboardButton(t('menu.buttons.back', lang), callback_data=f"suggested_mode_{mode}")])
         
         from config.config import WEAPON_CATEGORIES
-        cat_name_en = t(f"category.{category}", lang)
+        cat_name_en = t(f"category.{category}", 'en')
         
         text = (
             t('suggested.attachments_title', lang) + "\n\n"
@@ -285,7 +286,7 @@ class SuggestedHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("suggested_send_attachment")
-    async def suggested_send_attachment(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def suggested_send_attachment(self, update: Update, context: CustomContext):
         """ارسال یک اتچمنت پیشنهادی"""
         query = update.callback_query
         await query.answer()
@@ -295,11 +296,11 @@ class SuggestedHandler(BaseUserHandler):
         mode = parts[0]
         att_id = int(parts[1])
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_btn', lang)}"
         
         # دریافت تمام اتچمنت‌های پیشنهادی
-        items = self.db.get_suggested_ranked(mode)
+        items = await self.db.get_suggested_ranked(mode)
         
         # پیدا کردن اتچمنت مورد نظر
         target_attachment = None
@@ -320,7 +321,7 @@ class SuggestedHandler(BaseUserHandler):
         
         # ارسال اتچمنت
         from config.config import WEAPON_CATEGORIES
-        cat_name_en = t(f"category.{target_category}", lang)
+        cat_name_en = t(f"category.{target_category}", 'en')
         priority_emoji = self._get_priority_emoji_for_suggested(target_attachment.get('priority', 500))
         
         caption = (
@@ -336,26 +337,31 @@ class SuggestedHandler(BaseUserHandler):
             caption += f"\n💭 {reason}"
         
         # دریافت آمار بازخورد
-        stats = self.db.get_attachment_stats(att_id, period='all')
+        stats = await self.db.get_attachment_stats(att_id, period='all')
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         
         # Track view
-        self.db.track_attachment_view(query.from_user.id, att_id)
+        await self.db.track_attachment_view(query.from_user.id, att_id)
         
         # ساخت keyboard با دکمه‌های بازخورد
-        keyboard = [
-            [
-                InlineKeyboardButton(f"👍 {like_count}", callback_data=f"att_like_{att_id}"),
-                InlineKeyboardButton(f"👎 {dislike_count}", callback_data=f"att_dislike_{att_id}")
-            ],
-            [InlineKeyboardButton(t('attachment.copy_code', lang), callback_data=f"att_copy_{att_id}")],
-            [InlineKeyboardButton(t('attachment.feedback', lang), callback_data=f"att_fb_{att_id}")],
+        from core.container import get_container
+        fb_handler = get_container().feedback_handler
+        keyboard = fb_handler.build_attachment_keyboard(
+            att_id, 
+            like_count=like_count, 
+            dislike_count=dislike_count, 
+            lang=lang,
+            mode=mode
+        )
+        
+        # افزودن دکمه‌های ناوبری خاص پیشنهادی‌ها
+        keyboard.extend([
             [InlineKeyboardButton(t('suggested.more_for_weapon', lang), 
                                  callback_data=f"sugg_wpn_{mode}_{target_category}__{target_weapon}")],
             [InlineKeyboardButton(t('suggested.back_to_weapons', lang), callback_data=f"suggested_mode_{mode}")],
             [InlineKeyboardButton(t('menu.buttons.home', lang), callback_data="main_menu")]
-        ]
+        ])
         
         await query.message.reply_photo(
             photo=target_attachment['image'],
@@ -385,7 +391,7 @@ class SuggestedHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("suggested_list_with_mode")
-    async def suggested_list_with_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def suggested_list_with_mode(self, update: Update, context: CustomContext):
         """نمایش لیست اتچمنت‌های پیشنهادی با mode مشخص شده"""
         query = update.callback_query
         await query.answer()
@@ -395,8 +401,8 @@ class SuggestedHandler(BaseUserHandler):
         context.user_data['suggested_list_mode'] = mode
         
         # دریافت اتچمنت‌های پیشنهادی
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        items = self.db.get_suggested_ranked(mode)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        items = await self.db.get_suggested_ranked(mode)
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_btn', lang)}"
         
         if not items:
@@ -440,7 +446,7 @@ class SuggestedHandler(BaseUserHandler):
             category = (item or {}).get('category')
             weapon = (item or {}).get('weapon')
             attachment = (item or {}).get('attachment', {})
-            cat_name_en = t(f"category.{category}", lang)
+            cat_name_en = t(f"category.{category}", 'en')
             priority_emoji = self._get_priority_emoji_for_suggested(attachment.get('priority', 500))
             
             text += f"{idx}. {priority_emoji} **{weapon}** ({cat_name_en})\n"
@@ -483,7 +489,7 @@ class SuggestedHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("suggested_list_page_navigation")
-    async def suggested_list_page_navigation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def suggested_list_page_navigation(self, update: Update, context: CustomContext):
         """مدیریت navigation بین صفحات لیست پیشنهادی‌ها"""
         query = update.callback_query
         await query.answer()
@@ -491,11 +497,11 @@ class SuggestedHandler(BaseUserHandler):
         # دریافت cache و mode ذخیره شده
         items = context.user_data.get('suggested_cache')
         mode = context.user_data.get('suggested_list_mode')
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if not items:
             # اگر cache نبود، دوباره بگیر
-            items = self.db.get_suggested_ranked(mode)
+            items = await self.db.get_suggested_ranked(mode)
             context.user_data['suggested_cache'] = items
         
         # استخراج شماره صفحه

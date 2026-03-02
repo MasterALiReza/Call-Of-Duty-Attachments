@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 هندلرهای مدیریت کانال‌های اجباری برای ادمین‌ها
 """
@@ -28,7 +29,7 @@ DELETE_CHANNEL_CONFIRM = "DELETE_CHANNEL_CONFIRM"
 REORDER_CHANNELS = "REORDER_CHANNELS"
 
 
-def check_channel_management_permission(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+def check_channel_management_permission(user_id: int, context: CustomContext) -> bool:
     """بررسی دسترسی مدیریت کانال‌ها با استفاده از RBAC"""
     from core.security.role_manager import Permission
     
@@ -40,16 +41,15 @@ def check_channel_management_permission(user_id: int, context: ContextTypes.DEFA
         if db:
             return db.is_admin(user_id)
         
-        # fallback نهایی به سیستم قدیمی
-        from config import ADMIN_IDS
-        admins = context.bot_data.get('admins', ADMIN_IDS)
-        return user_id in admins
+        # fallback نهایی به سوپراادمین
+        from config import SUPER_ADMIN_ID
+        return user_id == SUPER_ADMIN_ID
     
     # بررسی دسترسی MANAGE_CHANNELS یا super_admin
     if role_manager.is_super_admin(user_id):
         return True
     
-    return role_manager.has_permission(user_id, Permission.MANAGE_CHANNELS)
+    return role_manager.has_permission(user_id, Permission.MANAGE_SETTINGS)
 
 
 # تنظیمات Pagination
@@ -79,7 +79,7 @@ def paginate_list(items: list, page: int, per_page: int) -> tuple:
     return items_in_page, total_pages, has_prev, has_next
 
 
-async def noop_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def noop_cb(update: Update, context: CustomContext):
     """پاسخ به دکمه‌های بدون عملیات برای جلوگیری از خطا."""
     try:
         await update.callback_query.answer()
@@ -87,10 +87,10 @@ async def noop_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancel(update: Update, context: CustomContext):
     """بازگشت به منوی مدیریت کانال‌ها از هر وضعیت."""
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     # اگر از طریق Callback آمده
@@ -113,11 +113,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # پیشفرض: پایان
     return ConversationHandler.END
 
-async def channel_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
+async def channel_management_menu(update: Update, context: CustomContext, page: int = 1):
     """منوی اصلی مدیریت کانال‌ها (با Pagination)"""
     # تعیین زبان برای پیام‌های خطا/اعلان
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     if not check_channel_management_permission(update.effective_user.id, context):
@@ -139,7 +139,7 @@ async def channel_management_menu(update: Update, context: ContextTypes.DEFAULT_
     db = context.bot_data['database']
     # تعیین زبان (بازنویسی با دیتابیس قطعی در صورت نیاز)
     try:
-        lang = get_user_lang(update, context, db) or lang
+        lang = await get_user_lang(update, context, db) or lang
     except Exception:
         pass
     all_channels = db.get_required_channels()
@@ -241,13 +241,13 @@ async def channel_management_menu(update: Update, context: ContextTypes.DEFAULT_
     return CHANNEL_MENU
 
 
-async def clear_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def clear_channels(update: Update, context: CustomContext):
     """پاک‌کردن همه کانال‌های اجباری با تایید"""
     query = update.callback_query
     await query.answer()
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     
@@ -293,7 +293,7 @@ async def clear_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CHANNEL_MENU
 
 
-async def handle_page_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_page_navigation(update: Update, context: CustomContext):
     """هندلر برای navigation بین صفحات کانال‌ها"""
     query = update.callback_query
     
@@ -304,13 +304,13 @@ async def handle_page_navigation(update: Update, context: ContextTypes.DEFAULT_T
     return await channel_management_menu(update, context, page=page)
 
 
-async def view_channel_details(update: Update, context: ContextTypes.DEFAULT_TYPE, channel_id: str = None):
+async def view_channel_details(update: Update, context: CustomContext, channel_id: str = None):
     """نمایش جزئیات یک کانال"""
     query = update.callback_query
     await query.answer()
     # زبان برای پیام‌ها
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     
@@ -358,13 +358,13 @@ async def view_channel_details(update: Update, context: ContextTypes.DEFAULT_TYP
     return CHANNEL_MENU
 
 
-async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_channel_start(update: Update, context: CustomContext):
     """شروع فرآیند افزودن کانال جدید"""
     query = update.callback_query
     await query.answer()
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     message = (
@@ -384,7 +384,7 @@ async def add_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_CHANNEL_ID
 
 
-async def add_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_channel_id(update: Update, context: CustomContext):
     """دریافت آیدی کانال"""
     if not update.message or not update.message.text:
         return ADD_CHANNEL_ID
@@ -412,7 +412,7 @@ async def add_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not is_valid:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         keyboard = [[InlineKeyboardButton(t('menu.buttons.cancel', lang), callback_data="channel_menu")]]
@@ -438,7 +438,7 @@ async def add_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info(f"[channel] Successfully verified channel {channel_title} ({chat.id})")
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         message = (
@@ -463,7 +463,7 @@ async def add_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"[channel] Error accessing channel {channel_id}: {e}")
         log_exception(logger, e, str({"channel_id": channel_id, "user_id": update.effective_user.id}))
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         keyboard = [[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="channel_menu")]]
@@ -475,7 +475,7 @@ async def add_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_CHANNEL_ID
 
 
-async def use_default_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def use_default_title(update: Update, context: CustomContext):
     """استفاده از نام پیش‌فرض کانال"""
     query = update.callback_query
     await query.answer()
@@ -483,7 +483,7 @@ async def use_default_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp_channel = context.user_data.get('temp_channel')
     if not temp_channel:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await safe_edit_message_text(query, t('admin.channels.errors.missing_temp', lang))
@@ -494,7 +494,7 @@ async def use_default_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ادامه به مرحله URL
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     message = (
@@ -513,7 +513,7 @@ async def use_default_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_CHANNEL_URL
 
 
-async def add_channel_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_channel_title(update: Update, context: CustomContext):
     """دریافت عنوان نمایشی کانال"""
     if not update.message or not update.message.text:
         return ADD_CHANNEL_TITLE
@@ -523,7 +523,7 @@ async def add_channel_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not title:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         keyboard = [[InlineKeyboardButton(t('menu.buttons.cancel', lang), callback_data="channel_menu")]]
@@ -536,7 +536,7 @@ async def add_channel_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['temp_channel']['display_title'] = title
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     message = (
@@ -555,7 +555,7 @@ async def add_channel_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_CHANNEL_URL
 
 
-async def add_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_channel_url(update: Update, context: CustomContext):
     """دریافت لینک کانال و ذخیره"""
     if not update.message or not update.message.text:
         return ADD_CHANNEL_URL
@@ -564,7 +564,7 @@ async def add_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"[channel] Received channel URL: {url} from user={update.effective_user.id}")
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     if not url.startswith('https://t.me/'):
@@ -607,13 +607,13 @@ async def add_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_CHANNEL_CONFIRM
 
 
-async def save_channel_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def save_channel_confirm(update: Update, context: CustomContext):
     """ذخیره نهایی کانال پس از تایید"""
     query = update.callback_query
     await query.answer()
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
         
@@ -671,7 +671,7 @@ async def save_channel_confirm(update: Update, context: ContextTypes.DEFAULT_TYP
     return CHANNEL_MENU
 
 
-async def edit_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def edit_channel_start(update: Update, context: CustomContext):
     """شروع ویرایش کانال"""
     query = update.callback_query
     await query.answer()
@@ -681,7 +681,7 @@ async def edit_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if not channels:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.answer(t('admin.channels.edit.none', lang), show_alert=True)
@@ -697,7 +697,7 @@ async def edit_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ])
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     keyboard.append([InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="channel_menu")])
@@ -712,7 +712,7 @@ async def edit_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return EDIT_CHANNEL_SELECT
 
 
-async def edit_channel_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def edit_channel_select(update: Update, context: CustomContext):
     """انتخاب فیلد برای ویرایش"""
     query = update.callback_query
     await query.answer()
@@ -721,7 +721,7 @@ async def edit_channel_select(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['editing_channel_id'] = channel_id
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     keyboard = [
@@ -739,7 +739,7 @@ async def edit_channel_select(update: Update, context: ContextTypes.DEFAULT_TYPE
     return EDIT_CHANNEL_FIELD
 
 
-async def edit_channel_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def edit_channel_field(update: Update, context: CustomContext):
     """دریافت فیلد برای ویرایش"""
     query = update.callback_query
     await query.answer()
@@ -748,7 +748,7 @@ async def edit_channel_field(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['editing_field'] = field
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     if field == "title":
@@ -766,7 +766,7 @@ async def edit_channel_field(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return EDIT_CHANNEL_VALUE
 
 
-async def edit_channel_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def edit_channel_value(update: Update, context: CustomContext):
     """ذخیره مقدار جدید"""
     if not update.message or not update.message.text:
         return EDIT_CHANNEL_VALUE
@@ -778,7 +778,7 @@ async def edit_channel_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if not channel_id or not field:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await update.message.reply_text(t('admin.channels.errors.missing_edit', lang))
@@ -803,7 +803,7 @@ async def edit_channel_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         if not value.startswith('https://t.me/'):
             try:
-                lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+                lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
             except Exception:
                 lang = 'fa'
             await update.message.reply_text(
@@ -825,7 +825,7 @@ async def edit_channel_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 log_exception(logger, e, str({"channel_id": channel_id, "admin_id": update.effective_user.id}))
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     message = t('admin.channels.edit.success', lang) if success else t('admin.channels.edit.error', lang)
@@ -843,7 +843,7 @@ async def edit_channel_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return CHANNEL_MENU
 
 
-async def delete_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def delete_channel_start(update: Update, context: CustomContext):
     """شروع حذف کانال"""
     query = update.callback_query
     await query.answer()
@@ -853,7 +853,7 @@ async def delete_channel_start(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if not channels:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.answer(t('admin.channels.delete.none', lang), show_alert=True)
@@ -868,7 +868,7 @@ async def delete_channel_start(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         ])
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     keyboard.append([InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="channel_menu")])
@@ -882,7 +882,7 @@ async def delete_channel_start(update: Update, context: ContextTypes.DEFAULT_TYP
     
     return DELETE_CHANNEL_CONFIRM
 
-async def delete_channel_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def delete_channel_confirm(update: Update, context: CustomContext):
     """تایید حذف کانال"""
     query = update.callback_query
     await query.answer()
@@ -891,7 +891,7 @@ async def delete_channel_confirm(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data['deleting_channel_id'] = channel_id
     
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     keyboard = [
@@ -911,7 +911,7 @@ async def delete_channel_confirm(update: Update, context: ContextTypes.DEFAULT_T
     return DELETE_CHANNEL_CONFIRM
 
 
-async def delete_channel_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def delete_channel_execute(update: Update, context: CustomContext):
     """اجرای حذف کانال"""
     query = update.callback_query
     await query.answer()
@@ -919,7 +919,7 @@ async def delete_channel_execute(update: Update, context: ContextTypes.DEFAULT_T
     channel_id = context.user_data.get('deleting_channel_id')
     if not channel_id:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.answer(t('admin.channels.errors.missing_temp', lang), show_alert=True)
@@ -946,13 +946,13 @@ async def delete_channel_execute(update: Update, context: ContextTypes.DEFAULT_T
             log_exception(logger, e, str({"channel_id": channel_id, "admin_id": update.effective_user.id}))
         
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         message = t('admin.channels.delete.success', lang)
     else:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         message = t('admin.channels.delete.error', lang)
@@ -969,7 +969,7 @@ async def delete_channel_execute(update: Update, context: ContextTypes.DEFAULT_T
     return CHANNEL_MENU
 
 
-async def toggle_channel_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def toggle_channel_status(update: Update, context: CustomContext):
     """تغییر وضعیت فعال/غیرفعال کانال"""
     query = update.callback_query
     await query.answer()
@@ -984,7 +984,7 @@ async def toggle_channel_status(update: Update, context: ContextTypes.DEFAULT_TY
         logger.info(f"[channel] Cleared membership cache for {cleared_count} users after toggling channel status")
         
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.answer(t('admin.channels.toggled', lang), show_alert=True)
@@ -992,14 +992,14 @@ async def toggle_channel_status(update: Update, context: ContextTypes.DEFAULT_TY
         return await view_channel_details(update, context, channel_id=channel_id)
     else:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.answer(t('admin.channels.toggle_error', lang), show_alert=True)
         return CHANNEL_MENU
 
 
-async def show_single_channel_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_single_channel_stats(update: Update, context: CustomContext):
     """نمایش آمار یک کانال خاص"""
     query = update.callback_query
     await query.answer()
@@ -1016,7 +1016,7 @@ async def show_single_channel_stats(update: Update, context: ContextTypes.DEFAUL
         
         if not channel:
             try:
-                lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+                lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
             except Exception:
                 lang = 'fa'
             await query.answer(t('admin.channels.not_found', lang), show_alert=True)
@@ -1027,14 +1027,14 @@ async def show_single_channel_stats(update: Update, context: ContextTypes.DEFAUL
         
         if not stats:
             try:
-                lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+                lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
             except Exception:
                 lang = 'fa'
             message = t('admin.channels.stats.single.title', lang, title=channel['title']) + "\n\n"
             message += t('admin.channels.stats.single.no_data', lang)
         else:
             try:
-                lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+                lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
             except Exception:
                 lang = 'fa'
             message = t('admin.channels.stats.single.title', lang, title=channel['title']) + "\n\n"
@@ -1063,7 +1063,7 @@ async def show_single_channel_stats(update: Update, context: ContextTypes.DEFAUL
             message += t('admin.channels.details.status', lang, emoji=status_emoji, status=status_text) + "\n"
         
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         keyboard = [
@@ -1081,7 +1081,7 @@ async def show_single_channel_stats(update: Update, context: ContextTypes.DEFAUL
         logger.error(f"[channel] Error showing single channel stats: {e}")
         log_exception(logger, e, str({"channel_id": channel_id}))
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await safe_edit_message_text(
@@ -1093,7 +1093,7 @@ async def show_single_channel_stats(update: Update, context: ContextTypes.DEFAUL
     return CHANNEL_MENU
 
 
-async def show_channel_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_channel_stats(update: Update, context: CustomContext):
     """نمایش آمار همه کانال‌های اجباری (dashboard کلی)"""
     query = update.callback_query
     await query.answer()
@@ -1106,7 +1106,7 @@ async def show_channel_stats(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         # دکمه‌های navigation - Phase 2 features
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         keyboard = [
@@ -1128,7 +1128,7 @@ async def show_channel_stats(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"[channel] Error showing channel stats: {e}")
         log_exception(logger, e, str({"action": "show_channel_stats"}))
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.edit_message_text(
@@ -1139,7 +1139,7 @@ async def show_channel_stats(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return CHANNEL_MENU
 
 
-async def show_funnel_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_funnel_analysis(update: Update, context: CustomContext):
     """نمایش تحلیل قیف تبدیل"""
     query = update.callback_query
     await query.answer()
@@ -1148,7 +1148,7 @@ async def show_funnel_analysis(update: Update, context: ContextTypes.DEFAULT_TYP
         analytics = Analytics()
         funnel_text = analytics.generate_funnel_analysis()
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         keyboard = [[InlineKeyboardButton(t('admin.channels.history.back_to_stats', lang), callback_data="channel_stats")]]
@@ -1162,7 +1162,7 @@ async def show_funnel_analysis(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"[channel] Error showing funnel: {e}")
         log_exception(logger, e, str({"action": "show_funnel_analysis"}))
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await safe_edit_message_text(
@@ -1174,7 +1174,7 @@ async def show_funnel_analysis(update: Update, context: ContextTypes.DEFAULT_TYP
     return CHANNEL_MENU
 
 
-async def show_period_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_period_report(update: Update, context: CustomContext):
     """نمایش گزارش دوره‌ای (7 روز گذشته)"""
     query = update.callback_query
     await query.answer()
@@ -1183,7 +1183,7 @@ async def show_period_report(update: Update, context: ContextTypes.DEFAULT_TYPE)
         analytics = Analytics()
         report_text = analytics.generate_period_report()
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         keyboard = [[InlineKeyboardButton(t('admin.channels.history.back_to_stats', lang), callback_data="channel_stats")]]
@@ -1197,7 +1197,7 @@ async def show_period_report(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"[channel] Error showing period report: {e}")
         log_exception(logger, e, str({"action": "show_period_report"}))
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await safe_edit_message_text(
@@ -1209,11 +1209,11 @@ async def show_period_report(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return CHANNEL_MENU
 
 
-async def export_analytics_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def export_analytics_csv(update: Update, context: CustomContext):
     """Export آمار به CSV و ارسال فایل‌ها"""
     query = update.callback_query
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     await query.answer(t('admin.channels.export.creating', lang))
@@ -1262,11 +1262,11 @@ async def export_analytics_csv(update: Update, context: ContextTypes.DEFAULT_TYP
     return CHANNEL_MENU
 
 
-async def test_channel_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def test_channel_access(update: Update, context: CustomContext):
     """تست دسترسی ربات به کانال"""
     query = update.callback_query
     try:
-        lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+        lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
     except Exception:
         lang = 'fa'
     await query.answer(t('admin.channels.test.running', lang))
@@ -1280,7 +1280,7 @@ async def test_channel_access(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if not channel:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.answer(t('admin.channels.not_found', lang), show_alert=True)
@@ -1368,7 +1368,7 @@ async def test_channel_access(update: Update, context: ContextTypes.DEFAULT_TYPE
     return CHANNEL_MENU
 
 
-async def reorder_channels_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def reorder_channels_menu(update: Update, context: CustomContext):
     """منوی ترتیب دادن کانال‌ها"""
     query = update.callback_query
     await query.answer()
@@ -1377,7 +1377,7 @@ async def reorder_channels_menu(update: Update, context: ContextTypes.DEFAULT_TY
     channels = db.get_required_channels()
     
     try:
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
     except Exception:
         lang = 'fa'
     if not channels:
@@ -1421,7 +1421,7 @@ async def reorder_channels_menu(update: Update, context: ContextTypes.DEFAULT_TY
     return REORDER_CHANNELS
 
 
-async def handle_move_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_move_channel(update: Update, context: CustomContext):
     """جابجایی کانال به بالا یا پایین"""
     query = update.callback_query
     
@@ -1429,7 +1429,7 @@ async def handle_move_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     parts = query.data.split("_")
     if len(parts) < 3:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.answer(t('admin.channels.reorder.invalid_operation', lang), show_alert=True)
@@ -1443,20 +1443,20 @@ async def handle_move_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     if action == "move_up":
         success = db.move_channel_up(channel_id)
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         message = t('admin.channels.reorder.moved_up', lang) if success else t('admin.channels.reorder.move_up_failed', lang)
     elif action == "move_down":
         success = db.move_channel_down(channel_id)
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         message = t('admin.channels.reorder.moved_down', lang) if success else t('admin.channels.reorder.move_down_failed', lang)
     else:
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.answer(t('admin.channels.reorder.invalid_operation', lang), show_alert=True)
@@ -1474,7 +1474,7 @@ async def handle_move_channel(update: Update, context: ContextTypes.DEFAULT_TYPE
     return await reorder_channels_menu(update, context)
 
 
-async def show_channel_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_channel_history(update: Update, context: CustomContext):
     """نمایش تاریخچه کانال‌های حذف شده"""
     query = update.callback_query
     await query.answer()
@@ -1485,7 +1485,7 @@ async def show_channel_history(update: Update, context: ContextTypes.DEFAULT_TYP
         # دریافت گزارش تاریخچه
         history_text = analytics.generate_channel_history_report()
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         keyboard = [[InlineKeyboardButton(t('admin.channels.history.back_to_stats', lang), callback_data="channel_stats")]]
@@ -1500,7 +1500,7 @@ async def show_channel_history(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"[channel] Error showing channel history: {e}")
         log_exception(logger, e, str({"action": "show_channel_history"}))
         try:
-            lang = get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
+            lang = await get_user_lang(update, context, context.bot_data.get('database')) or 'fa'
         except Exception:
             lang = 'fa'
         await query.edit_message_text(
@@ -1511,7 +1511,7 @@ async def show_channel_history(update: Update, context: ContextTypes.DEFAULT_TYP
     return CHANNEL_MENU
 
 
-async def return_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def return_to_admin_menu(update: Update, context: CustomContext):
     """بازگشت به منوی اصلی ادمین"""
     logger.info("[channel] Return to admin clicked by user=%s", update.effective_user.id)
     query = update.callback_query
@@ -1527,7 +1527,7 @@ async def return_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     # نمایش مستقیم منوی ادمین با کیبورد اصلی (i18n)
     db = context.bot_data['database']
     admin_handler = AdminHandlers(db)
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     keyboard = admin_handler._get_admin_main_keyboard(update.effective_user.id, lang)
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1619,5 +1619,5 @@ def get_channel_management_handler():
             CallbackQueryHandler(return_to_admin_menu, pattern="^ch_admin_return$"),
             CommandHandler("cancel", cancel)
         ],
-        per_message=False
+        per_message=True
     )

@@ -34,6 +34,7 @@ def check_database() -> dict:
     try:
         import psycopg
         from psycopg.rows import dict_row
+        from psycopg import sql
         
         database_url = os.getenv('DATABASE_URL')
         if not database_url:
@@ -67,7 +68,8 @@ def check_database() -> dict:
         counts = {}
         for table in ['users', 'admins', 'attachments']:
             try:
-                cur.execute(f"SELECT COUNT(*) as count FROM {table}")
+                query = sql.SQL("SELECT COUNT(*) as count FROM {}").format(sql.Identifier(table))
+                cur.execute(query)
                 counts[table] = cur.fetchone()['count']
             except:
                 counts[table] = -1

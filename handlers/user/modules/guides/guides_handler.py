@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 مدیریت راهنماها و تنظیمات بازی
 ⚠️ این کد عیناً از user_handlers.py خط 143-354 کپی شده
@@ -17,10 +18,10 @@ logger = get_logger('user', 'user.log')
 class GuidesHandler(BaseUserHandler):
     """مدیریت راهنماها و تنظیمات بازی"""
     
-    async def _send_guide(self, update: Update, key: str, mode: str = "br", context: ContextTypes.DEFAULT_TYPE = None):
+    async def _send_guide(self, update: Update, key: str, mode: str = "br", context: CustomContext = None):
         """ارسال محتوای یک بخش راهنما (basic/sens/hud) با پشتیبانی از mode."""
-        lang = (get_user_lang(update, context, self.db) or 'fa') if context else 'fa'
-        guide = self.db.get_guide(key, mode=mode)
+        lang = (await get_user_lang(update, context, self.db) or 'fa') if context else 'fa'
+        guide = await self.db.get_guide(key, mode=mode)
         # استفاده از translation key به جای name از دیتابیس
         name = t(f"guides.{key}_short", lang)
         photos = guide.get("photos", []) or []
@@ -64,16 +65,16 @@ class GuidesHandler(BaseUserHandler):
         # پیام تایید نهایی
         await update.message.reply_text(t("success.generic", lang))
 
-    async def guide_basic_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_basic_msg(self, update: Update, context: CustomContext):
         return await self._send_guide(update, "basic", context=context)
 
-    async def guide_sens_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_sens_msg(self, update: Update, context: CustomContext):
         return await self._send_guide(update, "sens", context=context)
 
-    async def guide_hud_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_hud_msg(self, update: Update, context: CustomContext):
         return await self._send_guide(update, "hud", context=context)
 
-    async def guide_dynamic_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_dynamic_msg(self, update: Update, context: CustomContext):
         """روتر داینامیک: اگر متن پیام برابر یکی از عناوین Basic/Sens/Hud باشد، همان بخش را ارسال کن."""
         # ✅ Fixed: Check if update.message exists (could be callback_query)
         if not update.message or not update.message.text:
@@ -83,7 +84,7 @@ class GuidesHandler(BaseUserHandler):
         if not text:
             return
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode = context.user_data.get('game_settings_mode', 'br')
         
         # ساخت mapping بر اساس translation keys (هر دو زبان)
@@ -102,9 +103,9 @@ class GuidesHandler(BaseUserHandler):
     
     @log_user_action("game_settings_menu")
 
-    async def game_settings_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def game_settings_menu(self, update: Update, context: CustomContext):
         """منوی تنظیمات کالاف - انتخاب mode (BR/MP)"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         keyboard = [
             [InlineKeyboardButton(t("mode.br_btn", lang), callback_data="game_settings_br"),
              InlineKeyboardButton(t("mode.mp_btn", lang), callback_data="game_settings_mp")],
@@ -134,7 +135,7 @@ class GuidesHandler(BaseUserHandler):
     
     @log_user_action("game_settings_mode_selected")
 
-    async def game_settings_mode_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def game_settings_mode_selected(self, update: Update, context: CustomContext):
         """پس از انتخاب mode، منوی انتخاب بخش (Basic/Sens/HUD) را نمایش بده"""
         query = update.callback_query
         await query.answer()
@@ -142,11 +143,11 @@ class GuidesHandler(BaseUserHandler):
         mode = query.data.replace("game_settings_", "")
         context.user_data['game_settings_mode'] = mode
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_name = t(f"mode.{mode}_btn", lang)
         
         # دریافت راهنماها
-        guides = self.db.get_guides(mode=mode)
+        guides = await self.db.get_guides(mode=mode)
         
         # ساخت دکمه‌ها با ایموجی و تعداد مدیا
         def make_button_text(emoji: str, name: str, guide_key: str) -> str:
@@ -182,7 +183,7 @@ class GuidesHandler(BaseUserHandler):
     
     @log_user_action("show_guide_inline")
 
-    async def show_guide_inline(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def show_guide_inline(self, update: Update, context: CustomContext):
         """نمایش یک guide از طریق inline - show_guide_{key}_{mode}"""
         query = update.callback_query
         await query.answer()
@@ -194,9 +195,9 @@ class GuidesHandler(BaseUserHandler):
             return
         
         context.user_data['game_settings_mode'] = mode
-        guide = self.db.get_guide(key, mode=mode)
+        guide = await self.db.get_guide(key, mode=mode)
         # استفاده از translation key به جای name از دیتابیس
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         name = t(f"guides.{key}_short", lang)
         photos = guide.get("photos", []) or []
         videos = guide.get("videos", []) or []

@@ -1,3 +1,4 @@
+from core.context import CustomContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from typing import Any, Tuple, List
@@ -26,13 +27,13 @@ class CMSUserHandler(BaseUserHandler):
 
     @require_channel_membership
     @log_user_action("cms_home")
-    async def cms_home(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def cms_home(self, update: Update, context: CustomContext) -> None:
         """نمایش منوی CMS (انتخاب نوع محتوا) از طریق Callback."""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         total = 0
@@ -66,11 +67,11 @@ class CMSUserHandler(BaseUserHandler):
 
     @require_channel_membership
     @log_user_action("cms_home_msg")
-    async def cms_home_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def cms_home_msg(self, update: Update, context: CustomContext) -> None:
         """نمایش منوی CMS (انتخاب نوع محتوا) از طریق پیام."""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         total = 0
@@ -94,13 +95,13 @@ class CMSUserHandler(BaseUserHandler):
 
     @require_channel_membership
     @log_user_action("cms_type_selected")
-    async def cms_type_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def cms_type_selected(self, update: Update, context: CustomContext) -> None:
         """نمایش لیست محتوای منتشرشده برای نوع انتخابی."""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         total = 0
@@ -179,13 +180,13 @@ class CMSUserHandler(BaseUserHandler):
 
     @require_channel_membership
     @log_user_action("cms_list_page_nav")
-    async def cms_list_page_navigation(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def cms_list_page_navigation(self, update: Update, context: CustomContext) -> None:
         """مدیریت ناوبری بین صفحات فهرست CMS."""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         if not cms_enabled:
@@ -204,13 +205,13 @@ class CMSUserHandler(BaseUserHandler):
 
     @require_channel_membership
     @log_user_action("cms_view")
-    async def cms_view(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def cms_view(self, update: Update, context: CustomContext) -> None:
         """نمایش جزئیات یک محتوای CMS منتشرشده."""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         if not cms_enabled:

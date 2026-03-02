@@ -59,6 +59,10 @@ Desktop.ini
 *.swp
 *~
 Temp/
+temp/
+tmp/
+docs/
+.venv/
 
 # Analytics data (runtime) - removed (PG-only)
 

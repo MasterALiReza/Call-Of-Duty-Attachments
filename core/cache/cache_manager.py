@@ -1,254 +1,317 @@
 """
-سیستم Cache Management برای بهبود Performance
-این ماژول caching ساده و سریع برای داده‌های استاتیک ارائه می‌دهد
+Redis-backed Cache Management System.
+Provides a caching decorator and manager to offload expensive static DB reads.
 """
-
+import os
 import time
+import json
+import asyncio
 from typing import Any, Optional, Dict, Callable
 from functools import wraps
 import threading
+try:
+    import redis.asyncio as redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    redis = None
+    REDIS_AVAILABLE = False
 from utils.logger import get_logger
 from utils.metrics import get_metrics, log_cache_access
-
 logger = get_logger('cache', 'cache.log')
 
+# Configuration from environment variables
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/1')
+MAX_CACHE_SIZE = int(os.getenv('MAX_CACHE_SIZE', '10000'))  # Maximum in-memory cache entries
+DEFAULT_CACHE_TTL = int(os.getenv('DEFAULT_CACHE_TTL', '300'))
 
 class CacheEntry:
-    """یک entry در cache با TTL"""
-    
+    """In-memory cache entry with TTL (Fallback Mode)"""
+
     def __init__(self, value: Any, ttl: int):
         self.value = value
-        # تبدیل TTL به int اگر string باشد
-        ttl_int = int(ttl) if isinstance(ttl, str) else ttl
-        self.expiry = time.time() + ttl_int
-    
+        self.expiry = time.time() + (int(ttl) if isinstance(ttl, str) else ttl)
+        self.last_access = time.time()  # For LRU tracking
+
     def is_expired(self) -> bool:
         return time.time() > self.expiry
-
-
-class CacheManager:
-    """
-    مدیریت cache با TTL (Time To Live)
     
-    این cache برای داده‌هایی مناسبه که:
-    - کمتر تغییر می‌کنند (مثل لیست سلاح‌ها، دسته‌بندی‌ها)
-    - خواندن‌شون گران است (query به دیتابیس)
-    - برای همه کاربران یکسان است
+    def touch(self):
+        """Update last access time for LRU."""
+        self.last_access = time.time()
+
+class RedisCacheManager:
     """
+    Manages Cache natively via Redis, but falls back to in-memory dictionaries
+    if Redis is unavailable or unconfigured.
     
-    def __init__(self):
+    Features:
+    - LRU eviction when max_size is reached
+    - TTL-based expiration
+    - Thread-safe operations
+    """
+
+    def __init__(self, max_size: int = None):
+        self._metrics = get_metrics()
+        self.use_redis = REDIS_AVAILABLE
+        self.redis_client = None
+        self.max_size = max_size or MAX_CACHE_SIZE
+        
+        if self.use_redis:
+            try:
+                self.redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+                logger.info(f'Initialized CacheManager with Redis: {REDIS_URL}')
+            except Exception as e:
+                logger.error(f'Failed to connect to Redis, falling back to memory: {e}')
+                self.use_redis = False
         self._cache: Dict[str, CacheEntry] = {}
         self._lock = threading.RLock()
-        # استفاده از metrics centralized به جای internal tracking
-        self._metrics = get_metrics()
-    
-    
-    def get(self, key: str) -> Optional[Any]:
-        """دریافت مقدار از cache"""
+        logger.info(f'CacheManager initialized with max_size={self.max_size}')
+
+    def _evict_lru(self):
+        """
+        Evict least recently used entries when cache exceeds max_size.
+        Must be called with lock held.
+        """
+        if len(self._cache) < self.max_size:
+            return
+        
+        # Remove expired entries first
+        expired_keys = [k for k, v in self._cache.items() if v.is_expired()]
+        for key in expired_keys:
+            del self._cache[key]
+            self._metrics.cache_metrics.record_eviction()
+        
+        # If still over max_size, remove LRU entries
+        while len(self._cache) >= self.max_size:
+            # Find LRU entry
+            lru_key = min(self._cache.keys(), key=lambda k: self._cache[k].last_access)
+            del self._cache[lru_key]
+            self._metrics.cache_metrics.record_eviction()
+            logger.debug(f'LRU evicted: {lru_key}')
+
+    async def get(self, key: str) -> Optional[Any]:
+        """Get value from cache (async)"""
+        if self.use_redis and self.redis_client:
+            try:
+                data = await self.redis_client.get(key)
+                if data:
+                    log_cache_access(hit=True)
+                    logger.debug(f'Redis Cache HIT: {key}')
+                    import ast
+                    try:
+                        return json.loads(data)
+                    except json.JSONDecodeError:
+                        return ast.literal_eval(data)
+            except Exception as e:
+                logger.debug(f'Redis get error: {e}')
         with self._lock:
             if key in self._cache:
                 entry = self._cache[key]
                 if not entry.is_expired():
+                    entry.touch()  # Update LRU timestamp
                     log_cache_access(hit=True)
-                    logger.debug(f"Cache HIT: {key}")
+                    logger.debug(f'Mem Cache HIT: {key}')
                     return entry.value
                 else:
-                    # پاک کردن entry منقضی شده
                     del self._cache[key]
                     self._metrics.cache_metrics.record_eviction()
-            
-            log_cache_access(hit=False)
-            logger.debug(f"Cache MISS: {key}")
-            return None
-    
-    def set(self, key: str, value: Any, ttl: int = 300):
-        """ذخیره مقدار در cache با TTL (پیش‌فرض 5 دقیقه)"""
+        log_cache_access(hit=False)
+        logger.debug(f'Cache MISS: {key}')
+        return None
+
+    def get_sync(self, key: str) -> Optional[Any]:
+        """Synchronous wrapper for get (used by legacy decorators)"""
+        if self.use_redis:
+            try:
+                loop = asyncio.get_running_loop()
+                pass
+            except RuntimeError:
+                pass
         with self._lock:
-            self._cache[key] = CacheEntry(value, ttl)
-            logger.debug(f"Cache SET: {key} (TTL={ttl}s)")
-    
-    def delete(self, key: str):
-        """حذف یک key از cache"""
+            if key in self._cache:
+                entry = self._cache[key]
+                if not entry.is_expired():
+                    entry.touch()  # Update LRU timestamp
+                    log_cache_access(hit=True)
+                    return entry.value
+                else:
+                    del self._cache[key]
+        log_cache_access(hit=False)
+        return None
+
+    async def set(self, key: str, value: Any, ttl: int=DEFAULT_CACHE_TTL):
+        """Set value in cache (async)"""
+        import copy
+        # Perform deepcopy to prevent source pollution
+        cache_value = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
+        
+        if self.use_redis and self.redis_client:
+            try:
+                data = json.dumps(cache_value) if isinstance(cache_value, (dict, list)) else str(cache_value)
+                await self.redis_client.setex(key, ttl, data)
+                logger.debug(f'Redis Cache SET: {key} (TTL={ttl}s)')
+                return
+            except Exception as e:
+                logger.debug(f'Redis set error: {e}')
+        with self._lock:
+            self._evict_lru()  # Ensure space for new entry
+            self._cache[key] = CacheEntry(cache_value, ttl)
+            logger.debug(f'Mem Cache SET: {key} (TTL={ttl}s)')
+
+    def set_sync(self, key: str, value: Any, ttl: int=DEFAULT_CACHE_TTL):
+        import copy
+        cache_value = copy.deepcopy(value) if isinstance(value, (dict, list)) else value
+        with self._lock:
+            self._evict_lru()  # Ensure space for new entry
+            self._cache[key] = CacheEntry(cache_value, ttl)
+
+    async def delete(self, key: str):
+        if self.use_redis and self.redis_client:
+            await self.redis_client.delete(key)
         with self._lock:
             if key in self._cache:
                 del self._cache[key]
-                logger.debug(f"Cache DELETE: {key}")
-    
-    def invalidate_pattern(self, pattern: str):
-        """حذف همه key هایی که pattern در آنها وجود دارد"""
+
+    async def invalidate_pattern(self, pattern: str):
+        if self.use_redis and self.redis_client:
+            try:
+                async for key in self.redis_client.scan_iter(f'*{pattern}*'):
+                    await self.redis_client.delete(key)
+            except Exception:
+                pass
         with self._lock:
-            # تغییر از startswith به in برای پیدا کردن pattern در هر جایی از key
             keys_to_delete = [k for k in self._cache.keys() if pattern in k]
             for key in keys_to_delete:
                 del self._cache[key]
-            
-            if keys_to_delete:
-                logger.info(f"Cache INVALIDATE: {len(keys_to_delete)} keys with pattern '{pattern}'")
-    
-    def clear(self):
-        """پاک کردن کل cache"""
+
+    def invalidate_pattern_sync(self, pattern: str):
         with self._lock:
-            count = len(self._cache)
+            keys_to_delete = [k for k in self._cache.keys() if pattern in k]
+            for key in keys_to_delete:
+                del self._cache[key]
+
+    def clear(self):
+        with self._lock:
             self._cache.clear()
-            logger.info(f"Cache CLEAR: {count} entries removed")
-    
+
     def cleanup_expired(self):
-        """پاک کردن entry های منقضی شده"""
         with self._lock:
             expired_keys = [k for k, v in self._cache.items() if v.is_expired()]
             for key in expired_keys:
                 del self._cache[key]
-            
-            if expired_keys:
-                logger.debug(f"Cache CLEANUP: {len(expired_keys)} expired entries removed")
-    
-    
-    def get_stats(self) -> Dict[str, int]:
-        """دریافت آمار cache از metrics مرکزی"""
-        cache_stats = self._metrics.cache_metrics.get_stats()
-        cache_stats['entries'] = len(self._cache)
-        return cache_stats
 
-
-# Instance سراسری
-_cache = CacheManager()
-
-
-def get_cache() -> CacheManager:
-    """دریافت instance سراسری cache"""
-    return _cache
-
-
-def invalidate_attachment_caches(category: str = None, weapon: str = None) -> None:
-    """
-    پاک کردن تمام cache های مربوط به اتچمنت‌ها
-    
-    این تابع برای استفاده بعد از افزودن/ویرایش/حذف اتچمنت است.
-    
-    Args:
-        category: نام دسته (اختیاری)
-        weapon: نام سلاح (اختیاری)
-    """
+async def invalidate_attachment_caches(category: str, weapon: str):
+    """Invalidate all caches related to a specific weapon and general attachment lists."""
+    cache = get_cache()
+    # patterns to invalidate
     patterns = [
+        f"_{category}_{weapon}",
         "get_all_attachments",
         "get_weapon_attachments",
         "get_top_attachments",
-        "category_counts",
+        "category_counts"
     ]
-    
-    if category and weapon:
-        patterns.append(f"_{category}_{weapon}")
-    
     for pattern in patterns:
-        _cache.invalidate_pattern(pattern)
-    
-    # حذف key های خاص
-    _cache.delete("category_counts")
-    
-    logger.info(f"Attachment caches invalidated (category={category}, weapon={weapon})")
+        await cache.invalidate_pattern(pattern)
+_cache = RedisCacheManager()
 
+def get_cache() -> RedisCacheManager:
+    return _cache
 
-def cached(ttl_or_key = 300, key_func: Optional[Callable] = None, ttl: Optional[int] = None):
+def cached(ttl_or_key=300, key_func: Optional[Callable]=None, ttl: Optional[int]=None):
     """
-    Decorator برای cache کردن خروجی توابع
-    
-    Args:
-        ttl_or_key: مدت زمان cache (ثانیه) یا cache key (string)
-        key_func: تابع برای ساخت cache key (اختیاری)
-        ttl: مدت زمان cache (keyword argument برای backward compatibility)
-    
-    مثال:
-        @cached(ttl=600)
-        @cached('my_key')  # با cache key ثابت
-        def get_weapons_in_category(category):
-            # این تابع فقط هر 10 دقیقه یکبار اجرا می‌شود
-            return expensive_db_query(category)
+    Decorator for caching function outputs.
+    Fully backwards compatible with synchronous code by utilizing the memory fallback.
     """
-    # تشخیص ttl و cache_key
     if ttl is not None:
-        # کاربر از ttl= استفاده کرده
         cache_ttl = ttl
         cache_key_prefix = None
     elif isinstance(ttl_or_key, str):
-        # اولین آرگومان یک string است (cache key)
         cache_key_prefix = ttl_or_key
-        cache_ttl = 300  # پیش‌فرض 5 دقیقه
+        cache_ttl = 300
     else:
-        # اولین آرگومان یک عدد است (ttl)
         cache_key_prefix = None
         cache_ttl = ttl_or_key if isinstance(ttl_or_key, int) else 300
-    
+
     def decorator(func):
+        is_async = asyncio.iscoroutinefunction(func)
+
         @wraps(func)
-        def wrapper(*args, **kwargs):
-            # ساخت cache key
+        async def async_wrapper(*args, **kwargs):
             if cache_key_prefix:
-                # استفاده از cache key ثابت
                 cache_key = cache_key_prefix
             elif key_func:
                 cache_key = key_func(*args, **kwargs)
             else:
-                # ساخت key پیش‌فرض از نام تابع و آرگومان‌ها
-                func_name = func.__qualname__
-                args_str = '_'.join(str(arg) for arg in args)
-                kwargs_str = '_'.join(f"{k}={v}" for k, v in sorted(kwargs.items()))
-                cache_key = f"{func_name}:{args_str}:{kwargs_str}"
-            
-            # بررسی cache
-            cached_value = _cache.get(cache_key)
+                cache_key = f"{func.__qualname__}:{'_'.join((str(a) for a in args))}:{'_'.join((f'{k}={v}' for k, v in sorted(kwargs.items())))}"
+            cached_value = await _cache.get(cache_key)
             if cached_value is not None:
+                # Return deepcopy for mutable types to prevent cache pollution
+                if isinstance(cached_value, (list, dict)):
+                    import copy
+                    return copy.deepcopy(cached_value)
                 return cached_value
-            
-            # اجرای تابع و ذخیره در cache
-            result = func(*args, **kwargs)
-            _cache.set(cache_key, result, cache_ttl)
-            
+            result = await func(*args, **kwargs)
+            # Perform deepcopy before storing to ensure purity
+            import copy
+            await _cache.set(cache_key, result, cache_ttl)
+            # Return a copy to the first caller as well
+            if isinstance(result, (list, dict)):
+                return copy.deepcopy(result)
             return result
-        
-        # اضافه کردن متد برای پاک کردن cache این تابع
-        wrapper.cache_clear = lambda: _cache.invalidate_pattern(func.__qualname__)
-        
+
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            if cache_key_prefix:
+                cache_key = cache_key_prefix
+            elif key_func:
+                cache_key = key_func(*args, **kwargs)
+            else:
+                cache_key = f"{func.__qualname__}:{'_'.join((str(a) for a in args))}:{'_'.join((f'{k}={v}' for k, v in sorted(kwargs.items())))}"
+            cached_value = _cache.get_sync(cache_key)
+            if cached_value is not None:
+                # Return deepcopy for mutable types to prevent cache pollution
+                if isinstance(cached_value, (list, dict)):
+                    import copy
+                    return copy.deepcopy(cached_value)
+                return cached_value
+            result = func(*args, **kwargs)
+            import copy
+            _cache.set_sync(cache_key, result, cache_ttl)
+            if isinstance(result, (list, dict)):
+                return copy.deepcopy(result)
+            return result
+        wrapper = async_wrapper if is_async else sync_wrapper
+        wrapper.cache_clear = lambda: _cache.invalidate_pattern_sync(func.__qualname__)
         return wrapper
     return decorator
-
 
 def invalidate_cache_on_write(patterns: list):
-    """
-    Decorator برای invalidate کردن cache بعد از write operations
-    
-    مثال:
-        @invalidate_cache_on_write(['get_weapons_in_category', 'get_all_attachments'])
-        def add_weapon(category, name):
-            # بعد از اجرا، cache مربوط به این توابع پاک می‌شود
-            ...
-    """
+    """Decorator to invalidate caches after write operations"""
+
     def decorator(func):
+        is_async = asyncio.iscoroutinefunction(func)
+
         @wraps(func)
-        def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            
-            # اگر عملیات موفق بود، cache را پاک کن
-            if result:  # فقط اگر update/add/delete موفق بود
-                # Invalidate cache patterns
+        async def async_wrapper(*args, **kwargs):
+            result = await func(*args, **kwargs)
+            if result:
                 for pattern in patterns:
-                    _cache.invalidate_pattern(pattern)
-                    logger.debug(f"Invalidated cache pattern: {pattern}")
-                
-                # برای اطمینان بیشتر، همه cache های مربوط به database را پاک کن
-                if 'attachments' in str(patterns):  # اگر مربوط به attachments بود
-                    _cache.invalidate_pattern('DatabaseAdapter')
-                    logger.info("Cleared all DatabaseAdapter cache due to attachment change")
-            
+                    await _cache.invalidate_pattern(pattern)
             return result
-        return wrapper
+
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+            if result:
+                for pattern in patterns:
+                    _cache.invalidate_pattern_sync(pattern)
+            return result
+        return async_wrapper if is_async else sync_wrapper
     return decorator
 
-
-# Cleanup task برای پاک کردن خودکار expired entries
-import asyncio
-
 async def cache_cleanup_task():
-    """Task برای پاک کردن خودکار cache های منقضی شده"""
+    """Background task for cleaning up expired memory cache entries"""
     while True:
-        await asyncio.sleep(60)  # هر 1 دقیقه
+        await asyncio.sleep(60)
         _cache.cleanup_expired()

@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول مدیریت ادمین‌ها (Admin Management)
 مسئول: مدیریت RBAC و نقش‌های ادمین‌ها
@@ -15,11 +16,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from handlers.admin.modules.base_handler import BaseAdminHandler
-from handlers.admin.admin_states import ADMIN_MENU, ADD_ADMIN_ID, ADD_ADMIN_DISPLAY_NAME
+from handlers.admin.admin_states import (
+    ADMIN_MENU, ADD_ADMIN_ID, ADD_ADMIN_DISPLAY_NAME, ADD_ADMIN_ROLE,
+    REMOVE_ADMIN_ID, EDIT_ADMIN_SELECT, ADD_ROLE_SELECT, ADD_ROLE_CONFIRM,
+    DELETE_ROLE_CONFIRM, VIEW_ROLES, MANAGE_ADMINS
+)
 from utils.logger import get_logger, log_admin_action
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+from core.models.admin_models import UserModerationRequest
 
 logger = get_logger('admin_mgmt', 'admin.log')
 
@@ -41,7 +47,6 @@ class AdminManagementHandler(BaseAdminHandler):
     def __init__(self, db):
         """مقداردهی اولیه"""
         super().__init__(db)
-        self.role_manager = None
         
         # Simple in-memory cache for performance
         self._admin_list_cache = None
@@ -56,7 +61,7 @@ class AdminManagementHandler(BaseAdminHandler):
     
     # ========== Cache Management ==========
     
-    def _get_cached_admin_list(self):
+    async def _get_cached_admin_list(self):
         """
         دریافت لیست ادمین‌ها با cache
         
@@ -74,7 +79,7 @@ class AdminManagementHandler(BaseAdminHandler):
             now - self._admin_list_cache_time > self._CACHE_TTL):
             
             # Refresh cache from database
-            self._admin_list_cache = self.role_manager.get_admin_list()
+            self._admin_list_cache = await self.role_manager.get_admin_list()
             self._admin_list_cache_time = now
             
             logger.info(
@@ -104,20 +109,20 @@ class AdminManagementHandler(BaseAdminHandler):
     
     # ========== منوی اصلی ==========
     
-    async def manage_admins_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def manage_admins_menu(self, update: Update, context: CustomContext):
         """منوی مدیریت ادمین‌ها - فقط برای super admin"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # پاک کردن context برای شروع تازه
         context.user_data.pop('edit_admin_user_id', None)
         
         user_id = update.effective_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # بررسی دسترسی super admin
-        if not self.role_manager.is_super_admin(user_id):
+        if not await self.role_manager.is_super_admin(user_id):
             await safe_edit_message_text(
                 query,
                 t("common.no_permission", lang),
@@ -126,7 +131,7 @@ class AdminManagementHandler(BaseAdminHandler):
             return ADMIN_MENU
         
         # دریافت لیست ادمین‌ها (با cache)
-        admins = self._get_cached_admin_list()
+        admins = await self._get_cached_admin_list()
         
         # آمار سریع
         total_admins = len(admins)
@@ -223,7 +228,7 @@ class AdminManagementHandler(BaseAdminHandler):
                         name_local_raw = t(f"roles.names.{role_key}", lang)
                         name_local = _strip_emoji(name_local_raw if name_local_raw and not name_local_raw.startswith('roles.names.') else role_key)
                     else:
-                        icon = role.get('icon', '👤')
+                        icon = role.get('icon') or '👤'
                         role_key = role.get('name') or ''
                         name_local_raw = t(f"roles.names.{role_key}", lang)
                         name_local = _strip_emoji(name_local_raw if name_local_raw and not name_local_raw.startswith('roles.names.') else (role.get('display_name') or ''))
@@ -301,19 +306,19 @@ class AdminManagementHandler(BaseAdminHandler):
                 return ADMIN_MENU
             raise
         
-        return ADMIN_MENU
+        return MANAGE_ADMINS
     
     # ========== افزودن ادمین جدید ==========
     
     @log_admin_action("add_admin_start")
-    async def add_admin_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_admin_start(self, update: Update, context: CustomContext):
         """شروع افزودن ادمین جدید - انتخاب نقش"""
         query = update.callback_query
         await query.answer()
         
         user_id = update.effective_user.id
-        if not self.role_manager.is_super_admin(user_id):
-            lang = get_user_lang(update, context, self.db) or 'fa'
+        if not await self.role_manager.is_super_admin(user_id):
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await safe_edit_message_text(
                 query,
                 t("common.no_permission", lang),
@@ -322,9 +327,9 @@ class AdminManagementHandler(BaseAdminHandler):
             return ADMIN_MENU
         
         # نمایش لیست نقش‌ها برای انتخاب
-        roles = self.role_manager.get_all_roles()
+        roles = await self.role_manager.get_all_roles()
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         text = t("admin.admin_mgmt.add_admin.choose_role.title", lang) + "\n\n"
         text += t("admin.admin_mgmt.add_admin.choose_role.prompt", lang) + "\n\n"
         
@@ -354,21 +359,21 @@ class AdminManagementHandler(BaseAdminHandler):
             parse_mode='Markdown'
         )
         
-        logger.info(f"Returning state: ADMIN_MENU (value: {ADMIN_MENU})")
-        return ADMIN_MENU
+        logger.info(f"Returning state: ADD_ADMIN_ROLE (value: {ADD_ADMIN_ROLE})")
+        return ADD_ADMIN_ROLE
     
-    async def add_admin_role_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_admin_role_selected(self, update: Update, context: CustomContext):
         """ذخیره نقش انتخاب شده و درخواست آیدی"""
         query = update.callback_query
         logger.info(f"🎯 add_admin_role_selected called! Callback data: {query.data}")
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # ذخیره نقش انتخاب شده
         role_name = query.data.replace("selrole_", "")
         context.user_data['selected_admin_role'] = role_name
         
-        role = self.role_manager.get_role(role_name)
+        role = await self.role_manager.get_role(role_name)
         if not role:
             await safe_edit_message_text(query, t("common.not_found", lang))
             return await self.admin_menu_return(update, context)
@@ -382,14 +387,14 @@ class AdminManagementHandler(BaseAdminHandler):
         return ADD_ADMIN_ID
     
     @log_admin_action("add_admin_id_received")
-    async def add_admin_id_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_admin_id_received(self, update: Update, context: CustomContext):
         """دریافت User ID و درخواست نام اختصاصی"""
         try:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             new_admin_id = int(update.message.text.strip())
             
             # بررسی اینکه قبلاً ادمین نباشد
-            if self.role_manager.is_admin(new_admin_id):
+            if await self.role_manager.is_admin(new_admin_id):
                 await update.message.reply_text(t("admin.admin_mgmt.add_admin.already_admin", lang))
                 context.user_data.pop('selected_admin_role', None)
                 return await self.admin_menu_return(update, context)
@@ -410,10 +415,10 @@ class AdminManagementHandler(BaseAdminHandler):
             return ADD_ADMIN_ID
     
     @log_admin_action("add_admin_display_name_received")
-    async def add_admin_display_name_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_admin_display_name_received(self, update: Update, context: CustomContext):
         """دریافت نام اختصاصی و ایجاد ادمین"""
         try:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             display_name = update.message.text.strip()
             
             # اگر /skip باشد، نام اختصاصی خالی باشد
@@ -421,14 +426,26 @@ class AdminManagementHandler(BaseAdminHandler):
                 display_name = None
             
             new_admin_id = context.user_data.get('new_admin_id')
-            role_name = context.user_data.get('selected_admin_role', 'full_content_admin')
+            role_name = context.user_data.get('selected_admin_role', 'content_admin')
             
             if not new_admin_id:
                 await update.message.reply_text(t("admin.admin_mgmt.errors.no_user_id", lang))
                 return await self.admin_menu_return(update, context)
             
+            # ✅ Pydantic Validation
+            try:
+                UserModerationRequest(
+                    user_id=new_admin_id,
+                    action="role",
+                    reason=f"Assigning role: {role_name}"
+                )
+            except Exception as e:
+                logger.error(f"Validation failed: {e}")
+                await update.message.reply_text(f"❌ Validation Error: {str(e)}")
+                return await self.admin_menu_return(update, context)
+
             # اضافه کردن ادمین با نقش و نام اختصاصی
-            success = self.db.assign_role_to_admin(
+            success = await self.db.assign_role_to_admin(
                 user_id=new_admin_id,
                 role_name=role_name,
                 display_name=display_name
@@ -437,8 +454,22 @@ class AdminManagementHandler(BaseAdminHandler):
             if success:
                 # Invalidate cache بعد از افزودن ادمین
                 self._invalidate_admin_cache()
+                if hasattr(self, 'role_manager'):
+                    await self.role_manager.clear_user_cache(new_admin_id)
                 
-                role = self.role_manager.get_role(role_name)
+                # ✅ DB Audit Logging
+                await self.audit.log_action(
+                    admin_id=update.effective_user.id,
+                    action="ASSIGN_ADMIN_ROLE",
+                    target_id=str(new_admin_id),
+                    details={
+                        "target_type": "user",
+                        "role": role_name,
+                        "display_name": display_name
+                    }
+                )
+
+                role = await self.role_manager.get_role(role_name)
                 msg = t("admin.admin_mgmt.add_admin.success.title", lang) + "\n\n"
                 if display_name:
                     msg += t("admin.admin_mgmt.add_admin.success.name_line", lang, name=display_name) + "\n"
@@ -451,7 +482,7 @@ class AdminManagementHandler(BaseAdminHandler):
                 
         except Exception as e:
             logger.error(f"Error adding admin: {e}")
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await update.message.reply_text(t("error.generic", lang))
         
         # پاک کردن داده‌های موقت
@@ -461,13 +492,20 @@ class AdminManagementHandler(BaseAdminHandler):
     
     # ========== مشاهده نقش‌ها ==========
     
-    async def view_roles_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def view_roles_menu(self, update: Update, context: CustomContext):
         """نمایش لیست نقش‌ها و دسترسی‌ها"""
         query = update.callback_query
         await query.answer()
-        
-        roles = self.role_manager.get_all_roles()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+
+        user_id = update.effective_user.id
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+
+        # بررسی دسترسی super admin
+        if not await self.role_manager.is_super_admin(user_id):
+            await safe_edit_message_text(query, t("common.no_permission", lang))
+            return ADMIN_MENU
+
+        roles = await self.role_manager.get_all_roles()
         
         text = "━━━━━━━━━━━━━━━━━━━━\n"
         text += t('admin.admin_mgmt.roles.title', lang) + "\n"
@@ -475,33 +513,14 @@ class AdminManagementHandler(BaseAdminHandler):
         
         for idx, role in enumerate(roles, 1):
             role_name_local = t(f"roles.names.{role.name}", lang) or role.display_name
-            text += f"{idx}. {role.icon} **{role_name_local}**\n"
-            # توضیح نقش با fallback
+            text += f"{idx}. {role.icon or '👤'} **{role_name_local}**\n"
+            
+            # توضیح نقش با fallback (فقط یک خط)
             desc_local = t(f"roles.desc.{role.name}", lang)
             if not desc_local or desc_local.startswith('roles.desc.'):
                 desc_local = role.description
-            text += f"   📝 {desc_local}\n"
             
-            # نمایش دسترسی‌ها با فرمت بهتر
-            if role.permissions:
-                perm_count = len(role.permissions)
-                text += "   " + t('admin.admin_mgmt.roles.perms_count', lang, n=perm_count) + "\n"
-                from core.security.role_manager import get_permission_display_name
-                
-                # نمایش 5 دسترسی اول (دو‌زبانه)
-                for perm in sorted(role.permissions, key=lambda x: x.value)[:5]:
-                    key = perm.value
-                    perm_local = t(f"permissions.{key}", lang)
-                    # اگر کلید ترجمه نبود، از نمایشگر پیش‌فرض استفاده شود
-                    if not perm_local or perm_local.startswith('permissions.'):
-                        perm_local = get_permission_display_name(perm)
-                    text += f"      ├ {perm_local}\n"
-                
-                if len(role.permissions) > 5:
-                    text += "      " + t('admin.admin_mgmt.roles.perms_more', lang, n=len(role.permissions) - 5) + "\n"
-            else:
-                text += "   " + t('admin.admin_mgmt.roles.none', lang) + "\n"
-            text += "\n"
+            text += f"   📝 {desc_local}\n\n"
         
         keyboard = [
             [
@@ -517,28 +536,28 @@ class AdminManagementHandler(BaseAdminHandler):
             parse_mode='Markdown'
         )
         
-        return ADMIN_MENU
+        return MANAGE_ADMINS
     
     # ========== ویرایش نقش ادمین ==========
     
     @log_admin_action("edit_admin_role_start")
-    async def edit_admin_role_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_admin_role_start(self, update: Update, context: CustomContext):
         """شروع ویرایش نقش ادمین"""
         query = update.callback_query
         await query.answer()
         
         user_id = update.effective_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if not self.role_manager.is_super_admin(user_id):
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if not await self.role_manager.is_super_admin(user_id):
             await safe_edit_message_text(
                 query,
                 t("common.no_permission", lang),
                 parse_mode='Markdown'
             )
-            return ADMIN_MENU
+            return EDIT_ADMIN_SELECT
         
         # دریافت لیست ادمین‌ها (با cache)
-        admins = self._get_cached_admin_list()
+        admins = await self._get_cached_admin_list()
         
         if not admins:
             await safe_edit_message_text(query, t("admin.admin_mgmt.none", lang))
@@ -564,7 +583,7 @@ class AdminManagementHandler(BaseAdminHandler):
                     if isinstance(role, str):
                         icon = '👤'
                     else:
-                        icon = role.get('icon', '👤')
+                        icon = role.get('icon') or '👤'
                     
                     if icon not in role_icons:
                         role_icons.append(icon)
@@ -606,10 +625,10 @@ class AdminManagementHandler(BaseAdminHandler):
         logger.info("✅ Edit admin menu sent successfully")
         logger.info(f"🔄 Returning state: ADMIN_MENU (value: {ADMIN_MENU})")
         
-        return ADMIN_MENU
+        return EDIT_ADMIN_SELECT
     
     @log_admin_action("edit_admin_role_select")
-    async def edit_admin_role_select(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_admin_role_select(self, update: Update, context: CustomContext):
         """انتخاب نقش جدید برای ادمین"""
         query = update.callback_query
         logger.info(f"🎯 edit_admin_role_select called! Callback data: {query.data}")
@@ -620,9 +639,9 @@ class AdminManagementHandler(BaseAdminHandler):
         context.user_data['edit_admin_user_id'] = admin_user_id
         
         # دریافت اطلاعات ادمین فعلی
-        admin_data = self.db.get_admin(admin_user_id)
+        admin_data = await self.db.get_admin(admin_user_id)
         if not admin_data:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await safe_edit_message_text(query, t("admin.admin_mgmt.errors.admin_not_found", lang))
             return await self.admin_menu_return(update, context)
         
@@ -631,12 +650,12 @@ class AdminManagementHandler(BaseAdminHandler):
         
         # اگر ادمین نقشی ندارد
         if not current_roles:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await safe_edit_message_text(query, t("admin.admin_mgmt.errors.no_roles_for_admin", lang))
             return await self.admin_menu_return(update, context)
         
         # نمایش نقش‌های فعلی
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         current_role_lines = []
         for r in current_roles:
             if isinstance(r, str):
@@ -676,9 +695,9 @@ class AdminManagementHandler(BaseAdminHandler):
             parse_mode='Markdown'
         )
         
-        return ADMIN_MENU
+        return ADD_ROLE_SELECT
     
-    async def add_role_to_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_role_to_admin(self, update: Update, context: CustomContext):
         """افزودن نقش جدید به ادمین"""
         query = update.callback_query
         await query.answer()
@@ -687,9 +706,9 @@ class AdminManagementHandler(BaseAdminHandler):
         context.user_data['edit_admin_user_id'] = admin_user_id
         
         # نمایش لیست نقش‌ها
-        roles = self.role_manager.get_all_roles()
+        roles = await self.role_manager.get_all_roles()
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         text = t("admin.admin_mgmt.add_role.title", lang) + "\n\n"
         text += t("admin.admin_mgmt.add_role.prompt", lang)
         
@@ -715,9 +734,9 @@ class AdminManagementHandler(BaseAdminHandler):
             parse_mode='Markdown'
         )
         
-        return ADMIN_MENU
+        return ADD_ROLE_CONFIRM
     
-    async def add_role_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_role_confirm(self, update: Update, context: CustomContext):
         """تایید افزودن نقش"""
         query = update.callback_query
         await query.answer()
@@ -728,17 +747,19 @@ class AdminManagementHandler(BaseAdminHandler):
         admin_user_id = context.user_data.get('edit_admin_user_id')
         new_role_name = query.data.replace("newrole_", "")
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if not admin_user_id:
             await safe_edit_message_text(query, t("admin.admin_mgmt.errors.no_admin_id", lang))
             return await self.admin_menu_return(update, context)
         
         # افزودن نقش جدید
-        success = self.db.assign_role_to_admin(admin_user_id, new_role_name)
+        success = await self.db.assign_role_to_admin(admin_user_id, new_role_name)
         
         # Invalidate cache بعد از تغییر نقش
         if success:
             self._invalidate_admin_cache()
+            if hasattr(self, 'role_manager'):
+                await self.role_manager.clear_user_cache(admin_user_id)
         
         if not success:
             await safe_edit_message_text(query, t("admin.admin_mgmt.add_role.error", lang))
@@ -746,8 +767,8 @@ class AdminManagementHandler(BaseAdminHandler):
             return await self.admin_menu_return(update, context)
         
         # دریافت اطلاعات به‌روز شده
-        role = self.role_manager.get_role(new_role_name)
-        admin_data = self.db.get_admin(admin_user_id)
+        role = await self.role_manager.get_role(new_role_name)
+        admin_data = await self.db.get_admin(admin_user_id)
         display_name = admin_data.get('display_name', '') if admin_data else ''
         current_roles = admin_data.get('roles', []) if admin_data else []
         
@@ -760,7 +781,7 @@ class AdminManagementHandler(BaseAdminHandler):
                 role_disp = r.get('display_name') or t('common.unknown', lang)
             role_lines.append(f"  {role_disp}")
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         msg = t("admin.admin_mgmt.add_role.success.title", lang) + "\n\n"
         name_line = display_name if display_name else f"`{admin_user_id}`"
         msg += t("admin.admin_mgmt.labels.admin_line", lang, name=name_line, id=admin_user_id) + "\n\n"
@@ -771,9 +792,9 @@ class AdminManagementHandler(BaseAdminHandler):
         
         # دکمه‌های عملیات بعدی
         keyboard = [
-            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.add_role_more", get_user_lang(update, context, self.db) or 'fa'), callback_data=f"addrole_{admin_user_id}")],
-            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.delete_role", get_user_lang(update, context, self.db) or 'fa'), callback_data=f"delrole_{admin_user_id}")],
-            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.back_to_admins", get_user_lang(update, context, self.db) or 'fa'), callback_data="manage_admins")]
+            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.add_role_more", await get_user_lang(update, context, self.db) or 'fa'), callback_data=f"addrole_{admin_user_id}")],
+            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.delete_role", await get_user_lang(update, context, self.db) or 'fa'), callback_data=f"delrole_{admin_user_id}")],
+            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.back_to_admins", await get_user_lang(update, context, self.db) or 'fa'), callback_data="manage_admins")]
         ]
         
         await safe_edit_message_text(
@@ -784,9 +805,9 @@ class AdminManagementHandler(BaseAdminHandler):
         )
         
         # context.user_data['edit_admin_user_id'] را نگه می‌داریم برای عملیات بعدی
-        return ADMIN_MENU
+        return ADD_ROLE_SELECT
     
-    async def delete_role_from_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def delete_role_from_admin(self, update: Update, context: CustomContext):
         """حذف نقش از ادمین"""
         query = update.callback_query
         await query.answer()
@@ -795,9 +816,9 @@ class AdminManagementHandler(BaseAdminHandler):
         context.user_data['edit_admin_user_id'] = admin_user_id
         
         # دریافت نقش‌های فعلی
-        admin_data = self.db.get_admin(admin_user_id)
+        admin_data = await self.db.get_admin(admin_user_id)
         if not admin_data or not admin_data.get('roles'):
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await safe_edit_message_text(query, t("admin.admin_mgmt.errors.no_roles_for_admin", lang))
             return await self.admin_menu_return(update, context)
         
@@ -807,7 +828,7 @@ class AdminManagementHandler(BaseAdminHandler):
         # اگر فقط یک نقش دارد، نمی‌توان حذف کرد
         if len(current_roles) <= 1:
             role = current_roles[0]
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             name_line = display_name if display_name else f'`{admin_user_id}`'
             
             # Get role display name safely
@@ -829,9 +850,9 @@ class AdminManagementHandler(BaseAdminHandler):
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
-            return ADMIN_MENU
+            return DELETE_ROLE_CONFIRM
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         text = t("admin.admin_mgmt.del_role.title", lang) + "\n\n"
         # اولویت: @username → display_name → first_name → ID
         username = admin_data.get('username', '')
@@ -871,9 +892,9 @@ class AdminManagementHandler(BaseAdminHandler):
             parse_mode='Markdown'
         )
         
-        return ADMIN_MENU
+        return DELETE_ROLE_CONFIRM
     
-    async def delete_role_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def delete_role_confirm(self, update: Update, context: CustomContext):
         """تایید حذف نقش"""
         query = update.callback_query
         await query.answer()
@@ -884,14 +905,14 @@ class AdminManagementHandler(BaseAdminHandler):
         admin_user_id = context.user_data.get('edit_admin_user_id')
         role_name = query.data.replace("delconfirm_", "")
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if not admin_user_id:
             await query.edit_message_text(t("admin.admin_mgmt.errors.no_admin_id", lang))
             return await self.admin_menu_return(update, context)
         
         # جلوگیری از حذف آخرین نقش سوپرادمین سیستم
         if role_name == 'super_admin':
-            all_admins = self._get_cached_admin_list()
+            all_admins = await self._get_cached_admin_list()
             super_admins = [a for a in all_admins if any((r if isinstance(r, str) else r.get('name')) == 'super_admin' for r in a.get('roles', []))]
             if len(super_admins) <= 1 and any(a['user_id'] == int(admin_user_id) for a in super_admins):
                 await query.edit_message_text(
@@ -899,14 +920,16 @@ class AdminManagementHandler(BaseAdminHandler):
                     t("admin.admin_mgmt.del_role.super_last.body", lang),
                     parse_mode='Markdown'
                 )
-                return ADMIN_MENU
+                return DELETE_ROLE_CONFIRM
         
         # حذف نقش
-        success = self.db.remove_role_from_admin(admin_user_id, role_name)
+        success = await self.db.remove_role_from_admin(admin_user_id, role_name)
         
         # Invalidate cache بعد از حذف نقش
         if success:
             self._invalidate_admin_cache()
+            if hasattr(self, 'role_manager'):
+                await self.role_manager.clear_user_cache(admin_user_id)
         
         if not success:
             await query.edit_message_text(t("admin.admin_mgmt.del_role.error", lang))
@@ -914,13 +937,13 @@ class AdminManagementHandler(BaseAdminHandler):
             return await self.admin_menu_return(update, context)
         
         # بررسی نقش‌های باقیمانده
-        role = self.role_manager.get_role(role_name)
-        admin_data = self.db.get_admin(admin_user_id)
+        role = await self.role_manager.get_role(role_name)
+        admin_data = await self.db.get_admin(admin_user_id)
         
         # اگر ادمین دیگر نقشی ندارد → حذف کامل
         if not admin_data or not admin_data.get('roles'):
             # حذف کامل از لیست ادمین‌ها
-            self.db.remove_admin(admin_user_id)
+            await self.db.remove_admin(admin_user_id)
             display = admin_data.get('display_name', '') if admin_data else ''
             name_line = display if display else f'`{admin_user_id}`'
             await query.edit_message_text(
@@ -953,9 +976,9 @@ class AdminManagementHandler(BaseAdminHandler):
         
         # دکمه‌های عملیات بعدی
         keyboard = [
-            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.add_role_more", get_user_lang(update, context, self.db) or 'fa'), callback_data=f"addrole_{admin_user_id}")],
-            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.delete_role_more", get_user_lang(update, context, self.db) or 'fa'), callback_data=f"delrole_{admin_user_id}")],
-            [InlineKeyboardButton(t("menu.buttons.back", get_user_lang(update, context, self.db) or 'fa'), callback_data="edit_admin_role")]
+            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.add_role_more", await get_user_lang(update, context, self.db) or 'fa'), callback_data=f"addrole_{admin_user_id}")],
+            [InlineKeyboardButton(t("admin.admin_mgmt.buttons.delete_role_more", await get_user_lang(update, context, self.db) or 'fa'), callback_data=f"delrole_{admin_user_id}")],
+            [InlineKeyboardButton(t("menu.buttons.back", await get_user_lang(update, context, self.db) or 'fa'), callback_data="edit_admin_role")]
         ]
         
         await query.edit_message_text(
@@ -965,22 +988,22 @@ class AdminManagementHandler(BaseAdminHandler):
         )
         
         # context.user_data['edit_admin_user_id'] را نگه می‌داریم برای عملیات بعدی
-        return ADMIN_MENU
+        return ADD_ROLE_SELECT
     
     # ========== حذف ادمین ==========
     
-    async def remove_admin_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def remove_admin_start(self, update: Update, context: CustomContext):
         """شروع حذف ادمین"""
         query = update.callback_query
         await query.answer()
         
         user_id = update.effective_user.id
-        if not self.role_manager.is_super_admin(user_id):
+        if not await self.role_manager.is_super_admin(user_id):
             await query.answer("❌ فقط ادمین کل می‌تواند ادمین حذف کند.", show_alert=True)
             return ADMIN_MENU
         
         # دریافت لیست ادمین‌ها (با cache)
-        admins = self._get_cached_admin_list()
+        admins = await self._get_cached_admin_list()
         
         # فیلتر کردن: حذف خود کاربر از لیست
         other_admins = [a for a in admins if a['user_id'] != user_id]
@@ -992,7 +1015,7 @@ class AdminManagementHandler(BaseAdminHandler):
             text += "━━━━━━━━━━━━━━━━━━━━\n\n"
             text += t("admin.admin_mgmt.remove.none_exists.body", lang)
             
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             keyboard = [
                 [InlineKeyboardButton(t("admin.admin_mgmt.buttons.add_admin_new", lang), callback_data="add_new_admin")],
                 [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="manage_admins")]
@@ -1019,7 +1042,7 @@ class AdminManagementHandler(BaseAdminHandler):
                     if isinstance(role, str):
                         icon = '👤'
                     else:
-                        icon = role.get('icon', '👤')
+                        icon = role.get('icon') or '👤'
                     
                     if icon not in role_icons:
                         role_icons.append(icon)
@@ -1041,29 +1064,29 @@ class AdminManagementHandler(BaseAdminHandler):
                 callback_data=f"remove_{user_id_str}"
             )])
         
-        keyboard.append([InlineKeyboardButton(t("menu.buttons.back", get_user_lang(update, context, self.db) or 'fa'), callback_data="manage_admins")])
+        keyboard.append([InlineKeyboardButton(t("menu.buttons.back", await get_user_lang(update, context, self.db) or 'fa'), callback_data="manage_admins")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         await query.edit_message_text(
             t("admin.admin_mgmt.remove.select_admin", lang),
             reply_markup=reply_markup
         )
         
-        return ADMIN_MENU
+        return REMOVE_ADMIN_ID
     
-    async def remove_admin_confirmed(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def remove_admin_confirmed(self, update: Update, context: CustomContext):
         """تایید و حذف ادمین - با تایید دوباره"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # اگر remove_ است، نیاز به تایید دوباره دارد
         if query.data.startswith("remove_") and not query.data.startswith("remove_confirm_"):
             admin_id = int(query.data.replace("remove_", ""))
             
             # دریافت اطلاعات ادمین برای نمایش
-            admin_data = self.db.get_admin(admin_id)
+            admin_data = await self.db.get_admin(admin_id)
             display_name = admin_data.get('display_name', f'`{admin_id}`') if admin_data else f'`{admin_id}`'
             
             # ذخیره در context برای استفاده مجدد (جلوگیری از duplicate query)
@@ -1082,7 +1105,7 @@ class AdminManagementHandler(BaseAdminHandler):
             ]
             
             await safe_edit_message_text(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            return ADMIN_MENU
+            return REMOVE_ADMIN_ID
         
         # تایید نهایی - حذف واقعی
         admin_id = int(query.data.replace("remove_confirm_", ""))
@@ -1094,13 +1117,13 @@ class AdminManagementHandler(BaseAdminHandler):
                 t("admin.admin_mgmt.remove.self.body", lang),
                 parse_mode='Markdown'
             )
-        elif self.role_manager.is_admin(admin_id):
+        elif await self.role_manager.is_admin(admin_id):
             # استفاده از داده cached از context (بهینه‌سازی - جلوگیری از duplicate query)
-            admin_data = context.user_data.pop('temp_remove_admin_data', None) or self.db.get_admin(admin_id)
+            admin_data = context.user_data.pop('temp_remove_admin_data', None) or await self.db.get_admin(admin_id)
             display_name = admin_data.get('display_name', f'`{admin_id}`') if admin_data else f'`{admin_id}`'
             # جلوگیری از حذف تنها سوپرادمین سیستم
             if admin_data and any((r if isinstance(r, str) else r.get('name')) == 'super_admin' for r in admin_data.get('roles', [])):
-                all_admins = self._get_cached_admin_list()
+                all_admins = await self._get_cached_admin_list()
                 super_admins = [a for a in all_admins if any((r if isinstance(r, str) else r.get('name')) == 'super_admin' for r in a.get('roles', []))]
                 if len(super_admins) <= 1:
                     await query.edit_message_text(
@@ -1108,12 +1131,14 @@ class AdminManagementHandler(BaseAdminHandler):
                         t("admin.admin_mgmt.remove.super_last.body", lang),
                         parse_mode='Markdown'
                     )
-                    return ADMIN_MENU
+                    return REMOVE_ADMIN_ID
             
-            success = self.db.remove_admin(admin_id)
+            success = await self.db.remove_admin(admin_id)
             if success:
                 # Invalidate cache بعد از حذف ادمین
                 self._invalidate_admin_cache()
+                if hasattr(self, 'role_manager'):
+                    await self.role_manager.clear_user_cache(admin_id)
                 
                 await query.edit_message_text(
                     t("admin.admin_mgmt.remove.success.title", lang) + "\n\n" +
@@ -1123,7 +1148,7 @@ class AdminManagementHandler(BaseAdminHandler):
             else:
                 await query.edit_message_text(t("admin.admin_mgmt.remove.error", lang))
         else:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.edit_message_text(t("admin.admin_mgmt.remove.not_admin", lang))
         
         return await self.admin_menu_return(update, context)
@@ -1136,13 +1161,20 @@ class AdminManagementHandler(BaseAdminHandler):
     
     # ========== Handlers جدید برای UX بهتر ==========
     
-    async def view_all_admins(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def view_all_admins(self, update: Update, context: CustomContext):
         """نمایش کامل تمام ادمین‌ها با جزئیات"""
         query = update.callback_query
         await query.answer()
-        
-        admins = self._get_cached_admin_list()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+
+        user_id = update.effective_user.id
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+
+        # بررسی دسترسی super admin
+        if not await self.role_manager.is_super_admin(user_id):
+            await safe_edit_message_text(query, t("common.no_permission", lang))
+            return ADMIN_MENU
+
+        admins = await self._get_cached_admin_list()
 
         text = "━━━━━━━━━━━━━━━━━━━━\n"
         text += t("admin.admin_mgmt.view_all.title", lang) + "\n"
@@ -1204,16 +1236,23 @@ class AdminManagementHandler(BaseAdminHandler):
             disable_web_page_preview=True
         )
         
-        return ADMIN_MENU
+        return MANAGE_ADMINS
     
-    async def role_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def role_stats(self, update: Update, context: CustomContext):
         """نمایش آمار استفاده از نقش‌ها"""
         query = update.callback_query
         await query.answer()
-        
-        admins = self._get_cached_admin_list()
-        roles = self.role_manager.get_all_roles()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+
+        user_id = update.effective_user.id
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+
+        # بررسی دسترسی super admin
+        if not await self.role_manager.is_super_admin(user_id):
+            await safe_edit_message_text(query, t("common.no_permission", lang))
+            return ADMIN_MENU
+
+        admins = await self._get_cached_admin_list()
+        roles = await self.role_manager.get_all_roles()
         
         # محاسبه آمار
         role_usage = {}
@@ -1246,7 +1285,7 @@ class AdminManagementHandler(BaseAdminHandler):
         text += "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         
         for idx, (role_name, data) in enumerate(sorted_roles, 1):
-            icon = data['icon']
+            icon = data['icon'] or '👤'
             display = data['display_name']
             count = data['count']
             

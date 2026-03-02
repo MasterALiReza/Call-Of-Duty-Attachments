@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول ویرایش اتچمنت (REFACTORED)
 مسئول: ویرایش نام، کد، و تصویر اتچمنت‌ها
@@ -19,23 +20,24 @@ from utils.logger import log_admin_action
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+from core.models.admin_models import AttachmentUpdate
 
 
 class EditAttachmentHandler(BaseAdminHandler):
     """Handler برای ویرایش اتچمنت - Mode First Flow"""
     
     @log_admin_action("edit_attachment_start")
-    async def edit_attachment_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_start(self, update: Update, context: CustomContext):
         """شروع فرآیند ویرایش اتچمنت - انتخاب Mode"""
         query = update.callback_query
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # پاک کردن navigation stack
         self._clear_navigation(context)
         
         # فیلتر کردن modeها بر اساس دسترسی کاربر
         user_id = update.effective_user.id
-        allowed_modes = self.role_manager.get_mode_permissions(user_id)
+        allowed_modes = await self.role_manager.get_mode_permissions(user_id)
         
         # اگر هیچ دسترسی ندارد
         if not allowed_modes:
@@ -43,15 +45,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             return await self.admin_menu_return(update, context)
         
         # انتخاب Mode (BR/MP) - فقط modeهای مجاز
-        keyboard = []
-        mode_buttons = []
-        # ترتیب: BR راست، MP چپ
-        if 'br' in allowed_modes:
-            mode_buttons.append(InlineKeyboardButton(f"{t('mode.br', lang)} ({t('mode.br_short', lang)})", callback_data="eam_br"))
-        if 'mp' in allowed_modes:
-            mode_buttons.append(InlineKeyboardButton(f"{t('mode.mp', lang)} ({t('mode.mp_short', lang)})", callback_data="eam_mp"))
-        if mode_buttons:
-            keyboard.append(mode_buttons)
+        keyboard = self._make_mode_selection_keyboard("emode_", lang, allowed_modes)
         
         keyboard.append([InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="admin_cancel")])
         
@@ -65,11 +59,11 @@ class EditAttachmentHandler(BaseAdminHandler):
         return EDIT_ATTACHMENT_MODE
     
     @log_admin_action("edit_attachment_mode_selected")
-    async def edit_attachment_mode_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_mode_selected(self, update: Update, context: CustomContext):
         """انتخاب Mode (BR/MP) برای ویرایش - سپس نمایش Categories"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if query.data == "admin_cancel":
             return await self.admin_menu_return(update, context)
@@ -78,11 +72,11 @@ class EditAttachmentHandler(BaseAdminHandler):
             # بازگشت به لیست modeها
             return await self.edit_attachment_start(update, context)
         
-        mode = query.data.replace("eam_", "")  # br یا mp
+        mode = query.data.replace("emode_", "")  # br یا mp
         
         # بررسی دسترسی به mode انتخاب شده
         user_id = update.effective_user.id
-        allowed_modes = self.role_manager.get_mode_permissions(user_id)
+        allowed_modes = await self.role_manager.get_mode_permissions(user_id)
         
         if mode not in allowed_modes:
             await query.answer(t("common.no_permission", lang), show_alert=True)
@@ -96,7 +90,10 @@ class EditAttachmentHandler(BaseAdminHandler):
         
         # فیلتر کردن دسته‌های فعال برای mode انتخاب شده
         from config.config import build_category_keyboard, is_category_enabled
-        active_categories = {k: v for k, v in WEAPON_CATEGORIES.items() if is_category_enabled(k, mode)}
+        active_categories = {}
+        for k, v in WEAPON_CATEGORIES.items():
+            if await is_category_enabled(k, mode, self.db):
+                active_categories[k] = v
         
         if not active_categories:
             await safe_edit_message_text(
@@ -106,7 +103,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             return EDIT_ATTACHMENT_MODE
         
         # ساخت کیبورد 2 ستونی برای Categories فعال
-        keyboard = build_category_keyboard(active_categories, "eac_")
+        keyboard = await build_category_keyboard(callback_prefix="ecat_", active_ids=list(active_categories.keys()), lang=lang)
         self._add_back_cancel_buttons(keyboard, show_back=True)
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -119,11 +116,11 @@ class EditAttachmentHandler(BaseAdminHandler):
         return EDIT_ATTACHMENT_CATEGORY
     
     @log_admin_action("edit_attachment_category_selected")
-    async def edit_attachment_category_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_category_selected(self, update: Update, context: CustomContext):
         """انتخاب دسته برای ویرایش اتچمنت - سپس نمایش Weapons"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if query.data == "admin_cancel":
             return await self.admin_menu_return(update, context)
@@ -138,35 +135,35 @@ class EditAttachmentHandler(BaseAdminHandler):
             'edit_att_mode': context.user_data.get('edit_att_mode')
         })
         
-        category = query.data.replace("eac_", "")
+        category = query.data.replace("ecat_", "")
         context.user_data['edit_att_category'] = category
         
-        weapons = self.db.get_weapons_in_category(category)
+        weapons = await self.db.get_weapons_in_category(category)
         mode = context.user_data.get('edit_att_mode', 'br')
         mode_name = GAME_MODES.get(mode, mode)
         
         if not weapons:
             await safe_edit_message_text(
                 query,
-                t("admin.weapons.path", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category)) + "\n\n" + t("admin.weapons.none_in_category", lang)
+                t("admin.weapons.path", lang, mode=mode_name, category=t(f"category.{category}", 'en')) + "\n\n" + t("admin.weapons.none_in_category", lang)
             )
             return await self.admin_menu_return(update, context)
         
         # ساخت keyboard با تعداد ستون‌های متغیر برای سلاح‌ها
-        keyboard = self._make_weapon_keyboard(weapons, "eaw_", category)
+        keyboard = self._make_weapon_keyboard(weapons, "ewpn_", category)
         self._add_back_cancel_buttons(keyboard, show_back=True)
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         await safe_edit_message_text(
             query,
-            t("admin.weapons.path", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category)) + "\n\n" + t("weapon.choose", lang),
+            t("admin.weapons.path", lang, mode=mode_name, category=t(f"category.{category}", 'en')) + "\n\n" + t("weapon.choose", lang),
             reply_markup=reply_markup
         )
         
         return EDIT_ATTACHMENT_WEAPON
     
     @log_admin_action("edit_attachment_weapon_selected")
-    async def edit_attachment_weapon_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_weapon_selected(self, update: Update, context: CustomContext):
         """انتخاب سلاح برای ویرایش - مستقیم نمایش لیست Attachments"""
         query = update.callback_query
         await query.answer()
@@ -181,7 +178,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             mode_name = GAME_MODES.get(mode, mode)
             
             from config.config import build_category_keyboard
-            keyboard = build_category_keyboard(WEAPON_CATEGORIES, "eac_")
+            keyboard = await build_category_keyboard(callback_prefix="ecat_", active_ids=list(WEAPON_CATEGORIES.keys()))
             self._add_back_cancel_buttons(keyboard, show_back=True)
             
             await safe_edit_message_text(
@@ -197,27 +194,27 @@ class EditAttachmentHandler(BaseAdminHandler):
             'edit_att_category': context.user_data.get('edit_att_category')
         })
         
-        weapon = query.data.replace("eaw_", "")
+        weapon = query.data.replace("ewpn_", "")
         context.user_data['edit_att_weapon'] = weapon
         
         # مستقیماً به لیست اتچمنت‌ها برویم
         return await self._edit_attachment_list_menu(update, context)
     
-    async def _edit_attachment_list_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _edit_attachment_list_menu(self, update: Update, context: CustomContext):
         """ساخت و نمایش لیست اتچمنت‌ها برای انتخاب جهت ویرایش"""
         category = context.user_data['edit_att_category']
         weapon = context.user_data['edit_att_weapon']
         mode = context.user_data.get('edit_att_mode', 'br')
         mode_name = GAME_MODES.get(mode, mode)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
-        attachments = self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
         query = update.callback_query
         
         if not attachments:
             await safe_edit_message_text(
                 query,
-                t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n" + t("attachment.none", lang)
+                t("admin.weapons.path_weapon", lang, mode=mode_name, category=t(f"category.{category}", 'en'), weapon=weapon) + "\n\n" + t("attachment.none", lang)
             )
             return await self.admin_menu_return(update, context)
         
@@ -225,22 +222,22 @@ class EditAttachmentHandler(BaseAdminHandler):
         for att in attachments:
             # فقط نام نمایش داده میشه، ID برای callback استفاده میشه
             button_text = f"{att['name']}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"eas_{att['id']}")])
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"edatt_{att['id']}")])
         self._add_back_cancel_buttons(keyboard, show_back=True)
         
         await safe_edit_message_text(
             query,
-            t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n" + t("admin.edit.choose_attachment", lang),
+            t("admin.weapons.path_weapon", lang, mode=mode_name, category=t(f"category.{category}", 'en'), weapon=weapon) + "\n\n" + t("admin.edit.choose_attachment", lang),
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return EDIT_ATTACHMENT_SELECT
     
     @log_admin_action("edit_attachment_selected")
-    async def edit_attachment_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_selected(self, update: Update, context: CustomContext):
         """انتخاب اتچمنت و شروع ویرایش (با ID)"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if query.data == "admin_cancel":
             return await self.admin_menu_return(update, context)
@@ -256,14 +253,14 @@ class EditAttachmentHandler(BaseAdminHandler):
         })
         
         # دریافت ID از callback
-        att_id = int(query.data.replace("eas_", ""))
+        att_id = int(query.data.replace("edatt_", ""))
         
         # پیدا کردن code از روی ID
         category = context.user_data['edit_att_category']
         weapon = context.user_data['edit_att_weapon']
         mode = context.user_data.get('edit_att_mode', 'br')
         
-        attachments = self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
         selected_att = next((att for att in attachments if att['id'] == att_id), None)
         
         if not selected_att:
@@ -275,30 +272,30 @@ class EditAttachmentHandler(BaseAdminHandler):
         return await self.edit_attachment_action_menu(update, context)
     
     @log_admin_action("edit_attachment_action_menu")
-    async def edit_attachment_action_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_action_menu(self, update: Update, context: CustomContext):
         """نمایش منوی عملیات ویرایش برای یک اتچمنت"""
         category = context.user_data['edit_att_category']
         weapon = context.user_data['edit_att_weapon']
         mode = context.user_data.get('edit_att_mode', 'br')
         mode_name = GAME_MODES.get(mode, mode)
         att_id = context.user_data.get('edit_att_id')
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # پیدا کردن نام اتچمنت از روی ID
-        attachments = self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
         selected_att = next((att for att in attachments if att['id'] == att_id), None)
         att_name = selected_att['name'] if selected_att else t("common.unknown", lang)
         
         text = (
-            t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n"
+            t("admin.weapons.path_weapon", lang, mode=mode_name, category=t(f"category.{category}", 'en'), weapon=weapon) + "\n\n"
             + t("admin.edit.title", lang) + "\n\n"
             + t("admin.edit.selected_name", lang, name=att_name) + "\n\n"
             + t("admin.edit.choose_action", lang)
         )
         keyboard = [
-            [InlineKeyboardButton(t("admin.edit.buttons.edit_name", lang), callback_data="eaa_name")],
-            [InlineKeyboardButton(t("admin.edit.buttons.edit_code", lang), callback_data="eaa_code")],
-            [InlineKeyboardButton(t("admin.edit.buttons.edit_image", lang), callback_data="eaa_image")]
+            [InlineKeyboardButton(t("admin.edit.buttons.edit_name", lang), callback_data="edact_name")],
+            [InlineKeyboardButton(t("admin.edit.buttons.edit_code", lang), callback_data="edact_code")],
+            [InlineKeyboardButton(t("admin.edit.buttons.edit_image", lang), callback_data="edact_image")]
         ]
         # استفاده از helper method برای consistency
         self._add_back_cancel_buttons(keyboard, show_back=True)
@@ -322,12 +319,12 @@ class EditAttachmentHandler(BaseAdminHandler):
         return EDIT_ATTACHMENT_ACTION
     
     @log_admin_action("edit_attachment_action_selected")
-    async def edit_attachment_action_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_action_selected(self, update: Update, context: CustomContext):
         """پردازش انتخاب عملیات ویرایش اتچمنت"""
         query = update.callback_query
         await query.answer()
         data = query.data
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # بررسی دکمه‌های خاص
         if data == "admin_cancel":
@@ -337,7 +334,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             # بازگشت به لیست اتچمنت‌ها با استفاده از navigation stack
             return await self.handle_navigation_back(update, context)
         
-        if data == "eaa_name":
+        if data == "edact_name":
             # ذخیره state فعلی قبل از رفتن به state جدید
             self._push_navigation(context, EDIT_ATTACHMENT_ACTION, {
                 'edit_att_mode': context.user_data.get('edit_att_mode'),
@@ -362,7 +359,7 @@ class EditAttachmentHandler(BaseAdminHandler):
                 reply_markup=ReplyKeyboardRemove()
             )
             return EDIT_ATTACHMENT_NAME
-        elif data == "eaa_image":
+        elif data == "edact_image":
             # ذخیره state فعلی
             self._push_navigation(context, EDIT_ATTACHMENT_ACTION, {
                 'edit_att_mode': context.user_data.get('edit_att_mode'),
@@ -370,10 +367,10 @@ class EditAttachmentHandler(BaseAdminHandler):
                 'edit_att_weapon': context.user_data.get('edit_att_weapon'),
                 'edit_att_code': context.user_data.get('edit_att_code')
             })
-            keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="eaa_menu")]]
+            keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="edact_menu")]]
             await safe_edit_message_text(query, t("admin.edit.image.prompt", lang), reply_markup=InlineKeyboardMarkup(keyboard))
             return EDIT_ATTACHMENT_IMAGE
-        elif data == "eaa_code":
+        elif data == "edact_code":
             # ذخیره state فعلی
             self._push_navigation(context, EDIT_ATTACHMENT_ACTION, {
                 'edit_att_mode': context.user_data.get('edit_att_mode'),
@@ -396,7 +393,7 @@ class EditAttachmentHandler(BaseAdminHandler):
                 reply_markup=ReplyKeyboardRemove()
             )
             return EDIT_ATTACHMENT_CODE
-        elif data == "eaa_menu":
+        elif data == "edact_menu":
             # خروج از مرحله ورودی تصویر: sentinel مربوط به ACTION را pop کنیم
             try:
                 self._pop_navigation(context)
@@ -407,11 +404,11 @@ class EditAttachmentHandler(BaseAdminHandler):
             return EDIT_ATTACHMENT_ACTION
     
     @log_admin_action("edit_attachment_name_received")
-    async def edit_attachment_name_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_name_received(self, update: Update, context: CustomContext):
         """ویرایش نام اتچمنت"""
         import logging
         logger = logging.getLogger(__name__)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         try:
             new_name = update.message.text.strip()
@@ -427,24 +424,60 @@ class EditAttachmentHandler(BaseAdminHandler):
             # پیدا کردن نام قبلی برای اعلان
             old_name = None
             try:
-                for att in self.db.get_all_attachments(category, weapon, mode=mode):
+                for att in await self.db.get_all_attachments(category, weapon, mode=mode):
                     if att.get('code') == code:
                         old_name = att.get('name')
                         break
             except Exception as e:
                 logger.error(f"Error getting old name: {e}")
             
-            ok = self.db.update_attachment(category, weapon, code, new_name=new_name, new_image=None, mode=mode)
+            # ✅ Pydantic Validation before update
+            try:
+                # Get current attachment to fill missing fields for Pydantic
+                current_att = None
+                for att in await self.db.get_all_attachments(category, weapon, mode=mode):
+                    if att.get('code') == code:
+                        current_att = att
+                        break
+                
+                if current_att:
+                    # Validate update
+                    AttachmentUpdate(
+                        id=current_att['id'],
+                        name=new_name,
+                        weapon_id=current_att.get('weapon_id', 1),
+                        code=current_att.get('code', code),
+                        mode=mode,
+                        is_top=current_att.get('is_top', False),
+                        is_season_top=current_att.get('is_season_top', False),
+                        image_file_id=current_att.get('image_url')
+                    )
+            except Exception as e:
+                logger.error(f"Validation failed: {e}")
+                await update.message.reply_text(f"❌ Validation Error: {str(e)}")
+                return await self.admin_menu_return(update, context)
+
+            ok = await self.db.update_attachment(category, weapon, code, new_name=new_name, new_image=None, mode=mode)
             
             if ok:
+                # ✅ DB Audit Logging
+                await self.audit.log_action(
+                    admin_id=update.effective_user.id,
+                    action="UPDATE_ATTACHMENT_NAME",
+                    target_id=str(current_att['id'] if current_att else code),
+                    details={
+                        "target_type": "attachment",
+                        "old_name": old_name,
+                        "new_name": new_name,
+                        "code": code,
+                        "weapon": weapon,
+                        "mode": mode
+                    }
+                )
                 # پاک کردن cache برای اطمینان از نمایش نام جدید
                 try:
-                    from core.cache.cache_manager import get_cache
-                    cache = get_cache()
-                    # پاک کردن تمام cache های مربوط به این سلاح
-                    cache.invalidate_pattern(f"_{category}_{weapon}")
-                    cache.invalidate_pattern(f"get_all_attachments")
-                    cache.invalidate_pattern(f"get_weapon_attachments")
+                    from core.cache.cache_manager import invalidate_attachment_caches
+                    await invalidate_attachment_caches(category, weapon)
                 except Exception:
                     pass  # در صورت خطا فقط نادیده می‌گیریم
                 
@@ -471,10 +504,10 @@ class EditAttachmentHandler(BaseAdminHandler):
             return await self.admin_menu_return(update, context)
     
     @log_admin_action("edit_attachment_image_received")
-    async def edit_attachment_image_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_image_received(self, update: Update, context: CustomContext):
         """ویرایش عکس اتچمنت"""
         # بازگشت بدون تغییر
-        if update.callback_query and update.callback_query.data in ("skip_edit_image", "eaa_menu"):
+        if update.callback_query and update.callback_query.data in ("skip_edit_image", "edact_menu"):
             await update.callback_query.answer()
             # خروج از مرحله ورودی تصویر: sentinel مربوط به ACTION را pop کنیم
             try:
@@ -483,23 +516,29 @@ class EditAttachmentHandler(BaseAdminHandler):
                 pass
             return await self.edit_attachment_action_menu(update, context)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         # دریافت تصویر
         if update.message and update.message.photo:
-            new_image = update.message.photo[-1].file_id
+            photo = update.message.photo[-1]
+            
+            from utils.validators_enhanced import AttachmentValidator
+            result = AttachmentValidator.validate_image(file_size=getattr(photo, 'file_size', 0))
+            if not result.is_valid:
+                error_msg = t(result.error_key, lang, **(result.error_details or {}))
+                await update.message.reply_text(error_msg)
+                return EDIT_ATTACHMENT_IMAGE
+                
+            new_image = photo.file_id
             category = context.user_data['edit_att_category']
             weapon = context.user_data['edit_att_weapon']
             mode = context.user_data.get('edit_att_mode', 'br')
             code = context.user_data['edit_att_code']
-            ok = self.db.update_attachment(category, weapon, code, new_name=None, new_image=new_image, mode=mode)
+            ok = await self.db.update_attachment(category, weapon, code, new_name=None, new_image=new_image, mode=mode)
             if ok:
                 # پاک کردن cache
                 try:
-                    from core.cache.cache_manager import get_cache
-                    cache = get_cache()
-                    cache.invalidate_pattern(f"_{category}_{weapon}")
-                    cache.invalidate_pattern(f"get_all_attachments")
-                    cache.invalidate_pattern(f"get_weapon_attachments")
+                    from core.cache.cache_manager import invalidate_attachment_caches
+                    await invalidate_attachment_caches(category, weapon)
                 except Exception:
                     pass
                 
@@ -507,7 +546,7 @@ class EditAttachmentHandler(BaseAdminHandler):
                 # اعلان خودکار
                 name = None
                 try:
-                    for att in self.db.get_all_attachments(category, weapon, mode=mode):
+                    for att in await self.db.get_all_attachments(category, weapon, mode=mode):
                         if att.get('code') == code:
                             name = att.get('name')
                             break
@@ -526,11 +565,11 @@ class EditAttachmentHandler(BaseAdminHandler):
             return EDIT_ATTACHMENT_IMAGE
     
     @log_admin_action("edit_attachment_code_received")
-    async def edit_attachment_code_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def edit_attachment_code_received(self, update: Update, context: CustomContext):
         """ویرایش کد اتچمنت"""
         import logging
         logger = logging.getLogger(__name__)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         try:
             new_code = update.message.text.strip()
@@ -546,22 +585,19 @@ class EditAttachmentHandler(BaseAdminHandler):
             # نام را برای پیام بیابیم
             name = None
             try:
-                for att in self.db.get_all_attachments(category, weapon, mode=mode):
+                for att in await self.db.get_all_attachments(category, weapon, mode=mode):
                     if att.get('code', '').upper() == old_code.upper():
                         name = att.get('name')
                         break
             except Exception:
                 pass
             
-            ok = self.db.update_attachment_code(category, weapon, old_code, new_code, mode)
+            ok = await self.db.update_attachment_code(category, weapon, old_code, new_code, mode)
             if ok:
                 # پاک کردن cache
                 try:
-                    from core.cache.cache_manager import get_cache
-                    cache = get_cache()
-                    cache.invalidate_pattern(f"_{category}_{weapon}")
-                    cache.invalidate_pattern(f"get_all_attachments")
-                    cache.invalidate_pattern(f"get_weapon_attachments")
+                    from core.cache.cache_manager import invalidate_attachment_caches
+                    await invalidate_attachment_caches(category, weapon)
                 except Exception:
                     pass
                     
@@ -583,21 +619,16 @@ class EditAttachmentHandler(BaseAdminHandler):
             await update.message.reply_text(t("error.generic", lang))
             return await self.admin_menu_return(update, context)
     
-    async def _rebuild_state_screen(self, update: Update, context: ContextTypes.DEFAULT_TYPE, state: int):
+    async def _rebuild_state_screen(self, update: Update, context: CustomContext, state: int):
         """بازسازی صفحه برای هر state"""
         query = update.callback_query
-        
         if state == EDIT_ATTACHMENT_MODE:
             # بازگشت به لیست modeها
             user_id = update.effective_user.id
-            allowed_modes = self.role_manager.get_mode_permissions(user_id)
-            lang = get_user_lang(update, context, self.db) or 'fa'
-            keyboard = []
-            # ترتیب: BR راست، MP چپ
-            if 'br' in allowed_modes:
-                keyboard.append([InlineKeyboardButton(f"{t('mode.br', lang)} ({t('mode.br_short', lang)})", callback_data="eam_br")])
-            if 'mp' in allowed_modes:
-                keyboard.append([InlineKeyboardButton(f"{t('mode.mp', lang)} ({t('mode.mp_short', lang)})", callback_data="eam_mp")])
+            allowed_modes = await self.role_manager.get_mode_permissions(user_id)
+            lang = await get_user_lang(update, context, self.db) or 'fa'
+            
+            keyboard = self._make_mode_selection_keyboard("emode_", lang, allowed_modes)
             keyboard.append([InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="admin_cancel")])
             
             await safe_edit_message_text(
@@ -610,10 +641,10 @@ class EditAttachmentHandler(BaseAdminHandler):
             # بازگشت به لیست دسته‌ها
             mode = context.user_data.get('edit_att_mode', 'br')
             mode_name = GAME_MODES.get(mode, mode)
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             
             from config.config import build_category_keyboard
-            keyboard = build_category_keyboard(WEAPON_CATEGORIES, "eac_")
+            keyboard = await build_category_keyboard(callback_prefix="ecat_", active_ids=list(WEAPON_CATEGORIES.keys()))
             self._add_back_cancel_buttons(keyboard, show_back=True)
             
             await safe_edit_message_text(
@@ -627,15 +658,15 @@ class EditAttachmentHandler(BaseAdminHandler):
             mode = context.user_data.get('edit_att_mode', 'br')
             category = context.user_data.get('edit_att_category')
             mode_name = GAME_MODES.get(mode, mode)
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             
             if category:
-                weapons = self.db.get_weapons_in_category(category)
-                keyboard = self._make_weapon_keyboard(weapons, "eaw_", category)
+                weapons = await self.db.get_weapons_in_category(category)
+                keyboard = self._make_weapon_keyboard(weapons, "ewpn_", category)
                 self._add_back_cancel_buttons(keyboard, show_back=True)
                 await safe_edit_message_text(
                     query,
-                    t("admin.weapons.path", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category)) + "\n\n" + t("weapon.choose", lang),
+                    t("admin.weapons.path", lang, mode=mode_name, category=t(f"category.{category}", 'en')) + "\n\n" + t("weapon.choose", lang),
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
         
@@ -647,7 +678,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             # بازگشت به منوی عملیات
             await self.edit_attachment_action_menu(update, context)
     
-    async def _auto_notify(self, context: ContextTypes.DEFAULT_TYPE, event: str, payload: dict):
+    async def _auto_notify(self, context: CustomContext, event: str, payload: dict):
         """ارسال اعلان خودکار"""
         try:
             from managers.notification_manager import NotificationManager

@@ -1,0 +1,19 @@
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+check_untyped_defs = true
+
+# PEP 484 implicit optional fallback - allowing gradual typing 
+# instead of erroring on all 3300 implicit optionals at once
+no_implicit_optional = false
+
+# Ignore specific legacy modules until fully typed
+[[tool.mypy.overrides]]
+module = "scripts.legacy.*"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"

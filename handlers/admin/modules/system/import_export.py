@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول Import/Export داده
 مسئول: ورود و خروج داده از دیتابیس
@@ -8,7 +9,7 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.admin.modules.base_handler import BaseAdminHandler
-from handlers.admin.admin_states import IMPORT_FILE, IMPORT_MODE, EXPORT_TYPE
+from handlers.admin.admin_states import IMPORT_FILE, IMPORT_MODE, EXPORT_START
 from utils.logger import log_admin_action, log_exception, get_logger
 from utils.telegram_safety import safe_edit_message_text
 
@@ -19,14 +20,14 @@ class ImportExportHandler(BaseAdminHandler):
     """Handler برای Import/Export داده"""
     
     @log_admin_action("import_start")
-    async def import_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def import_start(self, update: Update, context: CustomContext):
         """شروع import دیتا"""
         query = update.callback_query
         await query.answer()
         
         # بررسی دسترسی
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         
         if Permission.IMPORT_EXPORT not in user_permissions:
             await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
@@ -48,8 +49,15 @@ class ImportExportHandler(BaseAdminHandler):
         return IMPORT_FILE
     
     @log_admin_action("import_file_received")
-    async def import_file_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def import_file_received(self, update: Update, context: CustomContext):
         """دریافت فایل import"""
+        user_id = update.effective_user.id
+        # بررسی دسترسی
+        from core.security.role_manager import Permission
+        if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+            await update.message.reply_text("❌ شما دسترسی Import/Export ندارید.")
+            return await self.admin_menu_return(update, context)
+
         if not update.message.document:
             await update.message.reply_text("❌ لطفاً یک فایل ارسال کنید.")
             return await self.admin_menu_return(update, context)
@@ -71,45 +79,22 @@ class ImportExportHandler(BaseAdminHandler):
             from managers.backup_manager import BackupManager
             backup_mgr = BackupManager(self.db)
             
-            # اگر فایل SQL است، restore PostgreSQL کن
+            # اگر فایل SQL است، از ماژول سلامت برای بازیابی ایمن استفاده کنید
             if temp_file.endswith('.sql'):
-                import subprocess
-                import os as os_env
-                
-                pg_host = os_env.environ.get('POSTGRES_HOST', 'localhost')
-                pg_user = os_env.environ.get('POSTGRES_USER', '')
-                pg_db = os_env.environ.get('POSTGRES_DB', '')
-                pg_pass = os_env.environ.get('POSTGRES_PASSWORD', '')
-                
-                env = os_env.environ.copy()
-                env['PGPASSWORD'] = pg_pass
-                
-                result = subprocess.run(
-                    ['psql', '-h', pg_host, '-U', pg_user, '-d', pg_db, '-f', temp_file],
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=300
+                await update.message.reply_text(
+                    "💾 **بازیابی دیتابیس شناسایی شد**\n\n"
+                    "برای بازیابی ایمن و سازگار با ویندوز، لطفاً از منوی:\n"
+                    "**سلامت داده -> رفع مشکلات فنی -> بازگردانی بکاپ**\n"
+                    "استفاده کنید. این بخش (Import) برای فایل‌های JSON/ZIP طراحی شده است.",
+                    parse_mode='Markdown'
                 )
-                
-                # حذف فایل موقت
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
-                
-                if result.returncode == 0 or 'ERROR' not in result.stderr:
-                    await update.message.reply_text(
-                        "✅ بازیابی دیتابیس PostgreSQL با موفقیت انجام شد.\n"
-                        "🔄 لطفاً ربات را ری‌استارت کنید:\n"
-                        "`sudo systemctl restart codm-bot`",
-                        parse_mode='Markdown'
-                    )
-                else:
-                    await update.message.reply_text(f"❌ خطا در بازیابی: {result.stderr[:200]}")
                 return await self.admin_menu_return(update, context)
             
             # اگر فایل ZIP است، restore کن
             elif temp_file.endswith('.zip'):
-                result = backup_mgr.restore_from_backup(temp_file)
+                result = await backup_mgr.restore_from_backup(temp_file)
                 if result:
                     await update.message.reply_text(
                         "✅ بازیابی از backup با موفقیت انجام شد.\n"
@@ -143,11 +128,17 @@ class ImportExportHandler(BaseAdminHandler):
         return await self.admin_menu_return(update, context)
     
     @log_admin_action("import_mode_selected")
-    async def import_mode_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def import_mode_selected(self, update: Update, context: CustomContext):
         """انتخاب نحوه import"""
         query = update.callback_query
         await query.answer()
-        
+
+        user_id = update.effective_user.id
+        from core.security.role_manager import Permission
+        if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+            await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
+            return await self.admin_menu_return(update, context)
+
         if query.data == "admin_cancel":
             temp_file = context.user_data.pop('import_temp_file', None)
             if temp_file and os.path.exists(temp_file):
@@ -167,7 +158,7 @@ class ImportExportHandler(BaseAdminHandler):
             
             await safe_edit_message_text(query, "⏳ در حال import دیتا...")
             
-            result = backup_mgr.import_from_json(temp_file, merge=merge)
+            result = await backup_mgr.import_from_json(temp_file, merge=merge)
             
             if result:
                 mode = "افزودن" if merge else "جایگزینی"
@@ -188,14 +179,14 @@ class ImportExportHandler(BaseAdminHandler):
         return await self.admin_menu_return(update, context)
     
     @log_admin_action("export_start")
-    async def export_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def export_start(self, update: Update, context: CustomContext):
         """شروع export دیتا با گزینه‌های مختلف"""
         query = update.callback_query
         await query.answer()
         
         # بررسی دسترسی
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         
         if Permission.IMPORT_EXPORT not in user_permissions:
             await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
@@ -220,14 +211,20 @@ class ImportExportHandler(BaseAdminHandler):
             parse_mode='Markdown'
         )
         
-        return EXPORT_TYPE
+        return EXPORT_START
     
     @log_admin_action("export_type_selected")
-    async def export_type_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def export_type_selected(self, update: Update, context: CustomContext):
         """انتخاب نوع export"""
         query = update.callback_query
         await query.answer()
-        
+
+        user_id = update.effective_user.id
+        from core.security.role_manager import Permission
+        if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+            await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
+            return await self.admin_menu_return(update, context)
+
         if query.data == "admin_cancel":
             return await self.admin_menu_return(update, context)
         
@@ -241,11 +238,11 @@ class ImportExportHandler(BaseAdminHandler):
             caption = ""
             
             if query.data == "export_json":
-                export_file = backup_mgr.export_to_json()
+                export_file = await backup_mgr.export_to_json()
                 caption = "📦 Export دیتابیس (JSON)\n\n✅ قابل import مجدد در ربات"
                 
             elif query.data == "export_csv":
-                export_dir = backup_mgr.export_to_csv()
+                export_dir = await backup_mgr.export_to_csv()
                 if export_dir:
                     # Create ZIP from CSV files
                     import zipfile
@@ -261,7 +258,7 @@ class ImportExportHandler(BaseAdminHandler):
                     caption = "📊 Export دیتابیس (CSV)\n\n✅ قابل استفاده در Excel"
                 
             elif query.data == "export_backup":
-                export_file = backup_mgr.create_full_backup()
+                export_file = await backup_mgr.create_full_backup()
                 caption = "🗄️ Backup کامل دیتابیس\n\n✅ شامل همه فایل‌ها و تنظیمات"
             
             if export_file and os.path.exists(export_file):

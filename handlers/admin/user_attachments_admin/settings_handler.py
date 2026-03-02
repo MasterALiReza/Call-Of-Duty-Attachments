@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 Settings Handler - تنظیمات سیستم اتچمنت کاربران
 """
@@ -17,34 +18,34 @@ db = get_database_adapter()
 # RBAC helper
 role_manager = RoleManager(db)
 
-def has_ua_perm(user_id: int) -> bool:
+async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
     try:
-        if role_manager.is_super_admin(user_id):
+        if await role_manager.is_super_admin(user_id):
             return True
-        return role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
+        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
     except Exception:
-        return db.is_admin(user_id)
+        return await db.is_admin(user_id)
 
 # States برای مدیریت blacklist
 ADD_BLACKLIST_WORD, REMOVE_BLACKLIST_WORD = range(2)
 
 
-async def show_ua_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_ua_settings(update: Update, context: CustomContext):
     """نمایش تنظیمات سیستم"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     try:
         # دریافت تنظیمات
         settings = {}
-        all_settings = db.get_all_user_attachment_settings()
+        all_settings = await db.get_all_user_attachment_settings()
         for setting in all_settings:
             settings[setting['setting_key']] = setting['setting_value']
     except Exception as e:
@@ -112,21 +113,21 @@ async def show_ua_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def toggle_system(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def toggle_system(update: Update, context: CustomContext):
     """فعال/غیرفعال کردن کل سیستم"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     try:
-        current_value = db.get_ua_setting('system_enabled')
+        current_value = await db.get_ua_setting('system_enabled')
         new_value = '0' if current_value == '1' else '1'
-        db.set_user_attachment_setting('system_enabled', new_value, user_id)
+        await db.set_user_attachment_setting('system_enabled', new_value, user_id)
         
         status_word = t('common.enabled_word', lang) if new_value == '1' else t('common.disabled_word', lang)
         await query.answer(t('admin.ua.settings.system.toggled', lang, status=status_word), show_alert=True)
@@ -135,18 +136,18 @@ async def toggle_system(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_ua_settings(update, context)
         
     except Exception as e:
-        logger.error(f"Error toggling system: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
-async def toggle_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def toggle_mode(update: Update, context: CustomContext):
     """فعال/غیرفعال کردن BR یا MP"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -160,7 +161,7 @@ async def toggle_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # دریافت enabled_modes فعلی
-        enabled_modes_str = db.get_ua_setting('enabled_modes') or '["mp","br"]'
+        enabled_modes_str = await db.get_ua_setting('enabled_modes') or '["mp","br"]'
         enabled_modes = json.loads(enabled_modes_str)
         
         # toggle کردن mode
@@ -173,7 +174,7 @@ async def toggle_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # ذخیره تغییرات
         new_value = json.dumps(enabled_modes)
-        success = db.set_user_attachment_setting('enabled_modes', new_value, user_id)
+        success = await db.set_user_attachment_setting('enabled_modes', new_value, user_id)
         
         if success:
             logger.info(f"Mode {mode} toggled | New modes: {enabled_modes}")
@@ -186,23 +187,23 @@ async def toggle_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_ua_settings(update, context)
         
     except Exception as e:
-        logger.error(f"Error toggling mode: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
-async def show_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_blacklist(update: Update, context: CustomContext):
     """نمایش لیست کلمات ممنوعه"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     try:
-        blacklist = db.get_all_blacklisted_words()
+        blacklist = await db.get_all_blacklisted_words()
     except Exception as e:
         logger.error(f"Error fetching blacklist: {e}")
         blacklist = []
@@ -248,21 +249,21 @@ async def show_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def show_limits_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_limits_settings(update: Update, context: CustomContext):
     """نمایش تنظیمات محدودیت‌ها"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     try:
         # دریافت تنظیمات
         settings = {}
-        all_settings = db.get_all_user_attachment_settings()
+        all_settings = await db.get_all_user_attachment_settings()
         for setting in all_settings:
             settings[setting['setting_key']] = setting['setting_value']
     except Exception as e:
@@ -310,14 +311,14 @@ async def show_limits_settings(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
-async def show_categories_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_categories_settings(update: Update, context: CustomContext):
     """نمایش تنظیمات دسته‌ها"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -335,7 +336,7 @@ async def show_categories_settings(update: Update, context: ContextTypes.DEFAULT
     
     try:
         # دریافت enabled_categories
-        enabled_categories_str = db.get_ua_setting('enabled_categories') or '[]'
+        enabled_categories_str = await db.get_ua_setting('enabled_categories') or '[]'
         enabled_categories = json.loads(enabled_categories_str)
     except Exception as e:
         logger.error(f"Error fetching enabled_categories: {e}")
@@ -389,14 +390,14 @@ async def show_categories_settings(update: Update, context: ContextTypes.DEFAULT
     )
 
 
-async def toggle_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def toggle_category(update: Update, context: CustomContext):
     """فعال/غیرفعال کردن یک دسته"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -405,7 +406,7 @@ async def toggle_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # دریافت enabled_categories فعلی
-        enabled_categories_str = db.get_ua_setting('enabled_categories') or '[]'
+        enabled_categories_str = await db.get_ua_setting('enabled_categories') or '[]'
         enabled_categories = json.loads(enabled_categories_str)
         
         # toggle کردن
@@ -418,7 +419,7 @@ async def toggle_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # ذخیره
         new_value = json.dumps(enabled_categories)
-        success = db.set_user_attachment_setting('enabled_categories', new_value, user_id)
+        success = await db.set_user_attachment_setting('enabled_categories', new_value, user_id)
         
         if success:
             # Force English for category name in toggle message
@@ -431,19 +432,19 @@ async def toggle_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_categories_settings(update, context)
         
     except Exception as e:
-        logger.error(f"Error toggling category: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
 # Handlers برای افزودن و حذف کلمه (placeholder - نیاز به ConversationHandler)
-async def start_add_blacklist_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_add_blacklist_word(update: Update, context: CustomContext):
     """شروع فرآیند افزودن کلمه"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -468,11 +469,11 @@ async def start_add_blacklist_word(update: Update, context: ContextTypes.DEFAULT
     return ADD_BLACKLIST_WORD
 
 
-async def receive_new_blacklist_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def receive_new_blacklist_word(update: Update, context: CustomContext):
     """دریافت کلمه جدید از ادمین (تک یا چند کلمه)"""
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await update.message.reply_text(t('error.unauthorized', lang))
         return ConversationHandler.END
     
@@ -515,7 +516,7 @@ async def receive_new_blacklist_word(update: Update, context: ContextTypes.DEFAU
                 continue
             
             # اضافه کردن به database
-            success = db.add_blacklisted_word(word, 'profanity', severity, user_id)
+            success = await db.add_blacklisted_word(word, 'profanity', severity, user_id)
             
             if success:
                 success_words.append(f"{word} ({severity_names[severity]})")
@@ -561,9 +562,9 @@ async def receive_new_blacklist_word(update: Update, context: ContextTypes.DEFAU
     return ConversationHandler.END
 
 
-async def cancel_blacklist_operation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancel_blacklist_operation(update: Update, context: CustomContext):
     """لغو عملیات"""
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if update.callback_query:
         query = update.callback_query
         await query.answer(t('common.cancelled', lang))
@@ -575,11 +576,11 @@ async def cancel_blacklist_operation(update: Update, context: ContextTypes.DEFAU
 
 
 # تغییر محدودیت‌ها با دکمه‌های از پیش تعریف شده
-async def change_limit_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_limit_daily(update: Update, context: CustomContext):
     """تغییر محدودیت روزانه"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     message = f"{t('admin.ua.limits.title', lang)}\n\n{t('common.choose_value', lang)}"
     keyboard = [
         [InlineKeyboardButton(t('admin.ua.limits.buttons.daily', lang, n=3), callback_data="ua_limit_daily_set_3"),
@@ -592,11 +593,11 @@ async def change_limit_daily(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(message, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def change_limit_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_limit_description(update: Update, context: CustomContext):
     """تغییر طول توضیحات"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     message = f"{t('admin.ua.limits.title', lang)}\n\n{t('common.choose_value', lang)}"
     keyboard = [
         [InlineKeyboardButton(t('admin.ua.limits.buttons.desc', lang, n=50), callback_data="ua_limit_desc_set_50"),
@@ -610,11 +611,11 @@ async def change_limit_description(update: Update, context: ContextTypes.DEFAULT
     await query.edit_message_text(message, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def change_limit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_limit_name(update: Update, context: CustomContext):
     """تغییر طول نام"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     message = f"{t('admin.ua.limits.title', lang)}\n\n{t('common.choose_value', lang)}"
     keyboard = [
         [InlineKeyboardButton(t('admin.ua.limits.buttons.name', lang, n=50), callback_data="ua_limit_name_set_50"),
@@ -626,11 +627,11 @@ async def change_limit_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(message, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def change_limit_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_limit_image(update: Update, context: CustomContext):
     """تغییر حجم تصویر"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     message = f"{t('admin.ua.limits.title', lang)}\n\n{t('common.choose_value', lang)}"
     keyboard = [
         [InlineKeyboardButton(t('admin.ua.limits.buttons.image', lang, mb=2), callback_data="ua_limit_image_set_2097152"),
@@ -642,11 +643,11 @@ async def change_limit_image(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(message, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def change_limit_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_limit_rate(update: Update, context: CustomContext):
     """تغییر Rate Limit"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     message = f"{t('admin.ua.limits.title', lang)}\n\n{t('common.choose_value', lang)}"
     keyboard = [
         [InlineKeyboardButton(t('admin.ua.limits.buttons.rate', lang, requests=3, minutes=5, min_label=t('common.min', lang)), callback_data="ua_limit_rate_set_3_300"),
@@ -658,14 +659,14 @@ async def change_limit_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(message, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def set_limit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def set_limit_value(update: Update, context: CustomContext):
     """ذخیره مقدار جدید محدودیت"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -689,8 +690,8 @@ async def set_limit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
             window = parts[5]
             
             # ذخیره هر دو مقدار
-            success1 = db.set_user_attachment_setting('rate_limit_requests', requests, user_id)
-            success2 = db.set_user_attachment_setting('rate_limit_window', window, user_id)
+            success1 = await db.set_user_attachment_setting('rate_limit_requests', requests, user_id)
+            success2 = await db.set_user_attachment_setting('rate_limit_window', window, user_id)
             
             if success1 and success2:
                 await query.answer("✅ " + t('admin.ua.limits.buttons.rate', lang, requests=requests, minutes=int(window)/60, min_label=t('common.min', lang)), show_alert=True)
@@ -715,7 +716,7 @@ async def set_limit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # ذخیره در database
-            success = db.set_user_attachment_setting(setting_key, new_value, user_id)
+            success = await db.set_user_attachment_setting(setting_key, new_value, user_id)
             
             if success:
                 if limit_type == 'image':
@@ -732,31 +733,31 @@ async def set_limit_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.answer(t('error.generic', lang), show_alert=True)
                 
     except Exception as e:
-        logger.error(f"Error setting limit: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
-async def start_remove_blacklist_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_remove_blacklist_word(update: Update, context: CustomContext):
     """شروع فرآیند حذف کلمه"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return ConversationHandler.END
     
     # دریافت لیست کلمات
     try:
-        blacklist = db.get_all_blacklisted_words()
+        blacklist = await db.get_all_blacklisted_words()
         if not blacklist:
             await query.answer(t('admin.ua.blacklist.empty_title', lang), show_alert=True)
             await show_blacklist(update, context)
             return ConversationHandler.END
     except Exception as e:
-        logger.error(f"Error fetching blacklist: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
         return ConversationHandler.END
     
     message = (
@@ -781,11 +782,11 @@ async def start_remove_blacklist_word(update: Update, context: ContextTypes.DEFA
     return REMOVE_BLACKLIST_WORD
 
 
-async def receive_word_to_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def receive_word_to_remove(update: Update, context: CustomContext):
     """دریافت کلمه برای حذف"""
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await update.message.reply_text(t('error.unauthorized', lang))
         return ConversationHandler.END
     
@@ -793,7 +794,7 @@ async def receive_word_to_remove(update: Update, context: ContextTypes.DEFAULT_T
     
     try:
         # پیدا کردن ID کلمه
-        blacklist = db.get_all_blacklisted_words()
+        blacklist = await db.get_all_blacklisted_words()
         word_entry = next((w for w in blacklist if w['word'].lower() == word.lower()), None)
         
         if not word_entry:

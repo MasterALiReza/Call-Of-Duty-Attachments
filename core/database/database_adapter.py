@@ -1,29 +1,24 @@
 import os
 from enum import Enum
-from typing import Optional, Union
+import threading
+from typing import Optional
 
-from .database_pg_proxy import DatabasePostgresProxy
 from .database_pg import DatabasePostgres
-
-class DatabaseMode(Enum):
-    """Database operation modes"""
-    READ = 'read'
-    WRITE = 'write'
 
 class DatabaseBackend(Enum):
     """Supported database backends"""
     POSTGRES = 'postgres'
-    SQLITE = 'sqlite'  # Legacy support
 
 # Type alias for the adapter interface
-DatabaseAdapter = Union[DatabasePostgresProxy, DatabasePostgres]
+DatabaseAdapter = DatabasePostgres
 
 _db_instance: Optional[DatabaseAdapter] = None
+_db_lock = threading.Lock()
 
 def get_database_adapter(backend: DatabaseBackend = DatabaseBackend.POSTGRES) -> DatabaseAdapter:
     """
     Factory function to get the database adapter.
-    Returns a singleton instance of DatabasePostgresProxy.
+    Returns a singleton instance of DatabasePostgres.
     
     Args:
         backend: Database backend to use (default: POSTGRES)
@@ -34,10 +29,11 @@ def get_database_adapter(backend: DatabaseBackend = DatabaseBackend.POSTGRES) ->
     global _db_instance
     
     if _db_instance is None:
-        # Get database URL from environment
-        database_url = os.getenv('DATABASE_URL')
-        
-        # Initialize PostgreSQL Proxy (which handles connection pooling and logic)
-        _db_instance = DatabasePostgresProxy(database_url)
+        with _db_lock:
+            if _db_instance is None:
+                if backend == DatabaseBackend.POSTGRES:
+                    _db_instance = DatabasePostgres()
+                else:
+                    raise ValueError(f"Unsupported database backend: {backend}")
         
     return _db_instance

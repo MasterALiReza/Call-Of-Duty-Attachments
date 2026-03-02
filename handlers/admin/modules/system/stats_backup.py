@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول پشتیبان‌گیری دیتابیس
 مسئول: فقط مدیریت بکاپ (بدون بخش آمار ربات)
@@ -16,21 +17,21 @@ class StatsBackupHandler(BaseAdminHandler):
     """Handler برای پشتیبان‌گیری دیتابیس"""
     
     @log_admin_action("create_backup")
-    async def create_backup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def create_backup(self, update: Update, context: CustomContext):
         """ایجاد بکاپ از دیتابیس"""
         query = update.callback_query
         await query.answer()
         
         # بررسی دسترسی
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.BACKUP_DATA not in user_permissions:
             await query.answer(t("admin.backup.no_permission", lang), show_alert=True)
             return ADMIN_MENU
         
-        backup_file = self.db.backup_database()
+        backup_file = await self.db.backup_database()
         
         keyboard = [
             [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_data_management")]

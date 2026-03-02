@@ -160,13 +160,54 @@ class QueryMetrics:
             self.slow_query_log.clear()
 
 
+@dataclass
+class BroadcastMetrics:
+    """آمار پخش زنده (Broadcast)"""
+    total_broadcasts: int = 0
+    total_sent: int = 0
+    total_failed: int = 0
+    total_duration: float = 0.0
+    _lock: Lock = field(default_factory=Lock, repr=False)
+
+    def record_broadcast(self, sent: int, failed: int, duration: float):
+        with self._lock:
+            self.total_broadcasts += 1
+            self.total_sent += sent
+            self.total_failed += failed
+            self.total_duration += duration
+
+    @property
+    def success_rate(self) -> float:
+        total = self.total_sent + self.total_failed
+        return (self.total_sent / total) if total > 0 else 0.0
+
+    def get_stats(self) -> Dict[str, any]:
+        return {
+            "total_broadcasts": self.total_broadcasts,
+            "total_sent": self.total_sent,
+            "total_failed": self.total_failed,
+            "success_rate_percent": round(self.success_rate * 100, 2),
+            "average_duration_sec": round(self.total_duration / self.total_broadcasts, 2) if self.total_broadcasts > 0 else 0
+        }
+
+    def reset(self):
+        with self._lock:
+            self.total_broadcasts = 0
+            self.total_sent = 0
+            self.total_failed = 0
+            self.total_duration = 0.0
+
+
 class MetricsCollector:
     """جمع‌آوری و مدیریت تمام metrics"""
     
     def __init__(self):
         self.cache_metrics = CacheMetrics()
         self.query_metrics = QueryMetrics()
+        self.broadcast_metrics = BroadcastMetrics()
+        self.handler_response_times: List[float] = []
         self._start_time = datetime.now()
+        self._lock = Lock()
     
     @property
     def uptime(self) -> timedelta:
@@ -183,7 +224,9 @@ class MetricsCollector:
         return {
             "uptime_hours": round(self.uptime.total_seconds() / 3600, 2),
             "cache": self.cache_metrics.get_stats(),
-            "queries": self.query_metrics.get_stats()
+            "queries": self.query_metrics.get_stats(),
+            "broadcasts": self.broadcast_metrics.get_stats(),
+            "avg_handler_response_ms": round(sum(self.handler_response_times) / len(self.handler_response_times) * 1000, 2) if self.handler_response_times else 0
         }
     
     def generate_report(self) -> str:

@@ -6,10 +6,9 @@ import asyncio
 from utils.logger import get_logger, log_exception, log_execution
 logger = get_logger('notification', 'notification.log')
 from typing import Dict, List, Optional, Set
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram.ext import ContextTypes
-from config.config import NOTIFICATION_SETTINGS, GAME_MODES, DEFAULT_LANG
-import json
+from config.config import get_notification_settings, GAME_MODES, DEFAULT_LANG
 from utils.broadcast_optimizer import OptimizedBroadcaster
 from utils.i18n import t
 
@@ -18,13 +17,13 @@ from utils.i18n import t
 class NotificationManager:
     """مدیریت و ارسال نوتیفیکیشن‌ها با قابلیت ترکیب پیام‌ها"""
     
-    def __init__(self, db, subscribers):
+    def __init__(self, db, subscribers, broadcaster=None):
         self.db = db
         self.subscribers = subscribers
         self.pending_notifications = {}  # ذخیره نوتیف‌های در انتظار
         self.batch_delay = 3  # تاخیر 3 ثانیه برای ترکیب پیام‌ها
         self._batch_tasks = {}  # ذخیره task های در حال اجرا
-        self.broadcaster = OptimizedBroadcaster(max_concurrent=30, delay_between_batches=1.0)
+        self.broadcaster = broadcaster or OptimizedBroadcaster(max_concurrent=30, delay_between_batches=1.0)
     
     async def queue_notification(self, context: ContextTypes.DEFAULT_TYPE, 
                                  event_type: str, payload: dict):
@@ -33,12 +32,13 @@ class NotificationManager:
         logger.info(f"[NotifManager] Queue notification: {event_type} - Payload: {payload}")
         
         # بررسی وضعیت کلی سیستم
-        if not NOTIFICATION_SETTINGS.get('enabled', True):
+        settings = await get_notification_settings(self.db)
+        if not settings.get('enabled', True):
             logger.info(f"[NotifManager] System disabled, skipping")
             return
         
         # بررسی فعال بودن این نوع رویداد
-        if not NOTIFICATION_SETTINGS.get('events', {}).get(event_type, False):
+        if not settings.get('events', {}).get(event_type, False):
             logger.info(f"[NotifManager] Event {event_type} disabled, skipping")
             return
         
@@ -110,7 +110,7 @@ class NotificationManager:
                 for user_id in active_users:
                     user_lang = None
                     try:
-                        user_lang = self.db.get_user_language(user_id)
+                        user_lang = await self.db.get_user_language(user_id)
                     except Exception as e:
                         logger.error(f"[NotifManager] Error getting language for user {user_id}: {e}")
                     if not user_lang:
@@ -158,7 +158,8 @@ class NotificationManager:
         # اگر فقط یک رویداد است
         if len(events) == 1:
             event = events[0]
-            template_value = NOTIFICATION_SETTINGS.get('templates', {}).get(event['type'])
+            settings = await get_notification_settings(self.db)
+            template_value = settings.get('templates', {}).get(event['type'])
             if not template_value:
                 return None
 
@@ -262,7 +263,7 @@ class NotificationManager:
         return ''.join(message_parts)
     
     async def _get_active_users_for_events(self, event_types: List[str], 
-                                          mode: str) -> Set[int]:
+                                           mode: str) -> Set[int]:
         """دریافت کاربرانی که این رویدادها را فعال کرده‌اند (Optimized)"""
         
         start_time = datetime.now()
@@ -270,11 +271,11 @@ class NotificationManager:
         try:
             # استفاده از متد بهینه دیتابیس اگر وجود داشته باشد
             if hasattr(self.db, 'get_users_for_notification'):
-                active_users = self.db.get_users_for_notification(event_types, mode)
+                active_users = await self.db.get_users_for_notification(event_types, mode)
                 
                 duration = (datetime.now() - start_time).total_seconds()
                 logger.info(f"[NotifManager] SQL Filter: Found {len(active_users)} users in {duration:.3f}s")
-                return active_users
+                return set(active_users)
             
             # Fallback به روش قدیمی (کند) اگر متد جدید در دیتابیس نبود
             logger.warning("[NotifManager] Optimized query not found, falling back to Python filtering")
@@ -286,11 +287,11 @@ class NotificationManager:
             return set()
 
     async def _get_active_users_for_events_legacy(self, event_types: List[str], 
-                                          mode: str) -> Set[int]:
+                                           mode: str) -> Set[int]:
         """روش قدیمی فیلترینگ (جهت پشتیبانی)"""
         
         # دریافت همه مشترکین
-        all_subscribers = self.subscribers.all()
+        all_subscribers = await self.subscribers.all()
         
         # فیلتر بر اساس تنظیمات کاربران
         active_users = set()
@@ -298,7 +299,7 @@ class NotificationManager:
         for user_id in all_subscribers:
             try:
                 # دریافت تنظیمات کاربر از دیتابیس
-                user_prefs = self.db.get_user_notification_preferences(user_id)
+                user_prefs = await self.db.get_user_notification_preferences(user_id)
                 
                 if not user_prefs:
                     active_users.add(user_id)
@@ -344,7 +345,7 @@ class NotificationManager:
         # حذف کاربران blocked از لیست subscribers
         for user_id in stats['blocked_users']:
             try:
-                self.subscribers.remove(user_id)
+                await self.subscribers.remove(user_id)
                 logger.info(f"Removed blocked user {user_id} from subscribers")
             except Exception as e:
                 logger.warning(f"Failed to remove blocked user {user_id} from subscribers: {e}")
@@ -354,9 +355,9 @@ class NotificationManager:
             f"in {stats['duration_seconds']}s ({stats['rate_per_second']}/s)"
         )
     
-    def get_user_preferences(self, user_id: int) -> dict:
+    async def get_user_preferences(self, user_id: int) -> dict:
         """دریافت تنظیمات نوتیفیکیشن کاربر"""
-        prefs = self.db.get_user_notification_preferences(user_id)
+        prefs = await self.db.get_user_notification_preferences(user_id)
         
         if not prefs:
             # تنظیمات پیش‌فرض
@@ -377,26 +378,26 @@ class NotificationManager:
         
         return prefs
     
-    def update_user_preferences(self, user_id: int, preferences: dict) -> bool:
+    async def update_user_preferences(self, user_id: int, preferences: dict) -> bool:
         """به‌روزرسانی تنظیمات نوتیفیکیشن کاربر"""
-        return self.db.update_user_notification_preferences(user_id, preferences)
+        return await self.db.update_user_notification_preferences(user_id, preferences)
     
-    def toggle_user_notifications(self, user_id: int) -> bool:
+    async def toggle_user_notifications(self, user_id: int) -> bool:
         """فعال/غیرفعال کردن نوتیفیکیشن‌های کاربر"""
-        prefs = self.get_user_preferences(user_id)
+        prefs = await self.get_user_preferences(user_id)
         prefs['enabled'] = not prefs.get('enabled', True)
-        return self.update_user_preferences(user_id, prefs)
+        return await self.update_user_preferences(user_id, prefs)
     
-    def toggle_user_event(self, user_id: int, event: str) -> bool:
+    async def toggle_user_event(self, user_id: int, event: str) -> bool:
         """فعال/غیرفعال کردن یک رویداد خاص برای کاربر"""
-        prefs = self.get_user_preferences(user_id)
+        prefs = await self.get_user_preferences(user_id)
         current = prefs.get('events', {}).get(event, True)
         prefs['events'][event] = not current
-        return self.update_user_preferences(user_id, prefs)
+        return await self.update_user_preferences(user_id, prefs)
     
-    def toggle_user_mode(self, user_id: int, mode: str) -> bool:
+    async def toggle_user_mode(self, user_id: int, mode: str) -> bool:
         """فعال/غیرفعال کردن نوتیف برای یک مود خاص"""
-        prefs = self.get_user_preferences(user_id)
+        prefs = await self.get_user_preferences(user_id)
         modes = prefs.get('modes', ['br', 'mp'])
         
         if mode in modes:
@@ -405,4 +406,4 @@ class NotificationManager:
             modes.append(mode)
         
         prefs['modes'] = modes
-        return self.update_user_preferences(user_id, prefs)
+        return await self.update_user_preferences(user_id, prefs)

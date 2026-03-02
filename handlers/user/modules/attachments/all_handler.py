@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 مدیریت نمایش تمام اتچمنت‌ها با pagination
 ⚠️ این کد عیناً از user_handlers.py خط 655-962 کپی شده
@@ -12,6 +13,7 @@ from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
 from handlers.user.base_user_handler import BaseUserHandler
+from core.container import get_container
 import math
 
 logger = get_logger('user', 'user.log')
@@ -23,7 +25,7 @@ class AllAttachmentsHandler(BaseUserHandler):
     @require_channel_membership
     @log_user_action("show_all_attachments")
 
-    async def show_all_attachments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def show_all_attachments(self, update: Update, context: CustomContext):
         """نمایش همه اتچمنت‌ها - اگر از search بیاد هر دو mode، اگر از منو بیاد فقط همون mode"""
         query = update.callback_query
         await query.answer()
@@ -44,14 +46,14 @@ class AllAttachmentsHandler(BaseUserHandler):
             except ValueError as e:
                 logger.warning(f"Invalid callback data format: {query.data}")
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         category = context.user_data.get('current_category')
         weapon_name = context.user_data.get('current_weapon')
         
         # اگر از search آمده، هر دو mode را نمایش بده
         if from_search:
-            br_atts = self.db.get_all_attachments(category, weapon_name, mode="br")
-            mp_atts = self.db.get_all_attachments(category, weapon_name, mode="mp")
+            br_atts = await self.db.get_all_attachments(category, weapon_name, mode="br")
+            mp_atts = await self.db.get_all_attachments(category, weapon_name, mode="mp")
             
             if not br_atts and not mp_atts:
                 if should_send_new:
@@ -141,7 +143,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         
         # اگر از منوی عادی آمده (با mode مشخص)
         mode = context.user_data.get('current_mode', 'br')
-        all_attachments = self.db.get_all_attachments(category, weapon_name, mode=mode)
+        all_attachments = await self.db.get_all_attachments(category, weapon_name, mode=mode)
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
         if not all_attachments:
@@ -212,20 +214,20 @@ class AllAttachmentsHandler(BaseUserHandler):
     @require_channel_membership
     @log_user_action("show_all_attachments_msg")
 
-    async def show_all_attachments_msg(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def show_all_attachments_msg(self, update: Update, context: CustomContext):
         """نمایش همه اتچمنت‌ها از طریق پیام (کیبورد پایین) با پشتیبانی از mode"""
         from datetime import datetime
         
         category = context.user_data.get('current_category')
         weapon_name = context.user_data.get('current_weapon')
         mode = context.user_data.get('current_mode', 'br')
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if not category or not weapon_name:
             await update.message.reply_text(t('weapon.select_first', lang))
             return
         
-        all_attachments = self.db.get_all_attachments(category, weapon_name, mode=mode)
+        all_attachments = await self.db.get_all_attachments(category, weapon_name, mode=mode)
         if not all_attachments:
             await update.message.reply_text(t('attachment.none', lang))
             return
@@ -244,7 +246,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         text = t('attachment.all.title', lang, weapon=weapon_name, mode=mode_name) + f" _{t('notification.updated', lang, time=now)}_\n"
         text += t('pagination.page_of', lang, page=page, total=total_pages) + "\n\n"
         for i, att in enumerate(all_attachments[start_idx:end_idx], start_idx + 1):
-            stats = self.db.get_attachment_stats(att['id'], period='all')
+            stats = await self.db.get_attachment_stats(att['id'], period='all')
             likes = stats.get('like_count', 0)
             text += f"**{i}.** {att['name']}"
             if likes > 0:
@@ -254,7 +256,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         # دکمه انتخاب اتچمنت‌ها
         keyboard = []
         for i, att in enumerate(all_attachments[start_idx:end_idx], start_idx + 1):
-            stats = self.db.get_attachment_stats(att['id'], period='all')
+            stats = await self.db.get_attachment_stats(att['id'], period='all')
             likes = stats.get('like_count', 0)
             button_text = f"{i}. {att['name']}"
             if likes > 0:
@@ -274,7 +276,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
     @require_channel_membership
-    async def attachment_detail_with_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def attachment_detail_with_mode(self, update: Update, context: CustomContext):
         """نمایش جزئیات اتچمنت با mode در callback: attm_{mode}_{code}"""
         query = update.callback_query
         await query.answer()
@@ -283,7 +285,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         try:
             mode, code = payload.split("_", 1)
         except ValueError:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             logger.warning(f"Invalid attachment detail payload: {query.data}")
             await safe_edit_message_text(query, t('error.generic', lang))
             return
@@ -292,14 +294,14 @@ class AllAttachmentsHandler(BaseUserHandler):
         weapon_name = context.user_data.get('current_weapon')
         
         if not category or not weapon_name:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await safe_edit_message_text(query, t('weapon.select_first', lang))
             return
         
         # ست کردن mode
         context.user_data['current_mode'] = mode
         
-        attachments = self.db.get_all_attachments(category, weapon_name, mode=mode)
+        attachments = await self.db.get_all_attachments(category, weapon_name, mode=mode)
         selected = next((att for att in attachments if att.get('code') == code), None)
         if not selected:
             await safe_edit_message_text(query, t('attachment.not_found', lang))
@@ -311,25 +313,29 @@ class AllAttachmentsHandler(BaseUserHandler):
         
         # دریافت آمار بازخورد
         att_id = selected.get('id')
-        stats = self.db.get_attachment_stats(att_id, period='all') if att_id else {}
+        stats = await self.db.get_attachment_stats(att_id, period='all') if att_id else {}
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         
         # Track view و copy
         if att_id:
-            self.db.track_attachment_view(query.from_user.id, att_id)
+            await get_container().analytics.track_attachment_view(
+                user_id=query.from_user.id,
+                attachment_id=att_id
+            )
         
         # ساخت keyboard با دکمه‌های بازخورد
         keyboard = []
         if att_id:
-            keyboard.extend([
-                [
-                    InlineKeyboardButton(f"👍 {like_count}", callback_data=f"att_like_{att_id}"),
-                    InlineKeyboardButton(f"👎 {dislike_count}", callback_data=f"att_dislike_{att_id}")
-                ],
-                [InlineKeyboardButton(t('attachment.copy_code', lang), callback_data=f"att_copy_{att_id}")],
-                [InlineKeyboardButton(t('attachment.feedback', lang), callback_data=f"att_fb_{att_id}")]
-            ])
+            from core.container import get_container
+            fb_handler = get_container().feedback_handler
+            keyboard.extend(fb_handler.build_attachment_keyboard(
+                att_id, 
+                like_count=like_count, 
+                dislike_count=dislike_count, 
+                lang=lang,
+                mode=mode
+            ))
         keyboard.append([InlineKeyboardButton(t('menu.buttons.back', lang), callback_data=f"all_{category}__{weapon_name}")])
         
         try:
@@ -357,7 +363,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         await safe_edit_message_text(query, t('success.generic', lang))
     
     @require_channel_membership
-    async def attachment_detail(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def attachment_detail(self, update: Update, context: CustomContext):
         """نمایش جزئیات یک اتچمنت و ارسال عکس + کد"""
         query = update.callback_query
         await query.answer()
@@ -366,13 +372,13 @@ class AllAttachmentsHandler(BaseUserHandler):
         category = context.user_data.get('current_category')
         weapon_name = context.user_data.get('current_weapon')
         mode = context.user_data.get('current_mode', 'br')  # دریافت mode از context
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if not category or not weapon_name:
             await safe_edit_message_text(query, t('weapon.select_first', lang))
             return
         
-        attachments = self.db.get_all_attachments(category, weapon_name, mode=mode)  # اضافه کردن mode
+        attachments = await self.db.get_all_attachments(category, weapon_name, mode=mode)  # اضافه کردن mode
         selected = next((att for att in attachments if att.get('code') == code), None)
         if not selected:
             await safe_edit_message_text(query, t('attachment.not_found', lang))
@@ -382,25 +388,29 @@ class AllAttachmentsHandler(BaseUserHandler):
         
         # دریافت آمار بازخورد
         att_id = selected.get('id')
-        stats = self.db.get_attachment_stats(att_id, period='all') if att_id else {}
+        stats = await self.db.get_attachment_stats(att_id, period='all') if att_id else {}
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         
         # Track view
         if att_id:
-            self.db.track_attachment_view(query.from_user.id, att_id)
+            await get_container().analytics.track_attachment_view(
+                user_id=query.from_user.id,
+                attachment_id=att_id
+            )
         
         # ساخت keyboard با دکمه‌های بازخورد
         keyboard = []
         if att_id:
-            keyboard.extend([
-                [
-                    InlineKeyboardButton(f"👍 {like_count}", callback_data=f"att_like_{att_id}"),
-                    InlineKeyboardButton(f"👎 {dislike_count}", callback_data=f"att_dislike_{att_id}")
-                ],
-                [InlineKeyboardButton(t('attachment.copy_code', lang), callback_data=f"att_copy_{att_id}")],
-                [InlineKeyboardButton(t('attachment.feedback', lang), callback_data=f"att_fb_{att_id}")]
-            ])
+            from core.container import get_container
+            fb_handler = get_container().feedback_handler
+            keyboard.extend(fb_handler.build_attachment_keyboard(
+                att_id, 
+                like_count=like_count, 
+                dislike_count=dislike_count, 
+                lang=lang,
+                mode=mode
+            ))
         
         # دکمه بازگشت به لیست همان صفحه
         page = context.user_data.get('all_page', 1)

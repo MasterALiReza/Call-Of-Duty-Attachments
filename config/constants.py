@@ -87,9 +87,18 @@ SEARCH_MAX_RESULTS = 50
 # Rate Limiting
 # ====================================
 
+# Telegram API Rate Limits (outbound - global per bot)
+TELEGRAM_API_CALLS_PER_SECOND = 30  # Telegram's hard limit
+TELEGRAM_API_RATE_PERIOD = 1  # seconds
+TELEGRAM_FILE_UPLOAD_PER_SECOND = 10  # File uploads are more restricted
+
+# User Action Rate Limits (inbound - per user)
 RATE_LIMIT_MESSAGES_PER_MINUTE = 20
 RATE_LIMIT_SEARCHES_PER_MINUTE = 10
 RATE_LIMIT_FEEDBACK_PER_HOUR = 50
+
+# Retry Configuration
+BROADCAST_MAX_RETRIES = 3
 
 # ====================================
 # Analytics & Backup

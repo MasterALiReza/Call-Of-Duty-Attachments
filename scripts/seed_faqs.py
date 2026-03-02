@@ -7,11 +7,11 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
-from core.database.database_pg_proxy import DatabasePostgresProxy
+from core.database.database_pg import DatabasePostgres
 
 async def seed_faqs():
     print("Connecting to database...")
-    db = DatabasePostgresProxy()
+    db = DatabasePostgres()
     
     # Default FAQs - 5 for FA, 5 for EN
     # Signature: add_faq(question, answer, category, lang)

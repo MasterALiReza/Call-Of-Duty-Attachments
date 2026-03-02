@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 from typing import List
 import logging
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -31,34 +32,33 @@ class SubscribersPostgres:
         # Backward-compat: keep attribute but not used directly
         self.database_url = database_url or os.getenv('DATABASE_URL')
 
-        # Ensure schema exists (self-healing) via pooled connection
+        # We will not call _ensure_schema here as it's now async
+        logger.info("SubscribersPostgres initialized (schema ensure skipped - call initialize())")
+    
+    async def initialize(self) -> None:
+        """Ensure required table for subscribers exists"""
         try:
-            self._ensure_schema()
+            async with self.db.get_connection() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS subscribers (
+                          user_id BIGINT PRIMARY KEY,
+                          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                          subscribed_at TIMESTAMP NOT NULL DEFAULT NOW()
+                        );
+                        """
+                    )
         except Exception as e:
             logger.warning(f"Could not ensure subscribers schema: {e}")
-        logger.info("SubscribersPostgres initialized")
-    
-    def _get_connection(self):
+
+    @asynccontextmanager
+    async def _get_connection(self):
         """دریافت connection به PostgreSQL"""
-        # Delegate to adapter's pooled connection
-        # DatabaseAdapter forwards get_connection() to underlying PostgreSQL pool
-        return self.db.get_connection()
+        async with self.db.get_connection() as conn:
+            yield conn
     
-    def _ensure_schema(self) -> None:
-        """Ensure required table for subscribers exists"""
-        with self._get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS subscribers (
-                  user_id BIGINT PRIMARY KEY,
-                  is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                  subscribed_at TIMESTAMP NOT NULL DEFAULT NOW()
-                );
-                """
-            )
-            conn.commit()
-    def add(self, user_id: int) -> bool:
+    async def add(self, user_id: int) -> bool:
         """
         افزودن کاربر به لیست مشترکین
         
@@ -69,49 +69,43 @@ class SubscribersPostgres:
             True اگر کاربر جدید اضافه شد، False اگر قبلاً وجود داشت
         """
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # چک کردن وجود کاربر
-                cursor.execute("""
-                    SELECT is_active FROM subscribers WHERE user_id = %s
-                """, (user_id,))
-                
-                existing = cursor.fetchone()
-                
-                if existing:
-                    # اگر قبلاً unsubscribe کرده بود، دوباره فعال کن
-                    # Handle both dict-row and tuple-row
-                    is_active = existing.get('is_active') if hasattr(existing, 'get') else existing[0]
-                    if not bool(is_active):
-                        cursor.execute("""
-                            UPDATE subscribers 
-                            SET is_active = TRUE 
-                            WHERE user_id = %s
-                        """, (user_id,))
-                        conn.commit()
-                        cursor.close()
-                        logger.info(f"Subscriber reactivated: {user_id}")
-                        return True
-                    else:
-                        cursor.close()
-                        return False  # قبلاً فعال بوده
-                else:
-                    # کاربر جدید
-                    cursor.execute("""
-                        INSERT INTO subscribers (user_id, is_active)
-                        VALUES (%s, TRUE)
+            async with self.db.transaction() as conn:
+                async with conn.cursor() as cursor:
+                    # چک کردن وجود کاربر
+                    await cursor.execute("""
+                        SELECT is_active FROM subscribers WHERE user_id = %s
                     """, (user_id,))
-                    conn.commit()
-                    cursor.close()
-                    logger.info(f"New subscriber added: {user_id}")
-                    return True
+                    
+                    existing = await cursor.fetchone()
+                    
+                    if existing:
+                        # اگر قبلاً unsubscribe کرده بود، دوباره فعال کن
+                        # Handle both dict-row and tuple-row
+                        is_active = existing.get('is_active') if hasattr(existing, 'get') else existing[0]
+                        if not bool(is_active):
+                            await cursor.execute("""
+                                UPDATE subscribers 
+                                SET is_active = TRUE 
+                                WHERE user_id = %s
+                            """, (user_id,))
+                            logger.info(f"Subscriber reactivated: {user_id}")
+                            return True
+                        else:
+                            return False  # قبلاً فعال بوده
+                    else:
+                        # کاربر جدید
+                        await cursor.execute("""
+                            INSERT INTO subscribers (user_id, is_active)
+                            VALUES (%s, TRUE)
+                        """, (user_id,))
+                        logger.info(f"New subscriber added: {user_id}")
+                        return True
                     
         except Exception as e:
             logger.error(f"Error adding subscriber {user_id}: {e}")
             return False
     
-    def remove(self, user_id: int) -> bool:
+    async def remove(self, user_id: int) -> bool:
         """
         حذف کاربر از لیست مشترکین (soft delete با is_active=False)
         
@@ -122,31 +116,29 @@ class SubscribersPostgres:
             True اگر کاربر حذف شد، False اگر وجود نداشت
         """
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Soft delete - set is_active = FALSE
-                cursor.execute("""
-                    UPDATE subscribers 
-                    SET is_active = FALSE 
-                    WHERE user_id = %s AND is_active = TRUE
-                    RETURNING user_id
-                """, (user_id,))
-                
-                removed = cursor.fetchone() is not None
-                conn.commit()
-                cursor.close()
-                
-                if removed:
-                    logger.info(f"Subscriber removed: {user_id}")
-                
-                return removed
+            async with self.db.transaction() as conn:
+                async with conn.cursor() as cursor:
+                    # Soft delete - set is_active = FALSE
+                    await cursor.execute("""
+                        UPDATE subscribers 
+                        SET is_active = FALSE 
+                        WHERE user_id = %s AND is_active = TRUE
+                        RETURNING user_id
+                    """, (user_id,))
+                    
+                    result = await cursor.fetchone()
+                    removed = result is not None
+                    
+                    if removed:
+                        logger.info(f"Subscriber removed: {user_id}")
+                    
+                    return removed
                 
         except Exception as e:
             logger.error(f"Error removing subscriber {user_id}: {e}")
             return False
     
-    def all(self) -> List[int]:
+    async def all(self) -> List[int]:
         """
         دریافت لیست تمام مشترکین فعال
         
@@ -154,26 +146,25 @@ class SubscribersPostgres:
             لیست user_id های مشترکین فعال
         """
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT user_id 
-                    FROM subscribers 
-                    WHERE is_active = TRUE
-                    ORDER BY subscribed_at
-                """)
-                
-                subscribers = [row['user_id'] for row in cursor.fetchall()]
-                cursor.close()
-                
-                return subscribers
+            async with self.db.get_connection() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute("""
+                        SELECT user_id 
+                        FROM subscribers 
+                        WHERE is_active = TRUE
+                        ORDER BY subscribed_at
+                    """)
+                    
+                    rows = await cursor.fetchall()
+                    subscribers = [row['user_id'] for row in rows]
+                    
+                    return subscribers
                 
         except Exception as e:
             logger.error(f"Error getting all subscribers: {e}")
             return []
     
-    def count(self) -> int:
+    async def count(self) -> int:
         """
         دریافت تعداد مشترکین فعال
         
@@ -181,26 +172,24 @@ class SubscribersPostgres:
             تعداد مشترکین
         """
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT COUNT(*) AS count 
-                    FROM subscribers 
-                    WHERE is_active = TRUE
-                """)
-                
-                row = cursor.fetchone()
-                count = int(row.get('count') or 0) if row else 0
-                cursor.close()
-                
-                return count
+            async with self.db.get_connection() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute("""
+                        SELECT COUNT(*) AS count 
+                        FROM subscribers 
+                        WHERE is_active = TRUE
+                    """)
+                    
+                    row = await cursor.fetchone()
+                    count = int(row.get('count') or 0) if row else 0
+                    
+                    return count
                 
         except Exception as e:
             logger.error(f"Error counting subscribers: {e}")
             return 0
     
-    def is_subscribed(self, user_id: int) -> bool:
+    async def is_subscribed(self, user_id: int) -> bool:
         """
         چک کردن عضویت کاربر در لیست مشترکین
         
@@ -211,25 +200,22 @@ class SubscribersPostgres:
             True اگر مشترک فعال باشد
         """
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT is_active 
-                    FROM subscribers 
-                    WHERE user_id = %s
-                """, (user_id,))
-                
-                result = cursor.fetchone()
-                cursor.close()
-                
-                return bool(result['is_active']) if result else False
+            async with self.db.get_connection() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute("""
+                        SELECT is_active 
+                        FROM subscribers WHERE user_id = %s
+                    """, (user_id,))
+                    
+                    result = await cursor.fetchone()
+                    
+                    return bool(result['is_active']) if result else False
                 
         except Exception as e:
             logger.error(f"Error checking subscription for {user_id}: {e}")
             return False
     
-    def get_inactive_count(self) -> int:
+    async def get_inactive_count(self) -> int:
         """
         دریافت تعداد مشترکین غیرفعال (unsubscribed)
         
@@ -237,20 +223,18 @@ class SubscribersPostgres:
             تعداد مشترکین غیرفعال
         """
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT COUNT(*) AS count 
-                    FROM subscribers 
-                    WHERE is_active = FALSE
-                """)
-                
-                row = cursor.fetchone()
-                count = int(row.get('count') or 0) if row else 0
-                cursor.close()
-                
-                return count
+            async with self.db.get_connection() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute("""
+                        SELECT COUNT(*) AS count 
+                        FROM subscribers 
+                        WHERE is_active = FALSE
+                    """)
+                    
+                    row = await cursor.fetchone()
+                    count = int(row.get('count') or 0) if row else 0
+                    
+                    return count
                 
         except Exception as e:
             logger.error(f"Error counting inactive subscribers: {e}")

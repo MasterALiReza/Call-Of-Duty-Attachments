@@ -1,3 +1,5 @@
+from datetime import datetime, date
+from core.context import CustomContext
 """
 ماژول مدیریت تیکت‌های پشتیبانی
 مسئول: مدیریت درخواست‌های پشتیبانی کاربران
@@ -13,6 +15,7 @@ from utils.logger import log_admin_action, get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+from core.security.role_manager import Permission
 
 logger = get_logger('ticket_handler', 'admin.log')
 
@@ -25,7 +28,7 @@ class TicketHandler(BaseAdminHandler):
         try:
             # زبان کاربر را از DB بگیر
             try:
-                lang = self.db.get_user_language(ticket['user_id']) or 'fa'
+                lang = await self.db.get_user_language(ticket['user_id']) or 'fa'
             except Exception:
                 lang = 'fa'
             # متن وضعیت با i18n
@@ -50,7 +53,7 @@ class TicketHandler(BaseAdminHandler):
         try:
             # زبان کاربر را از DB بگیر
             try:
-                lang = self.db.get_user_language(ticket['user_id']) or 'fa'
+                lang = await self.db.get_user_language(ticket['user_id']) or 'fa'
             except Exception:
                 lang = 'fa'
             # متن اولویت با i18n
@@ -75,7 +78,7 @@ class TicketHandler(BaseAdminHandler):
         try:
             # زبان کاربر را از DB بگیر
             try:
-                lang = self.db.get_user_language(ticket['user_id']) or 'fa'
+                lang = await self.db.get_user_language(ticket['user_id']) or 'fa'
             except Exception:
                 lang = 'fa'
             message = (
@@ -92,10 +95,10 @@ class TicketHandler(BaseAdminHandler):
         except Exception as e:
             logger.error(f"Failed to notify user about assignment: {e}")
     
-    async def _show_ticket_detail(self, update: Update, context: ContextTypes.DEFAULT_TYPE, query, ticket_id: int):
+    async def _show_ticket_detail(self, update: Update, context: CustomContext, query, ticket_id: int):
         """نمایش جزئیات تیکت - helper function"""
-        ticket = self.db.get_ticket(ticket_id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        ticket = await self.db.get_ticket(ticket_id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if not ticket:
             await safe_edit_message_text(query, t("admin.tickets.not_found", lang))
@@ -111,13 +114,15 @@ class TicketHandler(BaseAdminHandler):
         status_key = ticket.get('status', 'open')
         status_text = t(f"ticket.status.{status_key}", lang)
         
+        category_key = f"admin.tickets.category.{ticket['category']}"
+        category_text = t(category_key, lang)
         text = t("admin.tickets.detail.title", lang, id=ticket_id) + "\n\n"
         text += t("admin.tickets.detail.user", lang, user_id=ticket['user_id']) + "\n"
-        text += t("admin.tickets.detail.category", lang, category=ticket['category']) + "\n"
+        text += t("admin.tickets.detail.category", lang, category=category_text) + "\n"
         text += t("admin.tickets.detail.subject", lang, subject=subject) + "\n"
         text += t("admin.tickets.detail.priority", lang, priority=priority_text) + "\n"
         text += t("admin.tickets.detail.status", lang, status=status_text) + "\n"
-        text += t("admin.tickets.detail.date", lang, date=ticket['created_at'][:16]) + "\n"
+        text += t("admin.tickets.detail.date", lang, date=ticket['created_at'].strftime('%Y-%m-%d %H:%M')) + "\n"
         
         # نمایش ادمین مسئول اگر وجود دارد
         if ticket.get('assigned_to'):
@@ -126,13 +131,13 @@ class TicketHandler(BaseAdminHandler):
         text += "\n" + t("admin.tickets.detail.description_header", lang) + "\n" + description + "\n"
         
         # نمایش تعداد پاسخ‌ها
-        replies = self.db.get_ticket_replies(ticket_id)
+        replies = await self.db.get_ticket_replies(ticket_id)
         if replies:
             text += "\n" + t("admin.tickets.detail.replies_header", lang, count=len(replies))
             # نمایش آخرین پاسخ
             last_reply = replies[-1]
             reply_type = t("admin.tickets.detail.reply.by_admin", lang) if last_reply.get('is_admin') else t("admin.tickets.detail.reply.by_user", lang)
-            reply_time = last_reply.get('created_at', '')[:16]
+            reply_time = last_reply['created_at'].strftime('%Y-%m-%d %H:%M') if isinstance(last_reply.get('created_at'), (datetime, date)) else last_reply.get('created_at', '')[:16]
             text += f"\n├─ {t('admin.tickets.detail.replies.last', lang, by=reply_type, time=reply_time)}"
         
         keyboard = [
@@ -155,7 +160,7 @@ class TicketHandler(BaseAdminHandler):
         return True
     
     @log_admin_action("admin_tickets_menu")
-    async def admin_tickets_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_tickets_menu(self, update: Update, context: CustomContext):
         """منوی مدیریت تیکت‌ها"""
         query = update.callback_query
         await query.answer()
@@ -163,14 +168,14 @@ class TicketHandler(BaseAdminHandler):
         # بررسی دسترسی
         from core.security.role_manager import Permission
         user_id = update.effective_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
-        if not self.role_manager.has_permission(user_id, Permission.MANAGE_TICKETS):
+        if not await self.role_manager.has_permission(user_id, Permission.MANAGE_TICKETS):
             await safe_edit_message_text(query, t("common.no_permission", lang))
             return ADMIN_MENU
         
         # دریافت آمار
-        stats = self.db.get_ticket_stats()
+        stats = await self.db.get_ticket_stats()
         
         text = t("admin.tickets.menu.title", lang) + "\n\n"
         text += t("admin.tickets.menu.stats.header", lang) + "\n"
@@ -190,15 +195,18 @@ class TicketHandler(BaseAdminHandler):
              InlineKeyboardButton(t("admin.tickets.buttons.search", lang), callback_data="adm_tickets_search")],
             [InlineKeyboardButton(t("admin.tickets.buttons.filter_category", lang), callback_data="adm_tickets_filter_category"),
              InlineKeyboardButton(t("admin.tickets.buttons.mine", lang), callback_data="adm_tickets_mine")],
-            [InlineKeyboardButton("💬 تماس مستقیم", callback_data="adm_direct_contact")],
-            [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_back")]
         ]
+        
+        if await self.role_manager.has_permission(user_id, Permission.MANAGE_SETTINGS):
+            keyboard.append([InlineKeyboardButton("💬 تماس مستقیم", callback_data="adm_direct_contact")])
+            
+        keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_back")])
         
         await safe_edit_message_text(
             query,
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         
         return ADMIN_MENU
@@ -225,7 +233,7 @@ class TicketHandler(BaseAdminHandler):
         }
     
     @log_admin_action("admin_tickets_list")
-    async def admin_tickets_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_tickets_list(self, update: Update, context: CustomContext):
         """نمایش لیست تیکت‌ها"""
         query = update.callback_query
         await query.answer()
@@ -245,13 +253,13 @@ class TicketHandler(BaseAdminHandler):
         context.user_data['ticket_list_status'] = status
         context.user_data['ticket_list_filter'] = query.data
         
-        tickets = self.db.get_all_tickets(status=status)
+        tickets = await self.db.get_all_tickets(status=status)
         
         # Pagination
         page = 1
         pagination = self._paginate_tickets(tickets, page)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         status_names = {
             'open': t('admin.tickets.list.header.open', lang),
             'in_progress': t('admin.tickets.list.header.in_progress', lang),
@@ -307,7 +315,7 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_tickets_page_navigation")
-    async def admin_tickets_page_navigation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_tickets_page_navigation(self, update: Update, context: CustomContext):
         """مدیریت navigation بین صفحات"""
         query = update.callback_query
         await query.answer()
@@ -316,12 +324,12 @@ class TicketHandler(BaseAdminHandler):
         
         # دریافت status از context
         status = context.user_data.get('ticket_list_status')
-        tickets = self.db.get_all_tickets(status=status)
+        tickets = await self.db.get_all_tickets(status=status)
         
         # Pagination
         pagination = self._paginate_tickets(tickets, page)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         status_names = {
             'open': t('admin.tickets.list.header.open', lang),
             'in_progress': t('admin.tickets.list.header.in_progress', lang),
@@ -361,7 +369,8 @@ class TicketHandler(BaseAdminHandler):
         
         keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_tickets")])
         
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
@@ -370,7 +379,7 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_detail")
-    async def admin_ticket_detail(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_detail(self, update: Update, context: CustomContext):
         """نمایش جزئیات تیکت"""
         query = update.callback_query
         await query.answer()
@@ -381,20 +390,21 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_reply_start")
-    async def admin_ticket_reply_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_reply_start(self, update: Update, context: CustomContext):
         """شروع پاسخ به تیکت"""
         query = update.callback_query
         await query.answer()
         
         ticket_id = int(query.data.split('_')[2])
         context.user_data['ticket_reply_id'] = ticket_id
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         text = t("admin.tickets.reply.title", lang, id=ticket_id) + "\n\n" + t("admin.tickets.reply.prompt", lang)
         
         keyboard = [[InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="admin_tickets")]]
         
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
@@ -403,34 +413,34 @@ class TicketHandler(BaseAdminHandler):
         return TICKET_REPLY
     
     @log_admin_action("admin_ticket_reply_received")
-    async def admin_ticket_reply_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_reply_received(self, update: Update, context: CustomContext):
         """دریافت و ارسال پاسخ"""
         ticket_id = context.user_data.get('ticket_reply_id')
         admin_id = update.effective_user.id
         reply_text = update.message.text.strip()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if len(reply_text) < 5:
             await update.message.reply_text(t("admin.tickets.reply.too_short", lang))
             return TICKET_REPLY
         
         # ذخیره پاسخ
-        success = self.db.add_ticket_reply(ticket_id, admin_id, reply_text, is_admin=True)
+        success = await self.db.add_ticket_reply(ticket_id, admin_id, reply_text, is_admin=True)
         
         # تغییر وضعیت به "منتظر کاربر"
         if success:
-            self.db.update_ticket_status(ticket_id, 'waiting_user')
+            await self.db.update_ticket_status(ticket_id, 'waiting_user')
         
         # پاکسازی
         context.user_data.pop('ticket_reply_id', None)
         
         if success:
             # ارسال نوتیفیکیشن به کاربر
-            ticket = self.db.get_ticket(ticket_id)
+            ticket = await self.db.get_ticket(ticket_id)
             try:
                 # زبان کاربر را از DB بگیر
                 try:
-                    user_lang = self.db.get_user_language(ticket['user_id']) or 'fa'
+                    user_lang = await self.db.get_user_language(ticket['user_id']) or 'fa'
                 except Exception:
                     user_lang = 'fa'
                 await context.bot.send_message(
@@ -447,13 +457,13 @@ class TicketHandler(BaseAdminHandler):
         return await self.admin_tickets_menu(update, context)
     
     @log_admin_action("admin_ticket_change_status")
-    async def admin_ticket_change_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_change_status(self, update: Update, context: CustomContext):
         """تغییر وضعیت تیکت"""
         query = update.callback_query
         await query.answer()
         
         ticket_id = int(query.data.split('_')[2])
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         keyboard = [
             [InlineKeyboardButton(t("ticket.status.in_progress", lang), callback_data=f"adm_setstatus_{ticket_id}_in_progress")],
@@ -473,7 +483,7 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_set_status")
-    async def admin_ticket_set_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_set_status(self, update: Update, context: CustomContext):
         """اعمال وضعیت جدید"""
         query = update.callback_query
         await query.answer()
@@ -484,14 +494,14 @@ class TicketHandler(BaseAdminHandler):
         ticket_id = int(parts[2])
         new_status = '_'.join(parts[3:])  # برای status های multi-word مثل in_progress
         
-        success = self.db.update_ticket_status(ticket_id, new_status)
+        success = await self.db.update_ticket_status(ticket_id, new_status)
         
         if success:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t("admin.tickets.status.changed", lang), show_alert=True)
             
             # ارسال notification به کاربر
-            ticket = self.db.get_ticket(ticket_id)
+            ticket = await self.db.get_ticket(ticket_id)
             if ticket:
                 await self._notify_user_status_change(context, ticket, new_status)
             
@@ -499,22 +509,22 @@ class TicketHandler(BaseAdminHandler):
             await self._show_ticket_detail(update, context, query, ticket_id)
             return ADMIN_MENU
         else:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t("admin.tickets.status.error", lang), show_alert=True)
             return ADMIN_MENU
     
     @log_admin_action("admin_ticket_close")
-    async def admin_ticket_close(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_close(self, update: Update, context: CustomContext):
         """بستن تیکت"""
         query = update.callback_query
         await query.answer()
         
         ticket_id = int(query.data.split('_')[2])
         
-        success = self.db.update_ticket_status(ticket_id, 'closed')
+        success = await self.db.update_ticket_status(ticket_id, 'closed')
         
         if success:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await safe_edit_message_text(
                 query,
                 t("admin.tickets.close.success", lang, id=ticket_id),
@@ -523,23 +533,24 @@ class TicketHandler(BaseAdminHandler):
                 ])
             )
         else:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await safe_edit_message_text(query, t("admin.tickets.close.error", lang))
         
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_search_start")
-    async def admin_ticket_search_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_search_start(self, update: Update, context: CustomContext):
         """شروع جستجوی تیکت"""
         query = update.callback_query
         await query.answer()
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         text = t("admin.tickets.search.title", lang) + "\n\n" + t("admin.tickets.search.prompt", lang)
         
         keyboard = [[InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="admin_tickets")]]
         
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
@@ -548,17 +559,17 @@ class TicketHandler(BaseAdminHandler):
         return TICKET_SEARCH
     
     @log_admin_action("admin_ticket_search_received")
-    async def admin_ticket_search_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_search_received(self, update: Update, context: CustomContext):
         """دریافت متن جستجو و نمایش نتایج"""
         search_query = update.message.text.strip()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if len(search_query) < 2:
             await update.message.reply_text(t("admin.tickets.search.min_chars", lang))
             return TICKET_SEARCH
         
         # جستجو در تیکت‌ها
-        tickets = self.db.search_tickets(search_query)
+        tickets = await self.db.search_tickets(search_query)
         
         text = t("admin.tickets.search.results", lang, query=html_escape(search_query)) + "\n\n"
         
@@ -596,21 +607,21 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_view_attachments")
-    async def admin_ticket_view_attachments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_view_attachments(self, update: Update, context: CustomContext):
         """نمایش فایل‌های ضمیمه تیکت"""
         query = update.callback_query
         await query.answer()
         
         ticket_id = int(query.data.split('_')[2])
-        ticket = self.db.get_ticket(ticket_id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        ticket = await self.db.get_ticket(ticket_id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if not ticket:
             await safe_edit_message_text(query, t("admin.tickets.not_found", lang))
             return ADMIN_MENU
         
         # دریافت پاسخ‌ها برای یافتن attachments
-        replies = self.db.get_ticket_replies(ticket_id)
+        replies = await self.db.get_ticket_replies(ticket_id)
         
         # جمع‌آوری attachments
         all_attachments = []
@@ -669,13 +680,13 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_change_priority")
-    async def admin_ticket_change_priority(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_change_priority(self, update: Update, context: CustomContext):
         """تغییر اولویت تیکت"""
         query = update.callback_query
         await query.answer()
         
         ticket_id = int(query.data.split('_')[2])
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         keyboard = [
             [InlineKeyboardButton(t("ticket.priority.low", lang), callback_data=f"adm_setpriority_{ticket_id}_low")],
             [InlineKeyboardButton(t("ticket.priority.medium", lang), callback_data=f"adm_setpriority_{ticket_id}_medium")],
@@ -694,7 +705,7 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_set_priority")
-    async def admin_ticket_set_priority(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_set_priority(self, update: Update, context: CustomContext):
         """اعمال اولویت جدید"""
         query = update.callback_query
         await query.answer()
@@ -703,26 +714,26 @@ class TicketHandler(BaseAdminHandler):
         ticket_id = int(parts[2])
         new_priority = parts[3]
         
-        success = self.db.update_ticket_priority(ticket_id, new_priority)
+        success = await self.db.update_ticket_priority(ticket_id, new_priority)
         
         if success:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t("admin.tickets.priority.changed", lang), show_alert=True)
             
             # ارسال notification به کاربر
-            ticket = self.db.get_ticket(ticket_id)
+            ticket = await self.db.get_ticket(ticket_id)
             if ticket:
                 await self._notify_user_priority_change(context, ticket, new_priority)
             
             await self._show_ticket_detail(update, context, query, ticket_id)
         else:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t("admin.tickets.priority.error", lang), show_alert=True)
         
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_assign_start")
-    async def admin_ticket_assign_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_assign_start(self, update: Update, context: CustomContext):
         """شروع واگذاری تیکت"""
         query = update.callback_query
         await query.answer()
@@ -730,8 +741,8 @@ class TicketHandler(BaseAdminHandler):
         ticket_id = int(query.data.split('_')[2])
         
         # دریافت لیست ادمین‌ها
-        admins = self.db.get_all_admins()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        admins = await self.db.get_all_admins()
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if not admins:
             await safe_edit_message_text(
@@ -766,7 +777,7 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_ticket_assign_confirm")
-    async def admin_ticket_assign_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_ticket_assign_confirm(self, update: Update, context: CustomContext):
         """تایید واگذاری تیکت"""
         query = update.callback_query
         await query.answer()
@@ -775,30 +786,30 @@ class TicketHandler(BaseAdminHandler):
         ticket_id = int(parts[2])
         admin_id = int(parts[3])
         
-        success = self.db.assign_ticket(ticket_id, admin_id)
+        success = await self.db.assign_ticket(ticket_id, admin_id)
         
         if success:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t("admin.tickets.assign.success", lang), show_alert=True)
             
             # ارسال notification به کاربر
-            ticket = self.db.get_ticket(ticket_id)
+            ticket = await self.db.get_ticket(ticket_id)
             if ticket:
                 await self._notify_user_assignment(context, ticket, admin_id)
             
             await self._show_ticket_detail(update, context, query, ticket_id)
         else:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t("admin.tickets.assign.error", lang), show_alert=True)
         
         return ADMIN_MENU
     
     @log_admin_action("admin_tickets_filter_category")
-    async def admin_tickets_filter_category(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_tickets_filter_category(self, update: Update, context: CustomContext):
         """نمایش فیلتر دسته‌بندی"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         categories = ['bug', 'feature_request', 'question', 'content_issue', 'channel_issue', 'other']
         
         keyboard = []
@@ -819,7 +830,7 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_tickets_by_category")
-    async def admin_tickets_by_category(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_tickets_by_category(self, update: Update, context: CustomContext):
         """نمایش تیکت‌های یک دسته"""
         query = update.callback_query
         await query.answer()
@@ -827,7 +838,7 @@ class TicketHandler(BaseAdminHandler):
         category = query.data.split('_')[3]
         
         # فیلتر بر اساس category
-        all_tickets = self.db.get_all_tickets()
+        all_tickets = await self.db.get_all_tickets()
         tickets = [t for t in all_tickets if t.get('category') == category]
         
         # ذخیره برای pagination
@@ -837,7 +848,7 @@ class TicketHandler(BaseAdminHandler):
         # Pagination
         page = 1
         pagination = self._paginate_tickets(tickets, page)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         text = f"<b>{t(f'admin.tickets.category.{category}', lang)}</b>\n\n"
         
         if not tickets:
@@ -883,7 +894,7 @@ class TicketHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("admin_tickets_mine")
-    async def admin_tickets_mine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_tickets_mine(self, update: Update, context: CustomContext):
         """نمایش تیکت‌های واگذار شده به من"""
         query = update.callback_query
         await query.answer()
@@ -891,7 +902,7 @@ class TicketHandler(BaseAdminHandler):
         admin_id = update.effective_user.id
         
         # فیلتر بر اساس assigned_to
-        tickets = self.db.get_all_tickets(assigned_to=admin_id)
+        tickets = await self.db.get_all_tickets(assigned_to=admin_id)
         
         # ذخیره برای pagination
         context.user_data['ticket_list_status'] = None
@@ -900,7 +911,7 @@ class TicketHandler(BaseAdminHandler):
         # Pagination
         page = 1
         pagination = self._paginate_tickets(tickets, page)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         text = t("admin.tickets.mine.title", lang) + "\n\n"
         
         if not tickets:

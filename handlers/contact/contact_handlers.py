@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 Handlers برای سیستم تماس با ما
 """
@@ -22,16 +23,26 @@ class ContactHandlers:
         self.db = db
         self.contact_system = ContactSystem(db)
     
-    async def search_cancel_and_contact(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def search_cancel_and_contact(self, update: Update, context: CustomContext):
         """لغو بی‌صدا جستجو و نمایش منوی تماس"""
         from telegram.ext import ConversationHandler
         await self.contact_menu(update, context)
         return ConversationHandler.END
     
-    async def contact_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_invalid_input(self, update: Update, context: CustomContext):
+        """هندلر برای ورودی‌های نامعتبر در تماس با ما"""
+        user_id = update.effective_user.id if update.effective_user else "Unknown"
+        logger.info(f"DEBUG: handle_invalid_input called by {user_id}. Data: {update.message.text if update.message else 'None'}")
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        # استفاده از متن عمومی اگر کلید اختصاصی نبود
+        if update.message:
+            await update.message.reply_text(t("admin.texts.error.text_only", lang))
+        return None  # ماندن در وضعیت فعلی
+    
+    async def contact_menu(self, update: Update, context: CustomContext):
         """منوی اصلی تماس با ما"""
         from datetime import datetime
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         query = update.callback_query if update.callback_query else None
         
@@ -48,10 +59,10 @@ class ContactHandlers:
         ]
         
         # اضافه کردن دکمه تماس مستقیم اگر فعال باشد
-        direct_contact_enabled = self.db.get_setting('direct_contact_enabled', 'true')
+        direct_contact_enabled = await self.db.get_setting('direct_contact_enabled', 'true')
         if direct_contact_enabled.lower() == 'true':
-            contact_link = self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
-            contact_name = self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
+            contact_link = await self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
+            contact_name = await self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
             keyboard.append([InlineKeyboardButton(contact_name, url=contact_link)])
         
         keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="main_menu")])
@@ -76,11 +87,12 @@ class ContactHandlers:
 
     # ==================== Ticket Handlers ====================
     
-    async def new_ticket_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def new_ticket_start(self, update: Update, context: CustomContext):
         """شروع فرآیند ثبت تیکت جدید"""
+        logger.info(f"DEBUG: new_ticket_start called by {update.effective_user.id}")
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         # چیدمان بهینه شده - 2 ستونی
         keyboard = [
             [
@@ -103,11 +115,12 @@ class ContactHandlers:
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return TICKET_CATEGORY
     
-    async def ticket_category_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def ticket_category_selected(self, update: Update, context: CustomContext):
         """دریافت دسته تیکت"""
+        logger.info(f"DEBUG: ticket_category_selected called by {update.effective_user.id} with data {update.callback_query.data}")
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         category = query.data.replace("tc_", "")
         context.user_data['ticket_category'] = category
         
@@ -121,10 +134,11 @@ class ContactHandlers:
         await query.edit_message_text(text, parse_mode='Markdown')
         return TICKET_SUBJECT
     
-    async def ticket_subject_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def ticket_subject_received(self, update: Update, context: CustomContext):
         """دریافت موضوع تیکت"""
         subject = update.message.text.strip()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        logger.info(f"DEBUG: ticket_subject_received called by {update.effective_user.id} with subject: {subject}")
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if len(subject) < 5:
             await update.message.reply_text(t('contact.ticket.subject.too_short', lang, n=5))
@@ -137,7 +151,7 @@ class ContactHandlers:
         context.user_data['ticket_subject'] = subject
         
         # پیشنهاد FAQ های مرتبط (بر اساس زبان کاربر)
-        suggested_faqs = self.contact_system.get_suggested_faqs(subject, limit=3, lang=lang)
+        suggested_faqs = await self.contact_system.get_suggested_faqs(subject, limit=3, lang=lang)
         
         if suggested_faqs:
             text = f"💡 **سوالات مشابه**\n\nقبل از ادامه، شاید این سوالات به شما کمک کنند:\n\n"
@@ -157,18 +171,19 @@ class ContactHandlers:
             await update.message.reply_text(t('contact.ticket.description.prompt', lang), parse_mode='Markdown')
             return TICKET_DESCRIPTION
     
-    async def ticket_continue(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def ticket_continue(self, update: Update, context: CustomContext):
         """ادامه ثبت تیکت بعد از مشاهده FAQ"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         await query.edit_message_text(t('contact.ticket.description.prompt', lang), parse_mode='Markdown')
         return TICKET_DESCRIPTION
     
-    async def ticket_description_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def ticket_description_received(self, update: Update, context: CustomContext):
         """دریافت توضیحات تیکت"""
         description = update.message.text.strip()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        logger.info(f"DEBUG: ticket_description_received called by {update.effective_user.id} with description length: {len(description)}")
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if len(description) < 10:
             await update.message.reply_text(t('contact.ticket.description.too_short', lang, n=10))
@@ -187,23 +202,31 @@ class ContactHandlers:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return TICKET_ATTACHMENT
     
-    async def ticket_add_image_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def ticket_add_image_request(self, update: Update, context: CustomContext):
         """درخواست آپلود تصویر"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         await query.edit_message_text(t('contact.image.send', lang), parse_mode='Markdown')
         return TICKET_ATTACHMENT
     
-    async def ticket_image_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def ticket_image_received(self, update: Update, context: CustomContext):
         """دریافت تصویر"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if not update.message.photo:
             await update.message.reply_text(t('contact.validation.image_required', lang))
             return TICKET_ATTACHMENT
+            
+        photo = update.message.photo[-1]
+        from utils.validators_enhanced import AttachmentValidator
+        result = AttachmentValidator.validate_image(file_size=getattr(photo, 'file_size', 0))
+        if not result.is_valid:
+            error_msg = t(result.error_key, lang, **(result.error_details or {}))
+            await update.message.reply_text(error_msg)
+            return TICKET_ATTACHMENT
         
         # ذخیره file_id بزرگترین عکس
-        file_id = update.message.photo[-1].file_id
+        file_id = photo.file_id
         
         if 'ticket_attachments' not in context.user_data:
             context.user_data['ticket_attachments'] = []
@@ -222,10 +245,10 @@ class ContactHandlers:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return TICKET_ATTACHMENT
     
-    async def ticket_submit(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def ticket_submit(self, update: Update, context: CustomContext):
         """ثبت نهایی تیکت"""
         query = update.callback_query
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         await query.answer(t('contact.saving', lang))
         
         user_id = update.effective_user.id
@@ -235,7 +258,7 @@ class ContactHandlers:
         attachments = context.user_data.get('ticket_attachments', [])
         
         # ثبت تیکت
-        ticket_id = self.contact_system.create_ticket(
+        ticket_id = await self.contact_system.create_ticket(
             user_id=user_id,
             category=category,
             subject=subject,
@@ -271,14 +294,14 @@ class ContactHandlers:
     
     # ==================== My Tickets ====================
     
-    async def my_tickets(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def my_tickets(self, update: Update, context: CustomContext):
         """نمایش تیکت‌های کاربر"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         user_id = update.effective_user.id
-        tickets = self.contact_system.get_user_tickets(user_id)
+        tickets = await self.contact_system.get_user_tickets(user_id)
         
         if not tickets:
             text = t('contact.my_tickets.title', lang) + "\n\n" + t('contact.my_tickets.empty', lang)
@@ -290,7 +313,7 @@ class ContactHandlers:
         text = t('contact.my_tickets.title', lang) + "\n\n"
         keyboard = []
         
-        from validators import escape_markdown
+        from utils.validators import escape_markdown
         for ticket in tickets[:10]:  # نمایش 10 تیکت اخیر
             status_icon = "🆕" if ticket['status'] == 'open' else "⚙️" if ticket['status'] == 'in_progress' else "✅"
             subject_safe = escape_markdown(ticket['subject'][:30])
@@ -308,14 +331,14 @@ class ContactHandlers:
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return CONTACT_MENU
     
-    async def view_ticket(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def view_ticket(self, update: Update, context: CustomContext):
         """نمایش جزئیات یک تیکت"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         ticket_id = int(query.data.replace("ticket_view_", ""))
-        ticket = self.contact_system.get_ticket(ticket_id)
+        ticket = await self.contact_system.get_ticket(ticket_id)
         
         if not ticket:
             await query.answer(t('contact.ticket.not_found', lang), show_alert=True)
@@ -323,15 +346,15 @@ class ContactHandlers:
         
         # بررسی مالکیت
         if ticket['user_id'] != update.effective_user.id:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t('error.unauthorized', lang), show_alert=True)
             return CONTACT_MENU
         
         # دریافت پاسخ‌ها
-        replies = self.contact_system.get_ticket_replies(ticket_id)
+        replies = await self.contact_system.get_ticket_replies(ticket_id)
         
         # Escape کردن محتوا برای Markdown
-        from validators import escape_markdown
+        from utils.validators import escape_markdown
         subject_safe = escape_markdown(ticket['subject'])
         description_safe = escape_markdown(ticket['description'])
         category_name = escape_markdown(ContactSystem.format_category_name(ticket['category']))
@@ -345,7 +368,7 @@ class ContactHandlers:
 📝 موضوع: {subject_safe}
 📊 وضعیت: {status_name}
 🎯 اولویت: {priority_name}
-📅 تاریخ: {ticket['created_at'][:16]}
+📅 تاریخ: {ticket['created_at'].strftime('%Y-%m-%d %H:%M')}
 
 **توضیحات:**
 {description_safe}
@@ -357,7 +380,8 @@ class ContactHandlers:
         for reply in replies[-5:]:  # آخرین 5 پاسخ
             sender = "🔷 پشتیبانی" if reply['is_admin'] else "👤 شما"
             message_safe = escape_markdown(reply['message'])
-            text += f"\n{sender} | {reply['created_at'][:16]}\n{message_safe}\n"
+            reply_time = reply['created_at'].strftime('%Y-%m-%d %H:%M') if hasattr(reply['created_at'], 'strftime') else str(reply['created_at'])[:16]
+            text += f"\n{sender} | {reply_time}\n{message_safe}\n"
         
         keyboard = []
         
@@ -371,13 +395,13 @@ class ContactHandlers:
     
     # ==================== FAQ Handlers ====================
     
-    async def faq_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def faq_menu(self, update: Update, context: CustomContext):
         """منوی FAQ"""
         query = update.callback_query
         await query.answer()
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        faqs = self.contact_system.get_faqs(lang=lang)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        faqs = await self.contact_system.get_faqs(lang=lang)
         
         text = t("contact.faq.title", lang) + "\n\n" + t("contact.faq.prompt", lang) + "\n\n"
         
@@ -395,7 +419,7 @@ class ContactHandlers:
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return CONTACT_MENU
     
-    async def faq_view(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def faq_view(self, update: Update, context: CustomContext):
         """نمایش یک FAQ"""
         query = update.callback_query
         await query.answer()
@@ -403,11 +427,11 @@ class ContactHandlers:
         faq_id = int(query.data.replace("faq_view_", ""))
         
         # افزایش بازدید
-        self.contact_system.increment_faq_views(faq_id)
+        await self.contact_system.increment_faq_views(faq_id)
         
         # دریافت FAQ بر اساس زبان کاربر
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        faqs = self.contact_system.get_faqs(lang=lang)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        faqs = await self.contact_system.get_faqs(lang=lang)
         faq = next((f for f in faqs if f['id'] == faq_id), None)
         
         if not faq:
@@ -434,10 +458,10 @@ class ContactHandlers:
         return CONTACT_MENU
     
     @log_user_action("faq_mark_helpful")
-    async def faq_mark_helpful(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def faq_mark_helpful(self, update: Update, context: CustomContext):
         """ثبت رای مفید برای FAQ و به‌روزرسانی UI"""
         query = update.callback_query
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
             faq_id = int(query.data.replace("faq_helpful_", ""))
         except Exception:
@@ -445,7 +469,7 @@ class ContactHandlers:
             return CONTACT_MENU
         # رأی کاربر (هر کاربر حداکثر یک رأی، قابلیت تغییر/حذف)
         user_id = update.effective_user.id
-        result = self.contact_system.vote_faq(user_id, faq_id, helpful=True)
+        result = await self.contact_system.vote_faq(user_id, faq_id, helpful=True)
         if result.get('success'):
             action = result.get('action')
             if action == 'added':
@@ -463,17 +487,17 @@ class ContactHandlers:
         return CONTACT_MENU
     
     @log_user_action("faq_mark_not_helpful")
-    async def faq_mark_not_helpful(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def faq_mark_not_helpful(self, update: Update, context: CustomContext):
         """ثبت رای نامفید برای FAQ و به‌روزرسانی UI"""
         query = update.callback_query
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
             faq_id = int(query.data.replace("faq_not_helpful_", ""))
         except Exception:
             await query.answer(t('contact.faq.vote.error', lang), show_alert=True)
             return CONTACT_MENU
         user_id = update.effective_user.id
-        result = self.contact_system.vote_faq(user_id, faq_id, helpful=False)
+        result = await self.contact_system.vote_faq(user_id, faq_id, helpful=False)
         if result.get('success'):
             action = result.get('action')
             if action == 'added':
@@ -487,14 +511,13 @@ class ContactHandlers:
             await query.answer(msg, show_alert=False)
         else:
             await query.answer(t('contact.faq.vote.error', lang), show_alert=True)
-        lang = get_user_lang(update, context, self.db) or 'fa'
         await self._refresh_faq_message(query, faq_id, lang)
         return CONTACT_MENU
     
     async def _refresh_faq_message(self, query, faq_id: int, lang: str):
         """به‌روزرسانی متن و دکمه‌های FAQ پس از ثبت رای"""
         try:
-            faqs = self.contact_system.get_faqs(lang=lang)
+            faqs = await self.contact_system.get_faqs(lang=lang)
             faq = next((f for f in faqs if f.get('id') == faq_id), None)
             if not faq:
                 return
@@ -521,11 +544,11 @@ class ContactHandlers:
     
     # ==================== Feedback Handlers ====================
     
-    async def feedback_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def feedback_start(self, update: Update, context: CustomContext):
         """شروع ثبت بازخورد"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         text = t('contact.feedback.title', lang) + "\n\n" + t('contact.feedback.choose_rating', lang)
         
@@ -541,7 +564,7 @@ class ContactHandlers:
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return FEEDBACK_RATING
     
-    async def feedback_rating_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def feedback_rating_selected(self, update: Update, context: CustomContext):
         """دریافت امتیاز"""
         query = update.callback_query
         await query.answer()
@@ -550,7 +573,7 @@ class ContactHandlers:
         context.user_data['feedback_rating'] = rating
         
         stars = "⭐" * rating
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         text = f"{stars}\n\n" + t('contact.feedback.message.prompt', lang) + "\n\n" + t('contact.feedback.message.hint', lang)
         
         keyboard = [[InlineKeyboardButton(t('contact.feedback.submit_no_comment', lang), callback_data="feedback_submit_no_comment")]]
@@ -558,31 +581,31 @@ class ContactHandlers:
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return FEEDBACK_MESSAGE
     
-    async def feedback_message_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def feedback_message_received(self, update: Update, context: CustomContext):
         """دریافت پیام بازخورد"""
         message = update.message.text.strip()
         context.user_data['feedback_message'] = message
         
         return await self._submit_feedback(update, context)
     
-    async def feedback_submit_no_comment(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def feedback_submit_no_comment(self, update: Update, context: CustomContext):
         """ثبت بدون نظر"""
         return await self._submit_feedback(update, context)
     
-    async def _submit_feedback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def _submit_feedback(self, update: Update, context: CustomContext):
         """ثبت نهایی بازخورد"""
         user_id = update.effective_user.id
         rating = context.user_data.get('feedback_rating')
         message = context.user_data.get('feedback_message', "")
         
-        success = self.contact_system.submit_feedback(
+        success = await self.contact_system.submit_feedback(
             user_id=user_id,
             rating=rating,
             category="general",
             message=message
         )
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if success:
             text = t('contact.feedback.submit.success', lang)
         else:
@@ -607,12 +630,12 @@ class ContactHandlers:
         """ارسال نوتیفیکیشن به ادمین‌ها برای تیکت جدید"""
         try:
             # دریافت لیست ادمین‌های با دسترسی MANAGE_TICKETS
-            from role_manager import RoleManager, Permission
-            from validators import escape_markdown
+            from core.security.role_manager import RoleManager, Permission
+            from utils.validators import escape_markdown
             role_manager = RoleManager(self.db)
             
             # دریافت تمام ادمین‌ها
-            admins = self.db.get_all_admins()
+            admins = await self.db.get_all_admins()
             
             # Escape کردن محتوا
             subject_safe = escape_markdown(subject)
@@ -637,7 +660,7 @@ class ContactHandlers:
             for admin in admins:
                 admin_id = admin.get('user_id')
                 # بررسی دسترسی
-                if role_manager.has_permission(admin_id, Permission.MANAGE_TICKETS):
+                if await role_manager.has_permission(admin_id, Permission.MANAGE_TICKETS):
                     try:
                         await context.bot.send_message(
                             chat_id=admin_id,

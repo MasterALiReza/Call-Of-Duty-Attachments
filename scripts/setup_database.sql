@@ -362,13 +362,7 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS user_attachment_settings (
-    setting_key TEXT PRIMARY KEY,
-    setting_value TEXT,
-    description TEXT,
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_by BIGINT
-);
+
 
 -- ============================================================================
 -- STEP 10: Guides System
@@ -510,10 +504,10 @@ WHERE r.name = p.role
 ON CONFLICT DO NOTHING;
 
 -- Enable User Attachment System by default
-INSERT INTO user_attachment_settings (setting_key, setting_value, updated_at)
-VALUES ('system_enabled', '1', NOW())
-ON CONFLICT (setting_key) 
-DO UPDATE SET setting_value = '1', updated_at = NOW();
+INSERT INTO settings (key, value, description, category, data_type, updated_at)
+VALUES ('system_enabled', '1', 'Enable User Attachments System', 'user_attachments', 'boolean', NOW())
+ON CONFLICT (key) 
+DO UPDATE SET value = '1', updated_at = NOW();
 
 -- Initialize cache
 INSERT INTO ua_stats_cache (id) VALUES (1) ON CONFLICT DO NOTHING;

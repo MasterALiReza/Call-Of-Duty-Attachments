@@ -1,3 +1,4 @@
+from core.context import CustomContext
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -9,14 +10,14 @@ logger = get_logger('language', 'app.log')
 
 
 
-def get_user_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, db) -> Optional[str]:
+async def get_user_lang(update: Update, context: CustomContext, db) -> Optional[str]:
     if context and hasattr(context, 'user_data') and context.user_data.get("_lang"):
         return context.user_data.get("_lang")
     try:
         user_id = update.effective_user.id if update and update.effective_user else None
         if not user_id:
             return None
-        lang = db.get_user_language(user_id)
+        lang = await db.get_user_language(user_id)
         if lang in SUPPORTED_LANGS:
             context.user_data["_lang"] = lang
             return lang
@@ -25,8 +26,8 @@ def get_user_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, db) -> Opt
     return None
 
 
-async def ensure_language(update: Update, context: ContextTypes.DEFAULT_TYPE, db) -> bool:
-    lang = get_user_lang(update, context, db)
+async def ensure_language(update: Update, context: CustomContext, db) -> bool:
+    lang = await get_user_lang(update, context, db)
     if lang:
         return True
 
@@ -47,14 +48,14 @@ async def ensure_language(update: Update, context: ContextTypes.DEFAULT_TYPE, db
     return False
 
 
-def set_user_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, db, lang: str) -> bool:
+async def set_user_lang(update: Update, context: CustomContext, db, lang: str) -> bool:
     user_id = update.effective_user.id if update and update.effective_user else None
     if not user_id:
         return False
     if lang not in SUPPORTED_LANGS:
         return False
     try:
-        ok = db.set_user_language(user_id, lang)
+        ok = await db.set_user_language(user_id, lang)
         if ok:
             context.user_data["_lang"] = lang
         return ok

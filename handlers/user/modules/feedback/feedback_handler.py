@@ -1,3 +1,5 @@
+from core.context import CustomContext
+from core.container import get_container
 """
 Feedback Handler - مدیریت بازخورد اتچمنت‌ها (لایک/دیس‌لایک/نظرات)
 """
@@ -29,11 +31,11 @@ class FeedbackHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("vote_like")
-    async def handle_vote_like(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_vote_like(self, update: Update, context: CustomContext):
         """مدیریت لایک اتچمنت"""
         query = update.callback_query
         user_id = query.from_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # Rate limiting
         if not self._check_rate_limit(user_id):
@@ -48,7 +50,7 @@ class FeedbackHandler(BaseUserHandler):
             return
         
         # ثبت رأی
-        result = self.db.vote_attachment(user_id, attachment_id, vote=1)
+        result = await self.db.vote_attachment(user_id, attachment_id, vote=1)
         
         if not result.get('success'):
             await query.answer(t("feedback.error", lang), show_alert=True)
@@ -72,11 +74,11 @@ class FeedbackHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("vote_dislike")
-    async def handle_vote_dislike(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_vote_dislike(self, update: Update, context: CustomContext):
         """مدیریت دیس‌لایک اتچمنت"""
         query = update.callback_query
         user_id = query.from_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # Rate limiting
         if not self._check_rate_limit(user_id):
@@ -91,7 +93,7 @@ class FeedbackHandler(BaseUserHandler):
             return
         
         # ثبت رأی
-        result = self.db.vote_attachment(user_id, attachment_id, vote=-1)
+        result = await self.db.vote_attachment(user_id, attachment_id, vote=-1)
         
         if not result.get('success'):
             await query.answer(t("feedback.error", lang), show_alert=True)
@@ -115,7 +117,7 @@ class FeedbackHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("feedback_request")
-    async def handle_feedback_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_feedback_request(self, update: Update, context: CustomContext):
         """درخواست بازخورد متنی"""
         query = update.callback_query
         await query.answer()
@@ -124,7 +126,7 @@ class FeedbackHandler(BaseUserHandler):
         try:
             attachment_id = int(query.data.replace("att_fb_", ""))
         except ValueError:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t("feedback.error", lang), show_alert=True)
             return
         
@@ -148,7 +150,7 @@ class FeedbackHandler(BaseUserHandler):
             context.user_data['feedback_prev_markup'] = None
         
         # درخواست متن بازخورد
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         prompt_suffix = "\n\n" + t('feedback.prompt.write', lang)
         is_text_msg = context.user_data['feedback_prev_is_text']
         try:
@@ -188,7 +190,7 @@ class FeedbackHandler(BaseUserHandler):
         return FEEDBACK_TEXT
     
     @log_user_action("feedback_text_received")
-    async def handle_feedback_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_feedback_text(self, update: Update, context: CustomContext):
         """
         دریافت متن بازخورد
         
@@ -196,7 +198,7 @@ class FeedbackHandler(BaseUserHandler):
         """
         user_id = update.effective_user.id
         feedback_text = update.message.text.strip()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # ✅ استفاده از validator مشترک با i18n
         result = TextValidator.validate_comment(feedback_text)
@@ -212,7 +214,7 @@ class FeedbackHandler(BaseUserHandler):
             return ConversationHandler.END
         
         # ثبت بازخورد
-        success = self.db.submit_attachment_feedback(user_id, attachment_id, feedback_text)
+        success = await self.db.submit_attachment_feedback(user_id, attachment_id, feedback_text)
         
         if success:
             await update.message.reply_text(t('feedback.submit.success', lang))
@@ -226,11 +228,11 @@ class FeedbackHandler(BaseUserHandler):
         return ConversationHandler.END
     
     @log_user_action("feedback_cancel")
-    async def handle_feedback_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_feedback_cancel(self, update: Update, context: CustomContext):
         """لغو ثبت بازخورد"""
         query = update.callback_query
         if query:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t('common.cancelled', lang))
             # بازیابی caption و کیبورد قبلی؛ در صورت نبود، fallback به بازسازی دکمه‌ها
             prev_caption = context.user_data.pop('feedback_prev_caption', None)
@@ -279,7 +281,7 @@ class FeedbackHandler(BaseUserHandler):
                         reply_markup=prev_markup
                     )
         else:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await update.message.reply_text(t('common.cancelled', lang))
         
         # پاک کردن context
@@ -307,7 +309,7 @@ class FeedbackHandler(BaseUserHandler):
             like_count = vote_result.get('like_count', 0)
             dislike_count = vote_result.get('dislike_count', 0)
             # دریافت اطلاعات اتچمنت برای تعیین mode و ساخت دکمه‌های لینک‌دار
-            att = self.db.get_attachment_by_id(attachment_id) or {}
+            att = await self.db.get_attachment_by_id(attachment_id) or {}
             mode = (att.get('mode') or 'br').lower()
             # تعیین bot username
             try:
@@ -335,48 +337,26 @@ class FeedbackHandler(BaseUserHandler):
             # هر پیام در چت خصوصی → کیبورد کامل
             # در گروه/سوپرگروه یا پیام‌های اینلاین بدون message → کیبورد مینیمال
             use_full_keyboard = (chat_type == "private")
+            
             if not use_full_keyboard:
-                rows = [
-                    [
-                        InlineKeyboardButton(f"👍 {like_count}", callback_data=f"att_like_{attachment_id}"),
-                        InlineKeyboardButton(f"👎 {dislike_count}", callback_data=f"att_dislike_{attachment_id}")
-                    ]
-                ]
-                if bot_username:
-                    rows.append([InlineKeyboardButton(t('share.send_pm', lang), url=f"https://t.me/{bot_username}?start=att-{attachment_id}-{mode}")])
-                rows.append([InlineKeyboardButton(t('share.send_image_group', lang), switch_inline_query_current_chat=f"att:{attachment_id}-{mode}")])
+                rows = self.build_attachment_keyboard(
+                    attachment_id, 
+                    like_count=like_count, 
+                    dislike_count=dislike_count, 
+                    lang=lang,
+                    is_group=True,
+                    bot_username=bot_username,
+                    mode=mode
+                )
             else:
-                # PM معمولی: فقط سطر لایک/دیس‌لایک را جایگزین کن، بقیه سطرها را حفظ کن
-                try:
-                    rm = query.message.reply_markup
-                except Exception:
-                    rm = None
-                old_keyboard = rm.inline_keyboard if rm else []
-                # نرمال‌سازی به list-of-lists
-                if isinstance(old_keyboard, tuple):
-                    old_keyboard = [list(row) if isinstance(row, (list, tuple)) else [row] for row in old_keyboard]
-                else:
-                    old_keyboard = [list(row) if isinstance(row, tuple) else list(row) for row in old_keyboard]
-                # پیدا کردن ردیف حاوی att_like_/att_dislike_
-                target_idx = None
-                for i, row in enumerate(old_keyboard):
-                    try:
-                        callbacks = [getattr(btn, 'callback_data', '') for btn in row]
-                        if any((cb or '').startswith('att_like_') for cb in callbacks) or any((cb or '').startswith('att_dislike_') for cb in callbacks):
-                            target_idx = i
-                            break
-                    except Exception:
-                        continue
-                new_first_row = [
-                    InlineKeyboardButton(f"👍 {like_count}", callback_data=f"att_like_{attachment_id}"),
-                    InlineKeyboardButton(f"👎 {dislike_count}", callback_data=f"att_dislike_{attachment_id}")
-                ]
-                if target_idx is not None and target_idx < len(old_keyboard):
-                    old_keyboard[target_idx] = new_first_row
-                    rows = old_keyboard
-                else:
-                    # اگر پیدا نشد، ردیف جدید را در ابتدای کیبورد قرار بده
-                    rows = [new_first_row] + old_keyboard
+                # PM معمولی: کل کیبورد را با نسخه جدید و کامل جایگزین می‌کنیم تا استایل حفظ شود
+                rows = self.build_attachment_keyboard(
+                    attachment_id, 
+                    like_count=like_count, 
+                    dislike_count=dislike_count, 
+                    lang=lang,
+                    is_group=False
+                )
 
             await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(rows))
         except Exception as e:
@@ -384,24 +364,27 @@ class FeedbackHandler(BaseUserHandler):
     
     @require_channel_membership
     @log_user_action("copy_code")
-    async def handle_copy_code(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_copy_code(self, update: Update, context: CustomContext):
         """ثبت کلیک روی دکمه «📋 کپی کد» برای یک اتچمنت"""
         query = update.callback_query
         await query.answer()
         try:
             attachment_id = int(query.data.replace("att_copy_", ""))
         except ValueError:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t('feedback.error', lang), show_alert=True)
             return
         user_id = query.from_user.id
         try:
-            self.db.track_attachment_copy(user_id, attachment_id)
+            await get_container().analytics.track_attachment_copy(
+                user_id=user_id,
+                attachment_id=attachment_id
+            )
             # ابتدا از DB کد دقیق را می‌گیریم؛ اگر در دسترس نبود به متن پیام fallback
             code = None
             try:
                 if hasattr(self.db, 'get_attachment_code_by_id'):
-                    code = self.db.get_attachment_code_by_id(attachment_id)
+                    code = await self.db.get_attachment_code_by_id(attachment_id)
             except Exception:
                 code = None
             if not code:
@@ -417,37 +400,44 @@ class FeedbackHandler(BaseUserHandler):
             if code:
                 sent = False
                 try:
-                    await query.message.reply_text(t('attachment.code_copy_message', get_user_lang(update, context, self.db) or 'fa', code=code), parse_mode='Markdown')
+                    await query.message.reply_text(t('attachment.code_copy_message', await get_user_lang(update, context, self.db) or 'fa', code=code), parse_mode='Markdown')
                     sent = True
                 except Exception:
                     sent = False
                 if not sent:
                     # نمایش در alert (حداکثر ~200 کاراکتر)
-                    await query.answer(t('attachment.copy_inline_alert', get_user_lang(update, context, self.db) or 'fa', code=code), show_alert=True)
+                    await query.answer(t('attachment.copy_inline_alert', await get_user_lang(update, context, self.db) or 'fa', code=code), show_alert=True)
                 else:
-                    await query.answer(t('attachment.copy_ready', get_user_lang(update, context, self.db) or 'fa'), show_alert=False)
+                    await query.answer(t('attachment.copy_ready', await get_user_lang(update, context, self.db) or 'fa'), show_alert=False)
             else:
-                await query.answer(t('attachment.copy.inline_hint', get_user_lang(update, context, self.db) or 'fa'), show_alert=True)
+                await query.answer(t('attachment.copy.inline_hint', await get_user_lang(update, context, self.db) or 'fa'), show_alert=True)
         except Exception as e:
-            logger.error(f"Error tracking copy: {e}")
-            await query.answer(t('error.generic', get_user_lang(update, context, self.db) or 'fa'), show_alert=True)
+            from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
     
-    def build_feedback_buttons(self, attachment_id: int, like_count: int = 0, dislike_count: int = 0, lang: str = 'fa') -> list:
+    def build_attachment_keyboard(self, attachment_id: int, like_count: int = 0, dislike_count: int = 0, lang: str = 'fa', is_group: bool = False, bot_username: str = None, mode: str = 'br') -> list:
         """
-        ساخت دکمه‌های بازخورد برای اتچمنت
-        
-        Args:
-            attachment_id: شناسه اتچمنت
-            like_count: تعداد لایک‌ها
-            dislike_count: تعداد دیس‌لایک‌ها
-        
-        Returns:
-            لیست ردیف‌های دکمه
+        ساخت کیبورد استاندارد شامل لایک، کپی کد و ثبت نظر
         """
-        return [
+        rows = [
             [
                 InlineKeyboardButton(f"👍 {like_count}", callback_data=f"att_like_{attachment_id}"),
                 InlineKeyboardButton(f"👎 {dislike_count}", callback_data=f"att_dislike_{attachment_id}")
-            ],
-            [InlineKeyboardButton(t('attachment.feedback', lang), callback_data=f"att_fb_{attachment_id}")]
+            ]
         ]
+        
+        if is_group:
+            # در گروه‌ها: دکمه ارسال در پی‌وی و اشتراک‌گذاری
+            if bot_username:
+                rows.append([InlineKeyboardButton(t('share.send_pm', lang), url=f"https://t.me/{bot_username}?start=att-{attachment_id}-{mode or 'br'}")])
+            rows.append([InlineKeyboardButton(t('share.send_image_group', lang), switch_inline_query_current_chat=f"att:{attachment_id}-{mode or 'br'}")])
+        else:
+            # در پی‌وی: کپی کد و ثبت نظر
+            rows.append([InlineKeyboardButton(t('attachment.copy_code', lang), callback_data=f"att_copy_{attachment_id}")])
+            rows.append([InlineKeyboardButton(t('attachment.feedback', lang), callback_data=f"att_fb_{attachment_id}")] )
+            
+        return rows
+
+    def build_feedback_buttons(self, attachment_id: int, like_count: int = 0, dislike_count: int = 0, lang: str = 'fa') -> list:
+        """نسخه قدیمی - جهت حفظ سازگاری (استفاده از نسخه جدید توصیه می‌شود)"""
+        return self.build_attachment_keyboard(attachment_id, like_count, dislike_count, lang, is_group=False)

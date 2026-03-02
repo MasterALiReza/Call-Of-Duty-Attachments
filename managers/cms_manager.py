@@ -1,7 +1,9 @@
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 import json
+from utils.logger import get_logger
 
+logger = get_logger('cms_manager', 'database.log')
 
 class CMSManager:
     """
@@ -13,7 +15,7 @@ class CMSManager:
         self.db = db
 
     # ========== Create / Update / State Transitions ==========
-    def create_content(
+    async def create_content(
         self,
         content_type: str,
         title: str,
@@ -25,21 +27,21 @@ class CMSManager:
         Create a new content entry and return content_id
         """
         tags = tags or []
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                INSERT INTO cms_content (content_type, title, body, author_id, tags)
-                VALUES (%s, %s, %s, %s, %s::jsonb)
-                RETURNING content_id
-                """,
-                (content_type, title, body, author_id, json.dumps(tags)),
-            )
-            row = cur.fetchone()
-            conn.commit()
-            return row["content_id"] if row and isinstance(row, dict) else (row[0] if row else None)
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO cms_content (content_type, title, body, author_id, tags)
+                    VALUES (%s, %s, %s, %s, %s::jsonb)
+                    RETURNING content_id
+                    """,
+                    (content_type, title, body, author_id, json.dumps(tags)),
+                )
+                row = await cur.fetchone()
+                await conn.commit()
+                return row["content_id"] if row and isinstance(row, dict) else (row[0] if row else None)
 
-    def update_content(
+    async def update_content(
         self,
         content_id: int,
         *,
@@ -71,72 +73,72 @@ class CMSManager:
             return True
         params.append(content_id)
         query = f"UPDATE cms_content SET {', '.join(sets)} WHERE content_id = %s"
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(query, tuple(params))
-            conn.commit()
-            return cur.rowcount > 0
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, tuple(params))
+                await conn.commit()
+                return cur.rowcount > 0
 
-    def publish_content(self, content_id: int) -> bool:
+    async def publish_content(self, content_id: int) -> bool:
         """
         Set status to 'published' and set published_at
         """
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                UPDATE cms_content
-                SET status = 'published', published_at = NOW(), updated_at = NOW()
-                WHERE content_id = %s
-                """,
-                (content_id,),
-            )
-            conn.commit()
-            return cur.rowcount > 0
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    UPDATE cms_content
+                    SET status = 'published', published_at = NOW(), updated_at = NOW()
+                    WHERE content_id = %s
+                    """,
+                    (content_id,),
+                )
+                await conn.commit()
+                return cur.rowcount > 0
 
-    def archive_content(self, content_id: int) -> bool:
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                UPDATE cms_content
-                SET status = 'archived', updated_at = NOW()
-                WHERE content_id = %s
-                """,
-                (content_id,),
-            )
-            conn.commit()
-            return cur.rowcount > 0
+    async def archive_content(self, content_id: int) -> bool:
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    UPDATE cms_content
+                    SET status = 'archived', updated_at = NOW()
+                    WHERE content_id = %s
+                    """,
+                    (content_id,),
+                )
+                await conn.commit()
+                return cur.rowcount > 0
 
-    def delete_content(self, content_id: int, hard: bool = False) -> bool:
+    async def delete_content(self, content_id: int, hard: bool = False) -> bool:
         """
         Archive by default. If hard=True, delete row.
         """
         if not hard:
-            return self.archive_content(content_id)
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute("DELETE FROM cms_content WHERE content_id = %s", (content_id,))
-            conn.commit()
-            return cur.rowcount > 0
+            return await self.archive_content(content_id)
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("DELETE FROM cms_content WHERE content_id = %s", (content_id,))
+                await conn.commit()
+                return cur.rowcount > 0
 
     # ========== Read / List / Search ==========
-    def get_content(self, content_id: int) -> Optional[Dict]:
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT content_id, content_type, title, body, tags, author_id,
-                       status, created_at, updated_at, published_at
-                FROM cms_content
-                WHERE content_id = %s
-                """,
-                (content_id,),
-            )
-            row = cur.fetchone()
-            return dict(row) if row else None
+    async def get_content(self, content_id: int) -> Optional[Dict]:
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT content_id, content_type, title, body, tags, author_id,
+                           status, created_at, updated_at, published_at
+                    FROM cms_content
+                    WHERE content_id = %s
+                    """,
+                    (content_id,),
+                )
+                row = await cur.fetchone()
+                return dict(row) if row else None
 
-    def get_published_content(self, content_type: Optional[str] = None, limit: int = 10, offset: int = 0) -> List[Dict]:
+    async def get_published_content(self, content_type: Optional[str] = None, limit: int = 10, offset: int = 0) -> List[Dict]:
         query = (
             "SELECT content_id, content_type, title, body, tags, published_at "
             "FROM cms_content WHERE status = 'published'"
@@ -148,32 +150,32 @@ class CMSManager:
         query += " ORDER BY published_at DESC NULLS LAST LIMIT %s OFFSET %s"
         params.append(limit)
         params.append(offset)
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(query, tuple(params))
-            rows = cur.fetchall() or []
-            return [dict(r) for r in rows]
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, tuple(params))
+                rows = await cur.fetchall() or []
+                return [dict(r) for r in rows]
 
-    def count_published_content(self, content_type: Optional[str] = None) -> int:
+    async def count_published_content(self, content_type: Optional[str] = None) -> int:
         """Count total published contents, optionally filtered by type."""
         query = "SELECT COUNT(*) AS c FROM cms_content WHERE status = 'published'"
         params: List[Any] = []
         if content_type:
             query += " AND content_type = %s"
             params.append(content_type)
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(query, tuple(params))
-            row = cur.fetchone()
-            if not row:
-                return 0
-            # row could be dict-like or tuple
-            try:
-                return int(row.get('c'))  # type: ignore[union-attr]
-            except Exception:
-                return int(row[0])
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, tuple(params))
+                row = await cur.fetchone()
+                if not row:
+                    return 0
+                # row could be dict-like or tuple
+                try:
+                    return int(row.get('c'))  # type: ignore[union-attr]
+                except Exception:
+                    return int(row[0])
 
-    def list_content(
+    async def list_content(
         self,
         *,
         content_type: Optional[str] = None,
@@ -211,44 +213,44 @@ class CMSManager:
             f"ORDER BY COALESCE(published_at, updated_at) {order} LIMIT %s OFFSET %s"
         )
         params.extend([limit, offset])
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(query, tuple(params))
-            rows = cur.fetchall() or []
-            return [dict(r) for r in rows]
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, tuple(params))
+                rows = await cur.fetchall() or []
+                return [dict(r) for r in rows]
 
-    def add_tag(self, content_id: int, tag: str) -> bool:
-        item = self.get_content(content_id)
+    async def add_tag(self, content_id: int, tag: str) -> bool:
+        item = await self.get_content(content_id)
         if not item:
             return False
         tags = item.get("tags") or []
         if tag not in tags:
             tags.append(tag)
-        return self.update_content(content_id, tags=tags)
+        return await self.update_content(content_id, tags=tags)
 
-    def remove_tag(self, content_id: int, tag: str) -> bool:
-        item = self.get_content(content_id)
+    async def remove_tag(self, content_id: int, tag: str) -> bool:
+        item = await self.get_content(content_id)
         if not item:
             return False
         tags = [t for t in (item.get("tags") or []) if t != tag]
-        return self.update_content(content_id, tags=tags)
+        return await self.update_content(content_id, tags=tags)
 
-    def search_content(self, query: str, limit: int = 20) -> List[Dict]:
+    async def search_content(self, query: str, limit: int = 20) -> List[Dict]:
         """
         Simple search in title/body; returns most recent first.
         """
         like = f"%{query}%"
-        with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT content_id, content_type, title, body, tags, status, published_at, updated_at
-                FROM cms_content
-                WHERE title ILIKE %s OR body ILIKE %s
-                ORDER BY COALESCE(published_at, updated_at) DESC
-                LIMIT %s
-                """,
-                (like, like, limit),
-            )
-            rows = cur.fetchall() or []
-            return [dict(r) for r in rows]
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT content_id, content_type, title, body, tags, status, published_at, updated_at
+                    FROM cms_content
+                    WHERE title ILIKE %s OR body ILIKE %s
+                    ORDER BY COALESCE(published_at, updated_at) DESC
+                    LIMIT %s
+                    """,
+                    (like, like, limit),
+                )
+                rows = await cur.fetchall() or []
+                return [dict(r) for r in rows]

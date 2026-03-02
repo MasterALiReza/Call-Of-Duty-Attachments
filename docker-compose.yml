@@ -7,47 +7,61 @@ services:
       dockerfile: Dockerfile
     container_name: codm-attachments-bot
     restart: unless-stopped
-    
+
     environment:
       # Bot configuration
       - BOT_TOKEN=${BOT_TOKEN}
       - SUPER_ADMIN_ID=${SUPER_ADMIN_ID}
-      
+
       # Database
       - DATABASE_BACKEND=postgres
       - DATABASE_URL=postgresql://codm_admin:${POSTGRES_PASSWORD}@postgres:5432/codm_bot
-      
+
       # Logging
       - LOG_LEVEL=INFO
       - PYTHONUNBUFFERED=1
-    
+
+      # Webhook (optional - default is polling)
+      - BOT_MODE=${BOT_MODE:-polling}
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - WEBHOOK_PORT=${WEBHOOK_PORT:-8443}
+      - WEBHOOK_PATH=${WEBHOOK_PATH:-/webhook}
+      - WEBHOOK_SECRET_TOKEN=${WEBHOOK_SECRET_TOKEN:-}
+      - WEBHOOK_CERT_PATH=${WEBHOOK_CERT_PATH:-}
+      - WEBHOOK_KEY_PATH=${WEBHOOK_KEY_PATH:-}
+
     volumes:
       # Persist data
       - ./data:/app/data
-      
+
       # Persist logs
       - ./logs:/app/logs
-      
+
       # Persist backups
       - ./backups:/app/backups
-      
+
       # Config file
       - ./.env:/app/.env:ro
-    
+
+    ports:
+      # Webhook port - only active when BOT_MODE=webhook
+      # Comment this out if using polling mode to avoid exposing unnecessary port
+      - "${WEBHOOK_PORT:-8443}:${WEBHOOK_PORT:-8443}"
+
     networks:
       - bot-network
-    
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import os, psycopg; url=os.getenv('DATABASE_URL',''); psycopg.connect(url).close()"]
+      test: [ "CMD", "python", "-c", "import os, psycopg; url=os.getenv('DATABASE_URL',''); psycopg.connect(url).close()" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    
+
     depends_on:
       postgres:
         condition: service_healthy
-    
+
     logging:
       driver: "json-file"
       options:
@@ -58,31 +72,31 @@ services:
     image: postgres:15-alpine
     container_name: codm-postgres
     restart: unless-stopped
-    
+
     environment:
       - POSTGRES_USER=codm_admin
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-your_password}
       - POSTGRES_DB=codm_bot
       - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
       - POSTGRES_HOST_AUTH_METHOD=md5
-    
+
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-    
+
     ports:
       - "127.0.0.1:5432:5432"
-    
+
     networks:
       - bot-network
-    
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codm_admin -d codm_bot"]
+      test: [ "CMD-SHELL", "pg_isready -U codm_admin -d codm_bot" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-    
+
     logging:
       driver: "json-file"
       options:

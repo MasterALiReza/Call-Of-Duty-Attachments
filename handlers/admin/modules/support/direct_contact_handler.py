@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول مدیریت تماس مستقیم (Direct Contact)
 مسئول: تنظیمات تماس مستقیم با پشتیبانی
@@ -14,6 +15,7 @@ from handlers.admin.admin_states import (
 from utils.logger import get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
+from core.security.role_manager import require_permission, Permission
 
 logger = get_logger('direct_contact', 'admin.log')
 
@@ -36,7 +38,8 @@ class DirectContactHandler(BaseAdminHandler):
     
     # ==================== Menu Handlers ====================
     
-    async def admin_direct_contact_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    @require_permission(Permission.MANAGE_SETTINGS)
+    async def admin_direct_contact_menu(self, update: Update, context: CustomContext):
         """
         منوی مدیریت تماس مستقیم
         
@@ -51,10 +54,10 @@ class DirectContactHandler(BaseAdminHandler):
             await query.answer()
         
         # دریافت تنظیمات فعلی
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        enabled = self.db.get_setting('direct_contact_enabled', 'true')
-        contact_name = self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
-        contact_link = self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        enabled = await self.db.get_setting('direct_contact_enabled', 'true')
+        contact_name = await self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
+        contact_link = await self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
         
         status_text = t("common.status.enabled", lang) if enabled.lower() == 'true' else t("common.status.disabled", lang)
         
@@ -83,7 +86,7 @@ class DirectContactHandler(BaseAdminHandler):
     
     # ==================== Toggle Handlers ====================
     
-    async def direct_contact_toggle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def direct_contact_toggle_status(self, update: Update, context: CustomContext):
         """
         فعال/غیرفعال کردن تماس مستقیم
         
@@ -100,13 +103,12 @@ class DirectContactHandler(BaseAdminHandler):
         action = query.data.split('_')[-1]  # enable یا disable
         new_status = 'true' if action == 'enable' else 'false'
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        success = self.db.set_setting(
-            'direct_contact_enabled', 
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        success = await self.db.set_setting(
+            'direct_contact_enabled',
             new_status,
-            'وضعیت فعال/غیرفعال تماس مستقیم',
-            'contact',
-            update.effective_user.id
+            description='وضعیت فعال/غیرفعال تماس مستقیم',
+            category='contact'
         )
         
         if success:
@@ -122,7 +124,7 @@ class DirectContactHandler(BaseAdminHandler):
     
     # ==================== Change Name Handlers ====================
     
-    async def direct_contact_change_name_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def direct_contact_edit_name_start(self, update: Update, context: CustomContext):
         """
         شروع تغییر نام دکمه
         
@@ -134,8 +136,8 @@ class DirectContactHandler(BaseAdminHandler):
         query = update.callback_query
         await query.answer()
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        current_name = self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        current_name = await self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
         
         text = t("admin.direct.change_name.text", lang, current=current_name)
         
@@ -146,7 +148,7 @@ class DirectContactHandler(BaseAdminHandler):
         logger.info("Waiting for new direct contact name")
         return DIRECT_CONTACT_NAME
     
-    async def direct_contact_name_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def direct_contact_name_received(self, update: Update, context: CustomContext):
         """
         دریافت و اعتبارسنجی نام جدید
         
@@ -159,7 +161,7 @@ class DirectContactHandler(BaseAdminHandler):
         - نمایش پیام موفقیت
         - بازگشت به منو
         """
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         new_name = update.message.text.strip()
         
         # اعتبارسنجی طول
@@ -172,12 +174,11 @@ class DirectContactHandler(BaseAdminHandler):
             return DIRECT_CONTACT_NAME
         
         # ذخیره تنظیمات
-        success = self.db.set_setting(
-            'direct_contact_name', 
+        success = await self.db.set_setting(
+            'direct_contact_name',
             new_name,
-            'نام دکمه تماس مستقیم',
-            'contact',
-            update.effective_user.id
+            description='نام دکمه تماس مستقیم',
+            category='contact'
         )
         
         if success:
@@ -192,7 +193,7 @@ class DirectContactHandler(BaseAdminHandler):
     
     # ==================== Change Link Handlers ====================
     
-    async def direct_contact_change_link_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def direct_contact_edit_link_start(self, update: Update, context: CustomContext):
         """
         شروع تغییر لینک تماس
         
@@ -204,8 +205,8 @@ class DirectContactHandler(BaseAdminHandler):
         query = update.callback_query
         await query.answer()
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        current_link = self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        current_link = await self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
         
         text = t("admin.direct.change_link.text", lang, current=current_link)
         
@@ -216,7 +217,7 @@ class DirectContactHandler(BaseAdminHandler):
         logger.info("Waiting for new direct contact link")
         return DIRECT_CONTACT_LINK
     
-    async def direct_contact_link_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def direct_contact_link_received(self, update: Update, context: CustomContext):
         """
         دریافت و اعتبارسنجی لینک جدید
         
@@ -229,7 +230,7 @@ class DirectContactHandler(BaseAdminHandler):
         - نمایش پیام موفقیت
         - بازگشت به منو
         """
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         new_link = update.message.text.strip()
         
         # اعتبارسنجی لینک تلگرام
@@ -242,12 +243,11 @@ class DirectContactHandler(BaseAdminHandler):
             return DIRECT_CONTACT_LINK
         
         # ذخیره تنظیمات
-        success = self.db.set_setting(
-            'direct_contact_link', 
+        success = await self.db.set_setting(
+            'direct_contact_link',
             new_link,
-            'لینک تماس مستقیم',
-            'contact', 
-            update.effective_user.id
+            description='لینک تماس مستقیم',
+            category='contact'
         )
         
         if success:

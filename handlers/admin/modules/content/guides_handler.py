@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول مدیریت راهنماهای بازی (Guides)
 مسئول: تنظیمات HUD, Basic, Sensitivity برای BR/MP
@@ -9,11 +10,12 @@ from handlers.admin.modules.base_handler import BaseAdminHandler
 from handlers.admin.admin_states import (
     ADMIN_MENU,
     GUIDE_RENAME,
-    GUIDE_ADD_PHOTO,
-    GUIDE_ADD_VIDEO,
-    GUIDE_SET_CODE,
+    GUIDE_PHOTO,
+    GUIDE_VIDEO,
+    GUIDE_CODE,
     GUIDE_FINAL_CONFIRM
 )
+from core.security.role_manager import require_permission, Permission
 from utils.logger import get_logger
 from utils.i18n import t
 from utils.language import get_user_lang
@@ -36,7 +38,6 @@ class GuidesHandler(BaseAdminHandler):
     def __init__(self, db):
         """مقداردهی اولیه"""
         super().__init__(db)
-        self.role_manager = None  # باید از بیرون set شود
         logger.info("GuidesHandler initialized")
     
     def set_role_manager(self, role_manager):
@@ -45,7 +46,8 @@ class GuidesHandler(BaseAdminHandler):
     
     # ==================== Main Menu ====================
     
-    async def guides_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    @require_permission(Permission.MANAGE_SETTINGS)
+    async def guides_menu(self, update: Update, context: CustomContext):
         """
         منوی تنظیمات بازی - انتخاب mode
         
@@ -62,11 +64,11 @@ class GuidesHandler(BaseAdminHandler):
                 pass
         
         user_id = update.effective_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # دریافت مودهای مجاز
         if self.role_manager:
-            allowed_modes = self.role_manager.get_guide_mode_permissions(user_id)
+            allowed_modes = await self.role_manager.get_guide_mode_permissions(user_id)
         else:
             allowed_modes = ['br', 'mp']  # پیش‌فرض
         
@@ -106,7 +108,7 @@ class GuidesHandler(BaseAdminHandler):
         logger.info(f"Guides menu shown to user {user_id}, modes: {allowed_modes}")
         return ADMIN_MENU
     
-    async def guides_mode_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guides_mode_selected(self, update: Update, context: CustomContext):
         """
         بعد از انتخاب mode، نمایش بخش‌ها
         
@@ -123,11 +125,11 @@ class GuidesHandler(BaseAdminHandler):
         mode = query.data.replace("gmode_", "")
         context.user_data['guide_mode'] = mode
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_display = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
         # دریافت راهنماها برای شمارش مدیا
-        guides = self.db.get_guides(mode=mode)
+        guides = await self.db.get_guides(mode=mode)
         
         # ساخت دکمه‌ها با ایموجی و تعداد مدیا
         def make_button_text(emoji: str, name_key: str, guide_key: str) -> str:
@@ -163,7 +165,7 @@ class GuidesHandler(BaseAdminHandler):
     
     # ==================== Section Menu ====================
     
-    async def guide_section_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE, send_new: bool = False):
+    async def guide_section_menu(self, update: Update, context: CustomContext, send_new: bool = False):
         """
         منوی عملیات برای یک بخش
         
@@ -182,7 +184,7 @@ class GuidesHandler(BaseAdminHandler):
             key = context.user_data.get('guide_key')
             mode = context.user_data.get('guide_mode', 'br')
             if not key:
-                lang = get_user_lang(update, context, self.db) or 'fa'
+                lang = await get_user_lang(update, context, self.db) or 'fa'
                 await update.message.reply_text(t('admin.guides.error.key_not_found', lang))
                 return await self.guides_menu(update, context)
         elif query:
@@ -203,14 +205,14 @@ class GuidesHandler(BaseAdminHandler):
             key = context.user_data.get('guide_key')
             mode = context.user_data.get('guide_mode', 'br')
             if not key:
-                lang = get_user_lang(update, context, self.db) or 'fa'
+                lang = await get_user_lang(update, context, self.db) or 'fa'
                 await update.message.reply_text(t('admin.guides.error.key_not_found', lang))
                 return await self.guides_menu(update, context)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_display = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
-        g = self.db.get_guide(key, mode=mode)
+        g = await self.db.get_guide(key, mode=mode)
         p = len(g.get("photos", []) or [])
         v = len(g.get("videos", []) or [])
         
@@ -272,7 +274,7 @@ class GuidesHandler(BaseAdminHandler):
             logger.warning(f"Invalid guide key/mode format in callback data: {data}")
         return remaining, 'br'
     
-    async def guide_op_router(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_op_router(self, update: Update, context: CustomContext):
         """
         روت کردن عملیات روی بخش راهنما
         
@@ -286,7 +288,7 @@ class GuidesHandler(BaseAdminHandler):
         """
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         data = query.data
         
         if data.startswith("gop_rename_"):
@@ -294,7 +296,7 @@ class GuidesHandler(BaseAdminHandler):
             context.user_data['guide_key'] = key
             context.user_data['guide_mode'] = mode
             
-            g = self.db.get_guide(key, mode=mode)
+            g = await self.db.get_guide(key, mode=mode)
             current_name = g.get("name", key)
             labels = {"basic": t('guides.basic_short', lang), "sens": t('guides.sens_short', lang), "hud": t('guides.hud_short', lang)}
             section = labels.get(key, key)
@@ -326,7 +328,7 @@ class GuidesHandler(BaseAdminHandler):
                 reply_markup=InlineKeyboardMarkup(kb)
             )
             logger.info(f"Add photo started for {key} ({mode})")
-            return GUIDE_ADD_PHOTO
+            return GUIDE_PHOTO
         
         elif data.startswith("gop_addvideo_"):
             key, mode = self._extract_key_mode(data, "gop_addvideo_")
@@ -343,7 +345,7 @@ class GuidesHandler(BaseAdminHandler):
                 reply_markup=InlineKeyboardMarkup(kb)
             )
             logger.info(f"Add video started for {key} ({mode})")
-            return GUIDE_ADD_VIDEO
+            return GUIDE_VIDEO
         
         elif data.startswith("gop_confirm_media_"):
             key, mode = self._extract_key_mode(data, "gop_confirm_media_")
@@ -353,7 +355,7 @@ class GuidesHandler(BaseAdminHandler):
             key, mode = self._extract_key_mode(data, "gop_clearmedia_confirm_")
             await query.answer(t('feedback.wait', lang))
             
-            if self.db.clear_guide_media(key, mode=mode):
+            if await self.db.clear_guide_media(key, mode=mode):
                 await query.message.reply_text(t('admin.guides.clearmedia.success', lang), parse_mode='HTML')
                 logger.info(f"Media cleared for {key} ({mode})")
             else:
@@ -384,7 +386,7 @@ class GuidesHandler(BaseAdminHandler):
             context.user_data['guide_key'] = key
             context.user_data['guide_mode'] = mode
             
-            cur = (self.db.get_guide_code(key, mode=mode) or "").strip()
+            cur = (await self.db.get_guide_code(key, mode=mode) or "").strip()
             code_label = t('guides.sens_short', lang) if key == "sens" else t('guides.hud_short', lang)
             
             msg = (
@@ -396,13 +398,13 @@ class GuidesHandler(BaseAdminHandler):
             
             await query.edit_message_text(msg)
             logger.info(f"Set code started for {key} ({mode})")
-            return GUIDE_SET_CODE
+            return GUIDE_CODE
         
         elif data.startswith("gop_clearcode_"):
             key, mode = self._extract_key_mode(data, "gop_clearcode_")
             await query.answer(t('feedback.wait', lang))
             
-            if self.db.clear_guide_code(key, mode=mode):
+            if await self.db.clear_guide_code(key, mode=mode):
                 await query.message.reply_text(t('admin.guides.clearcode.success', lang), parse_mode='HTML')
                 logger.info(f"Code cleared for {key} ({mode})")
             else:
@@ -420,9 +422,9 @@ class GuidesHandler(BaseAdminHandler):
     
     # ==================== Data Handlers ====================
     
-    async def guide_rename_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_rename_received(self, update: Update, context: CustomContext):
         """دریافت نام جدید برای بخش"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         name = (update.message.text or "").strip()
         key = context.user_data.get('guide_key')
         mode = context.user_data.get('guide_mode', 'br')
@@ -431,7 +433,7 @@ class GuidesHandler(BaseAdminHandler):
             await update.message.reply_text(t('admin.guides.error.key_not_found', lang))
             return ADMIN_MENU
         
-        if self.db.set_guide_name(key, name, mode=mode):
+        if await self.db.set_guide_name(key, name, mode=mode):
             name_esc = name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             msg = t('admin.guides.rename.saved', lang, name=name_esc)
             
@@ -443,16 +445,25 @@ class GuidesHandler(BaseAdminHandler):
         
         return await self.guide_section_menu(update, context, send_new=True)
     
-    async def guide_photo_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_photo_received(self, update: Update, context: CustomContext):
         """دریافت عکس"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         key = context.user_data.get('guide_key')
         if not key:
             await update.message.reply_text(t('admin.guides.error.key_not_found', lang))
             return ADMIN_MENU
         
         if update.message.photo:
-            fid = update.message.photo[-1].file_id
+            photo = update.message.photo[-1]
+            
+            from utils.validators_enhanced import AttachmentValidator
+            result = AttachmentValidator.validate_image(file_size=getattr(photo, 'file_size', 0))
+            if not result.is_valid:
+                error_msg = t(result.error_key, lang, **(result.error_details or {}))
+                await update.message.reply_text(error_msg)
+                return GUIDE_PHOTO
+                
+            fid = photo.file_id
             if 'guide_temp_photos' not in context.user_data:
                 context.user_data['guide_temp_photos'] = []
             context.user_data['guide_temp_photos'].append(fid)
@@ -462,11 +473,11 @@ class GuidesHandler(BaseAdminHandler):
         else:
             await update.message.reply_text(t('admin.guides.photo.required', lang))
         
-        return GUIDE_ADD_PHOTO
+        return GUIDE_PHOTO
     
-    async def guide_video_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_video_received(self, update: Update, context: CustomContext):
         """دریافت ویدیو"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         key = context.user_data.get('guide_key')
         if not key:
             await update.message.reply_text(t('admin.guides.error.key_not_found', lang))
@@ -483,12 +494,12 @@ class GuidesHandler(BaseAdminHandler):
         else:
             await update.message.reply_text(t('admin.guides.video.required', lang))
         
-        return GUIDE_ADD_VIDEO
+        return GUIDE_VIDEO
     
-    async def guide_media_confirmed(self, update: Update, context: ContextTypes.DEFAULT_TYPE, key: str):
+    async def guide_media_confirmed(self, update: Update, context: CustomContext, key: str):
         """تایید و ذخیره رسانه‌ها"""
         query = update.callback_query
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         await query.answer(t('feedback.wait', lang))
         
         photos = context.user_data.get('guide_temp_photos', [])
@@ -501,9 +512,9 @@ class GuidesHandler(BaseAdminHandler):
         
         # ذخیره رسانه‌ها
         for photo_id in photos:
-            self.db.add_guide_photo(key, photo_id, mode=mode)
+            await self.db.add_guide_photo(key, photo_id, mode=mode)
         for video_id in videos:
-            self.db.add_guide_video(key, video_id, mode=mode)
+            await self.db.add_guide_video(key, video_id, mode=mode)
         
         # پاکسازی
         context.user_data.pop('guide_temp_photos', None)
@@ -521,9 +532,9 @@ class GuidesHandler(BaseAdminHandler):
         
         return await self.guide_section_menu(update, context, send_new=True)
     
-    async def guide_code_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def guide_code_received(self, update: Update, context: CustomContext):
         """دریافت و ذخیره کد"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         key = context.user_data.get('guide_key')
         mode = context.user_data.get('guide_mode', 'br')
         code = (update.message.text or "").strip()
@@ -532,7 +543,7 @@ class GuidesHandler(BaseAdminHandler):
             await update.message.reply_text(t('admin.guides.error.key_not_found', lang))
             return ADMIN_MENU
         
-        if self.db.set_guide_code(key, code, mode=mode):
+        if await self.db.set_guide_code(key, code, mode=mode):
             code_esc = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             await update.message.reply_text(
                 t('admin.guides.code.saved', lang, code=code_esc),

@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول مدیریت دسته‌بندی سلاح‌ها (Weapon Categories) - MODE-FIRST FLOW
 مسئول: فعال/غیرفعال کردن و پاک‌سازی دسته‌بندی‌ها برای هر مود (MP/BR)
@@ -10,6 +11,7 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 from handlers.admin.modules.base_handler import BaseAdminHandler
 from handlers.admin.admin_states import CATEGORY_MGMT_MODE, CATEGORY_MGMT_MENU, ADMIN_MENU
+from core.security.role_manager import require_permission, Permission
 from utils.logger import log_admin_action, get_logger
 from config.config import WEAPON_CATEGORIES, GAME_MODES, get_category_setting, set_category_enabled
 import os
@@ -33,7 +35,6 @@ class CategoryHandler(BaseAdminHandler):
     def __init__(self, db):
         """مقداردهی اولیه"""
         super().__init__(db)
-        self.role_manager = None  # باید از بیرون set شود
     
     def set_role_manager(self, role_manager):
         """تنظیم role manager"""
@@ -41,8 +42,9 @@ class CategoryHandler(BaseAdminHandler):
     
     # ==================== Main Menu (Mode Selection) ====================
     
+    @require_permission(Permission.MANAGE_CATEGORIES)
     @log_admin_action("category_mgmt_menu")
-    async def category_mgmt_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def category_mgmt_menu(self, update: Update, context: CustomContext):
         """
         منوی اصلی مدیریت دسته‌ها - انتخاب Mode
         
@@ -50,14 +52,14 @@ class CategoryHandler(BaseAdminHandler):
         """
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # پاک کردن navigation stack
         self._clear_navigation(context)
         
         # فیلتر کردن modeها بر اساس دسترسی کاربر
         user_id = update.effective_user.id
-        allowed_modes = self.role_manager.get_mode_permissions(user_id)
+        allowed_modes = await self.role_manager.get_mode_permissions(user_id)
         
         # اگر هیچ دسترسی ندارد
         if not allowed_modes:
@@ -86,7 +88,7 @@ class CategoryHandler(BaseAdminHandler):
     # ==================== Mode Selection Handler ====================
     
     @log_admin_action("category_mode_selected")
-    async def category_mode_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def category_mode_selected(self, update: Update, context: CustomContext):
         """
         انتخاب Mode (BR/MP) - سپس نمایش Category Management Menu
         """
@@ -101,8 +103,8 @@ class CategoryHandler(BaseAdminHandler):
         
         # بررسی دسترسی به mode انتخاب شده
         user_id = update.effective_user.id
-        allowed_modes = self.role_manager.get_mode_permissions(user_id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        allowed_modes = await self.role_manager.get_mode_permissions(user_id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if mode not in allowed_modes:
             await query.answer(t("common.no_permission", lang), show_alert=True)
@@ -120,7 +122,7 @@ class CategoryHandler(BaseAdminHandler):
     # ==================== Category Management Menu ====================
     
     @log_admin_action("show_category_management_menu")
-    async def show_category_management_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str = None):
+    async def show_category_management_menu(self, update: Update, context: CustomContext, mode: str = None):
         """
         نمایش منوی مدیریت دسته‌ها برای mode انتخاب شده
         
@@ -132,7 +134,7 @@ class CategoryHandler(BaseAdminHandler):
         if mode is None:
             mode = context.user_data.get('cat_mgmt_mode', 'mp')
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_name = GAME_MODES.get(mode, mode)
         
         text = t("admin.categories.header.mode", lang, mode=mode_name) + "\n\n" + t("admin.categories.title", lang) + "\n\n" + t("admin.categories.menu.desc", lang)
@@ -140,11 +142,11 @@ class CategoryHandler(BaseAdminHandler):
         keyboard = []
         
         # ساخت دکمه‌های 2 ستونی برای toggle
-        # Category names are displayed in English from WEAPON_CATEGORIES
+        # Category names are displayed in English
         toggle_buttons = []
-        for key, name in WEAPON_CATEGORIES.items():
-            enabled = get_category_setting(key, mode).get('enabled', True)
-            toggle_label = ("✅" if enabled else "❌") + f" {WEAPON_CATEGORIES.get(key, key)}"
+        for key in WEAPON_CATEGORIES_IDS:
+            enabled = (await get_category_setting(key, mode, self.db)).get('enabled', True)
+            toggle_label = ("✅" if enabled else "❌") + f" {t(f'category.{key}', 'en')}"
             toggle_buttons.append(InlineKeyboardButton(toggle_label, callback_data=f"adm_cat_toggle_{key}"))
         
         # تقسیم به ردیف‌های 2 تایی
@@ -161,7 +163,7 @@ class CategoryHandler(BaseAdminHandler):
         # Category names displayed in English from WEAPON_CATEGORIES
         clear_buttons = []
         for key, name in WEAPON_CATEGORIES.items():
-            clear_buttons.append(InlineKeyboardButton(f"🗑 {WEAPON_CATEGORIES.get(key, key)}", callback_data=f"adm_cat_clear_{key}"))
+            clear_buttons.append(InlineKeyboardButton(f"🗑 {t(f'category.{key}', 'en')}", callback_data=f"adm_cat_clear_{key}"))
         
         # تقسیم به ردیف‌های 2 تایی
         for i in range(0, len(clear_buttons), 2):
@@ -189,7 +191,7 @@ class CategoryHandler(BaseAdminHandler):
     # ==================== Toggle Handler ====================
     
     @log_admin_action("category_toggle_selected")
-    async def category_toggle_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def category_toggle_selected(self, update: Update, context: CustomContext):
         """
         فعال/غیرفعال کردن یک دسته برای mode فعلی
         
@@ -202,10 +204,10 @@ class CategoryHandler(BaseAdminHandler):
         mode = context.user_data.get('cat_mgmt_mode', 'mp')
         
         # دریافت وضعیت فعلی
-        current = get_category_setting(category, mode).get('enabled', True)
+        current = get_category_setting(category, mode, self.db).get('enabled', True)
         
         # تغییر وضعیت
-        set_category_enabled(category, not current, mode)
+        await set_category_enabled(category, not current, mode, self.db)
         
         status = "فعال" if not current else "غیرفعال"
         logger.info(f"Category {category} toggled to {status} for mode {mode}")
@@ -216,7 +218,7 @@ class CategoryHandler(BaseAdminHandler):
     # ==================== Clear Handlers ====================
     
     @log_admin_action("category_clear_prompt")
-    async def category_clear_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def category_clear_prompt(self, update: Update, context: CustomContext):
         """
         نمایش پیام تایید برای پاک‌سازی
         
@@ -227,7 +229,7 @@ class CategoryHandler(BaseAdminHandler):
         
         category = query.data.replace("adm_cat_clear_", "")
         mode = context.user_data.get('cat_mgmt_mode', 'mp')
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_name = GAME_MODES.get(mode, mode)
         # Force English for category name
         category_name = t(f"category.{category}", 'en')
@@ -262,7 +264,7 @@ class CategoryHandler(BaseAdminHandler):
         return CATEGORY_MGMT_MENU
     
     @log_admin_action("category_clear_confirm")
-    async def category_clear_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def category_clear_confirm(self, update: Update, context: CustomContext):
         """
         تایید و اجرای پاک‌سازی
         
@@ -273,7 +275,7 @@ class CategoryHandler(BaseAdminHandler):
         
         category = context.user_data.get('cat_clear_category')
         mode = context.user_data.get('cat_mgmt_mode', 'mp')
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_name = GAME_MODES.get(mode, mode)
         # Force English for category name
         category_name = t(f"category.{category}", 'en')
@@ -283,17 +285,17 @@ class CategoryHandler(BaseAdminHandler):
             return await self.show_category_management_menu(update, context, mode)
         
         # بکاپ قبل از پاک‌سازی
-        backup_file = self.db.backup_database()
+        backup_file = await self.db.backup_database()
         
         # شمارش اتچمنت‌ها قبل از حذف
-        weapons = self.db.get_weapons_in_category(category)
+        weapons = await self.db.get_weapons_in_category(category)
         total_attachments = 0
         for weapon in weapons:
-            attachments = self.db.get_all_attachments(category, weapon, mode=mode)
+            attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
             total_attachments += len(attachments)
         
         # پاک‌سازی برای mode مشخص
-        success = self.db.clear_category(category, mode=mode)
+        success = await self.db.clear_category(category, mode=mode)
         
         if success:
             msg = t("admin.categories.clear.success.title", lang) + "\n\n"
@@ -325,10 +327,10 @@ class CategoryHandler(BaseAdminHandler):
         return await self.show_category_management_menu(update, context, mode)
     
     @log_admin_action("category_clear_cancel")
-    async def category_clear_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def category_clear_cancel(self, update: Update, context: CustomContext):
         """لغو عملیات پاک‌سازی"""
         query = update.callback_query
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         await query.answer(t("common.cancelled", lang))
         
         mode = context.user_data.get('cat_mgmt_mode', 'mp')
@@ -338,7 +340,7 @@ class CategoryHandler(BaseAdminHandler):
     
     # ==================== Navigation Handler ====================
     
-    async def handle_navigation_back(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_navigation_back(self, update: Update, context: CustomContext):
         """
         مدیریت دکمه بازگشت در فلوی Category Management
         

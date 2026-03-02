@@ -5,7 +5,8 @@
 import os
 import sys
 from dotenv import load_dotenv
-from core.cache.cache_manager import get_cache
+from core.cache.cache_manager import cached
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -25,59 +26,72 @@ if not BOT_TOKEN:
     print("می‌توانید از .env.example به عنوان نمونه استفاده کنید.")
     sys.exit(1)
 
-# آیدی ادمین‌های ربات - از متغیر محیطی
-# اگر SUPER_ADMIN_ID تنظیم نشده باشد، ربات بدون ادمین شروع می‌شود
+# ----------------------------------------------------------------------------
+# Webhook Configuration
+# ----------------------------------------------------------------------------
+# حالت اجرا: "polling" (پیش‌فرض) یا "webhook"
+BOT_MODE = os.getenv("BOT_MODE", "polling").lower()
+
+# آدرس کامل سرور بدون مسیر (مثال: https://bot.example.com)
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
+
+# پورت داخلی که bot روی آن listen می‌کند
+WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "8443"))
+
+# مسیر endpoint (مثال: /webhook)
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
+
+# توکن امنیتی - اگر خالی باشد به صورت خودکار تولید می‌شود
+WEBHOOK_SECRET_TOKEN = os.getenv("WEBHOOK_SECRET_TOKEN", "")
+
+# مسیر گواهی SSL (فقط برای self-signed certificate - برای reverse proxy خالی بگذارید)
+WEBHOOK_CERT_PATH = os.getenv("WEBHOOK_CERT_PATH", "").strip()
+WEBHOOK_KEY_PATH = os.getenv("WEBHOOK_KEY_PATH", "").strip()
+
+# آیدی سوپراادمین (صاحب ربات) - از متغیر محیطی
+SUPER_ADMIN_ID = None
 admin_id_str = os.getenv("SUPER_ADMIN_ID")
 if admin_id_str:
     try:
-        default_admin = int(admin_id_str)
-        ADMIN_IDS = [default_admin]
+        SUPER_ADMIN_ID = int(admin_id_str)
     except ValueError:
         print("⚠️ خطا: SUPER_ADMIN_ID باید یک عدد معتبر باشد")
-        ADMIN_IDS = []
 else:
-    print("⚠️ توجه: SUPER_ADMIN_ID تنظیم نشده. ربات بدون ادمین شروع می‌شود.")
+    print("⚠️ توجه: SUPER_ADMIN_ID تنظیم نشده. ربات بدون ادمین اصلی شروع می‌شود.")
     print("برای تنظیم ادمین، فایل .env را ویرایش کنید.")
-    ADMIN_IDS = []
 
 # تنظیمات دیتابیس
 BACKUP_DIR = "backups"
 
-# دسته‌بندی سلاح‌ها
+# دسته‌بندی سلاح‌ها (IDs)
+WEAPON_CATEGORIES_IDS = [
+    "assault_rifle", "smg", "lmg", "sniper", 
+    "marksman", "shotgun", "pistol", "launcher"
+]
+
 WEAPON_CATEGORIES = {
-    "assault_rifle": "🔫 Assault Rifle",
-    "smg": "⚡ SMG",
-    "lmg": "🎯 LMG",
-    "sniper": "🔭 Sniper Rifle",
-    "marksman": "🎪 Marksman Rifle",
-    "shotgun": "💥 Shotgun",
-    "pistol": "🔫 Pistol",
-    "launcher": "🚀 Launcher"
+    "assault_rifle": "Assault Rifle",
+    "smg": "SMG",
+    "lmg": "LMG",
+    "sniper": "Sniper",
+    "marksman": "Marksman",
+    "shotgun": "Shotgun",
+    "pistol": "Pistol",
+    "launcher": "Launcher"
 }
 
-# مخفف دسته‌ها برای نمایش فشرده
 WEAPON_CATEGORIES_SHORT = {
-    "assault_rifle": "🔫 AR",
-    "smg": "⚡ SMG",
-    "lmg": "🎯 LMG",
-    "sniper": "🔭 SR",
-    "marksman": "🎪 MR",
-    "shotgun": "💥 SG",
-    "pistol": "🔫 Pistol",
-    "launcher": "🚀 Launcher"
+    "assault_rifle": "AR",
+    "smg": "SMG",
+    "lmg": "LMG",
+    "sniper": "Sniper",
+    "marksman": "Marksman",
+    "shotgun": "SG",
+    "pistol": "Pistol",
+    "launcher": "Launcher"
 }
 
-# نام‌های فارسی دسته‌ها (برای نمایش به کاربر)
-CATEGORIES = {
-    "assault_rifle": "تفنگ تهاجمی",
-    "smg": "مسلسل کوچک",
-    "lmg": "مسلسل سنگین",
-    "sniper": "تک‌تیرانداز",
-    "marksman": "نشانه‌گیر",
-    "shotgun": "ساچمه‌ای",
-    "pistol": "تپانچه",
-    "launcher": "راکت انداز"
-}
+CATEGORIES = WEAPON_CATEGORIES
 
 # تنظیمات Mode (Battle Royale / Multiplayer)
 GAME_MODES = {
@@ -85,16 +99,17 @@ GAME_MODES = {
     "mp": "🎮 MP"
 }
 
-def build_category_keyboard(categories_dict: dict, callback_prefix: str, show_count: bool = False, db=None, lang: str = 'fa') -> list:
+@cached(ttl=300, key_func=lambda callback_prefix, show_count=False, db=None, lang='fa', active_ids=None, **kwargs: f"cat_kb:{callback_prefix}:{show_count}:{lang}:{active_ids}")
+async def build_category_keyboard(callback_prefix: str, show_count: bool = False, db=None, lang: str = 'fa', active_ids: list = None) -> list:
     """
-    ساخت کیبورد 2 ستونی برای دسته‌بندی‌ها
+    ساخت کیبورد 2 ستونی برای دسته‌بندی‌ها با استفاده از i18n
     
     Args:
-        categories_dict: دیکشنری دسته‌بندی‌ها {key: name}
         callback_prefix: پیشوند callback_data (مثل "cat_", "aac_")
         show_count: نمایش تعداد سلاح‌ها
         db: شیء دیتابیس (فقط برای show_count=True)
         lang: زبان (fa/en) برای translation
+        active_ids: لیست IDهای فعال (اگر None باشد، همه نمایش داده می‌شوند)
     
     Returns:
         لیست ردیف‌های کیبورد
@@ -105,31 +120,31 @@ def build_category_keyboard(categories_dict: dict, callback_prefix: str, show_co
     keyboard = []
     buttons = []
     
-    # ✅ بهینه‌سازی: یک query بجای N query + کش 30 دقیقه‌ای
     counts = {}
     if show_count and db:
         try:
-            cache = get_cache()
-            cache_key = "category_counts"
-            cached_counts = cache.get(cache_key)
-            if cached_counts is not None:
-                counts = cached_counts
-            else:
-                counts = db.get_all_category_counts()
-                cache.set(cache_key, counts, ttl=1800)
+            # کش در خود متد دیتابیس هندل می‌شود
+            counts = await db.get_all_category_counts()
         except Exception:
-            # در صورت خطا در کش، مستقیم از دیتابیس می‌گیریم
-            counts = db.get_all_category_counts()
+            counts = {}
     
-    for key, name in categories_dict.items():
-        # استفاده از translation key به جای name مستقیم
-        display_name = name
+    target_ids = active_ids if active_ids is not None else WEAPON_CATEGORIES_IDS
+    
+    for key in target_ids:
+        # دریافت نام نمایشی از i18n - همیشه انگلیسی به درخواست کاربر
+        display_name = t(f"category.{key}", lang='en')
+        
+        # اضافه کردن ایموجی بر اساس ID
+        emojis = {
+            "assault_rifle": "🔫", "smg": "⚡", "lmg": "🎯", "sniper": "🔭",
+            "marksman": "🎪", "shotgun": "💥", "pistol": "🔫", "launcher": "🚀"
+        }
+        emoji = emojis.get(key, "")
+        button_text = f"{emoji} {display_name}" if emoji else display_name
         
         if show_count and db:
             weapons_count = counts.get(key, 0)
-            button_text = f"{display_name} ({weapons_count})"
-        else:
-            button_text = display_name
+            button_text = f"{button_text} ({weapons_count})"
         
         buttons.append(InlineKeyboardButton(button_text, callback_data=f"{callback_prefix}{key}"))
     
@@ -178,7 +193,7 @@ def build_weapon_keyboard(weapons: list, callback_prefix: str, category: str = N
 
 # وضعیت فعال/غیرفعال بودن هر دسته برای نمایش به کاربران
 # ساختار mode-based: {'mp': {'category': {'enabled': bool}}, 'br': {...}}
-CATEGORY_SETTINGS = {
+DEFAULT_CATEGORY_SETTINGS = {
     'mp': {
         'assault_rifle': {'enabled': True},
         'launcher': {'enabled': True},
@@ -201,102 +216,56 @@ CATEGORY_SETTINGS = {
     }
 }
 
+import json
 
-# ==================== Helper Functions for Category Settings ====================
+async def get_all_category_settings(db=None) -> dict:
+    if db:
+        val = await db.get_setting('category_settings')
+        if val:
+            try:
+                return json.loads(val)
+            except Exception:
+                pass
+    return DEFAULT_CATEGORY_SETTINGS
 
-def get_category_setting(category: str, mode: str = None) -> dict:
-    """
-    دریافت تنظیمات یک دسته برای mode مشخص
-    
-    Args:
-        category: کلید دسته (مثل 'assault_rifle')
-        mode: مود بازی ('mp' یا 'br') - اگر None باشد، settings برای mp برمی‌گردد
-    
-    Returns:
-        dict: تنظیمات دسته {'enabled': bool}
-    """
+CATEGORY_SETTINGS = DEFAULT_CATEGORY_SETTINGS
+
+async def get_category_setting(category: str, mode: str = None, db=None) -> dict:
+    """دریافت تنظیمات یک دسته برای mode مشخص از دیتابیس"""
     if mode is None:
         mode = 'mp'  # default
-    
-    # بررسی ساختار mode-based
-    if isinstance(CATEGORY_SETTINGS, dict) and mode in CATEGORY_SETTINGS:
-        # ساختار جدید mode-based
-        if category in CATEGORY_SETTINGS[mode]:
-            return CATEGORY_SETTINGS[mode][category]
-        return {'enabled': True}
-    
-    # Backward compatibility: ساختار قدیمی global
-    if category in CATEGORY_SETTINGS:
-        return CATEGORY_SETTINGS[category]
-    
+    settings = await get_all_category_settings(db)
+    if mode in settings and category in settings[mode]:
+        return settings[mode][category]
     return {'enabled': True}
 
-
-def is_category_enabled(category: str, mode: str = None) -> bool:
-    """
-    بررسی فعال بودن یک دسته برای mode مشخص
-    
-    Args:
-        category: کلید دسته
-        mode: مود بازی ('mp' یا 'br')
-    
-    Returns:
-        bool: True اگر دسته فعال باشد
-    """
-    settings = get_category_setting(category, mode)
+async def is_category_enabled(category: str, mode: str = None, db=None) -> bool:
+    """بررسی فعال بودن یک دسته برای mode مشخص"""
+    settings = await get_category_setting(category, mode, db)
     return settings.get('enabled', True)
 
-
-def set_category_enabled(category: str, enabled: bool, mode: str = None):
-    """
-    تنظیم وضعیت فعال/غیرفعال یک دسته
+async def set_category_enabled(category: str, enabled: bool, mode: str = None, db=None):
+    """تنظیم وضعیت فعال/غیرفعال یک دسته در دیتابیس"""
+    settings = await get_all_category_settings(db)
     
-    Args:
-        category: کلید دسته
-        enabled: وضعیت جدید
-        mode: مود بازی ('mp' یا 'br') - None یعنی هر دو mode
-    """
-    global CATEGORY_SETTINGS
-    
-    # اگر ساختار mode-based است
-    if isinstance(CATEGORY_SETTINGS, dict) and ('mp' in CATEGORY_SETTINGS or 'br' in CATEGORY_SETTINGS):
-        if mode is None:
-            # تنظیم برای هر دو mode
-            for m in ['mp', 'br']:
-                if m not in CATEGORY_SETTINGS:
-                    CATEGORY_SETTINGS[m] = {}
-                if category not in CATEGORY_SETTINGS[m]:
-                    CATEGORY_SETTINGS[m][category] = {}
-                CATEGORY_SETTINGS[m][category]['enabled'] = enabled
-        else:
-            # تنظیم برای mode مشخص
-            if mode not in CATEGORY_SETTINGS:
-                CATEGORY_SETTINGS[mode] = {}
-            if category not in CATEGORY_SETTINGS[mode]:
-                CATEGORY_SETTINGS[mode][category] = {}
-            CATEGORY_SETTINGS[mode][category]['enabled'] = enabled
+    if mode is None:
+        for m in ['mp', 'br']:
+            if m not in settings:
+                settings[m] = {}
+            if category not in settings[m]:
+                settings[m][category] = {}
+            settings[m][category]['enabled'] = enabled
     else:
-        # ساختار قدیمی global
-        if category not in CATEGORY_SETTINGS:
-            CATEGORY_SETTINGS[category] = {}
-        CATEGORY_SETTINGS[category]['enabled'] = enabled
+        if mode not in settings:
+            settings[mode] = {}
+        if category not in settings[mode]:
+            settings[mode][category] = {}
+        settings[mode][category]['enabled'] = enabled
     
-    # NOTE: تغییرات فقط در memory اعمال می‌شود
-    # برای ذخیره دائمی، باید manually در این فایل ذخیره شود
+    if db:
+        await db.set_setting('category_settings', json.dumps(settings), "Category enable/disable settings")
 
-
-# NOTE: save_category_settings() removed - was causing file corruption
-# CATEGORY_SETTINGS is now manually managed in this file
-# Changes are applied in-memory and persist across bot restarts via database
-
-# تنظیمات فعال/غیرفعال بودن سلاح‌ها
-# کلید: "category__weapon" (مثلاً "assault_rifle__AK47")
-# مقدار: {"enabled": True/False}
-WEAPON_SETTINGS = {}
-
-# تنظیمات نوتیفیکیشن خودکار و قالب پیام‌ها
-# placeholders مجاز: {category} {category_name} {weapon} {code} {name} {old_name} {new_name} {old_code} {new_code}
-NOTIFICATION_SETTINGS = {
+DEFAULT_NOTIFICATION_SETTINGS = {
     "enabled": True,
     "events": {
         "add_attachment": True,
@@ -321,57 +290,26 @@ NOTIFICATION_SETTINGS = {
     "auto_notify": True
 }
 
-# پیام‌های ربات
-MESSAGES = {
-    "welcome": """
-🎮 **به ربات CODM Attachments خوش آمدید!**
+async def get_notification_settings(db=None) -> dict:
+    if db:
+        val = await db.get_setting('notification_settings')
+        if val:
+            try:
+                settings = json.loads(val)
+                merged = {**DEFAULT_NOTIFICATION_SETTINGS, **settings}
+                merged['events'] = {**DEFAULT_NOTIFICATION_SETTINGS.get('events', {}), **settings.get('events', {})}
+                merged['templates'] = {**DEFAULT_NOTIFICATION_SETTINGS.get('templates', {}), **settings.get('templates', {})}
+                return merged
+            except Exception:
+                pass
+    return DEFAULT_NOTIFICATION_SETTINGS
 
-این ربات برای مشاهده بهترین اتچمنت‌های سلاح‌های Call of Duty Mobile طراحی شده.
+async def set_notification_settings(settings: dict, db=None) -> bool:
+    if db:
+        return await db.set_setting('notification_settings', json.dumps(settings), "Global notification settings")
+    return False
 
-🔹 از منوی زیر گزینه مورد نظر خود را انتخاب کنید:
-""",
-    "select_category": "📂 **دسته سلاح مورد نظر را انتخاب کنید:**",
-    "select_weapon": "🔫 **سلاح مورد نظر را انتخاب کنید:**",
-    "no_weapons": "❌ هنوز سلاحی در این دسته اضافه نشده است.",
-    "no_attachments": "❌ هنوز اتچمنتی برای این سلاح اضافه نشده است.",
-    "top_attachments": "⭐ **5 اتچمنت برتر برای {weapon}:**",
-    "all_attachments": "📋 **تمام اتچمنت‌های {weapon}:**",
-    "search_prompt": "🔍 **نام سلاح یا کد اتچمنت را وارد کنید:**",
-    "search_no_results": "❌ نتیجه‌ای یافت نشد.",
-    "help_text": """
-📖 **راهنمای ربات**
 
-🔫 **دریافت اتچمنت:** دسته → سلاح → مود (BR/MP) → برترها یا همه
-
-💡 **پیشنهادی:** بهترین ترکیب‌های انتخاب شده برای هر سلاح
-
-⭐ **برترها:** اتچمنت‌های برتر فصل با عکس و کد
-
-⚙️ **تنظیمات:** HUD، Basic و Sensitivity جداگانه برای BR/MP
-
-🔍 **جستجو:** نام سلاح یا کد اتچمنت را تایپ کنید
-
-📞 **پشتیبانی:** ثبت تیکت، FAQ و بازخورد
-
-━━━━━━━━━━━━━━
-
-💡 **نکته:** کدها را در بازی جستجو کنید. BR و MP متفاوت هستند.
-
-🎮 **موفق باشید!**
-""",
-    "admin_welcome": """
-👨‍💼 **پنل مدیریت ادمین**
-
-از منوی زیر گزینه مورد نظر را انتخاب کنید:
-""",
-    "not_admin": "❌ شما دسترسی ادمین ندارید.",
-    "backup_created": "✅ بکاپ با موفقیت ایجاد شد: {filename}",
-    "data_saved": "✅ اطلاعات با موفقیت ذخیره شد.",
-    "attachment_added": "✅ اتچمنت جدید اضافه شد.",
-    "attachment_deleted": "✅ اتچمنت حذف شد.",
-    "weapon_added": "✅ سلاح جدید اضافه شد.",
-    "weapon_deleted": "✅ سلاح حذف شد.",
-}
 
 # تنظیمات صفحه‌بندی
 ITEMS_PER_PAGE = 10
@@ -379,3 +317,5 @@ ITEMS_PER_PAGE = 10
 # تنظیمات لاگ
 LOG_FILE = "bot.log"
 LOG_LEVEL = "INFO"
+
+# End of configuration

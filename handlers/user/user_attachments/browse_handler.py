@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 Browse Handler - نمایش اتچمنت‌های تایید شده کاربران
 """
@@ -21,14 +22,14 @@ cache = get_ua_cache(db, ttl_seconds=300)
 ATTACHMENTS_PER_PAGE = 5
 
 
-async def browse_attachments_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def browse_attachments_menu(update: Update, context: CustomContext):
     """منوی اصلی Browse"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     # دریافت مودهای فعال
-    enabled_modes_str = db.get_ua_setting('enabled_modes') or '["mp","br"]'
+    enabled_modes_str = await db.get_ua_setting('enabled_modes') or '["mp","br"]'
     enabled_modes = json.loads(enabled_modes_str)
     
     keyboard = []
@@ -50,13 +51,9 @@ async def browse_attachments_menu(update: Update, context: ContextTypes.DEFAULT_
         )
         return
     
-    # If there are exactly 2 modes (standard case), show them in one row
-    if len(mode_buttons) == 2:
-        keyboard.append(mode_buttons)
-    else:
-        # Otherwise stack them (e.g. only 1 mode enabled)
-        for btn in mode_buttons:
-            keyboard.append([btn])
+    # Always show mode buttons vertically (one per row)
+    for btn in mode_buttons:
+        keyboard.append([btn])
     
     keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="ua_menu")])
     
@@ -67,7 +64,7 @@ async def browse_attachments_menu(update: Update, context: ContextTypes.DEFAULT_
     )
 
 
-async def browse_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def browse_mode_selected(update: Update, context: CustomContext):
     """انتخاب مود برای Browse"""
     query = update.callback_query
     await query.answer()
@@ -75,7 +72,7 @@ async def browse_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYP
     mode = query.data.split('_')[-1]  # br یا mp
     context.user_data['browse_mode'] = mode
     
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     mode_name = t(f"mode.{mode}_btn", lang)
     
     # منوی فیلتر: همه یا انتخاب دسته
@@ -86,13 +83,13 @@ async def browse_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYP
     ]
     
     await query.edit_message_text(
-        f"{t('mode.label', lang)}: {mode_name}",
+        f"*{t('ua.browse', lang)}*\n━━━━━━━━━━━━━━\n{t('mode.label', lang)}: {mode_name}\n\n{t('mode.choose', lang)}",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
-async def browse_show_category_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def browse_show_category_menu(update: Update, context: CustomContext):
     """نمایش منوی انتخاب دسته‌بندی"""
     query = update.callback_query
     await query.answer()
@@ -100,12 +97,16 @@ async def browse_show_category_menu(update: Update, context: ContextTypes.DEFAUL
     mode = query.data.split('_')[-1]  # br یا mp
     context.user_data['browse_mode'] = mode
     
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     mode_name = t(f"mode.{mode}_btn", lang)
     
     # فیلتر کردن دسته‌های فعال برای mode انتخاب شده
     from config.config import is_category_enabled
-    active_categories = {k: v for k, v in WEAPON_CATEGORIES.items() if is_category_enabled(k, mode)}
+    active_categories = {}
+    db_instance = context.bot_data.get('db')
+    for k, v in WEAPON_CATEGORIES.items():
+        if await is_category_enabled(k, mode, db_instance):
+            active_categories[k] = v
     
     if not active_categories:
         await query.edit_message_text(
@@ -118,12 +119,12 @@ async def browse_show_category_menu(update: Update, context: ContextTypes.DEFAUL
         return
     
     # نمایش دسته‌بندی‌ها
-    keyboard = build_category_keyboard(
-        active_categories,
+    keyboard = await build_category_keyboard(
         callback_prefix="ua_browse_cat_",
         show_count=False,
         db=None,
-        lang=lang
+        lang=lang,
+        active_ids=list(active_categories.keys())
     )
     keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data=f"ua_browse_mode_{mode}")])
     
@@ -134,7 +135,7 @@ async def browse_show_category_menu(update: Update, context: ContextTypes.DEFAUL
     )
 
 
-async def browse_show_all_attachments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def browse_show_all_attachments(update: Update, context: CustomContext):
     """نمایش همه اتچمنت‌ها (تمام دسته‌ها)"""
     query = update.callback_query
     await query.answer()
@@ -145,66 +146,16 @@ async def browse_show_all_attachments(update: Update, context: ContextTypes.DEFA
     
     # فیلتر کردن دسته‌های فعال برای mode انتخاب شده
     from config.config import is_category_enabled
-    enabled_categories = [k for k in WEAPON_CATEGORIES.keys() if is_category_enabled(k, mode)]
+    enabled_categories = [k for k in WEAPON_CATEGORIES.keys() if await is_category_enabled(k, mode, context.bot_data.get('db'))]
     
-    # دریافت همه اتچمنت‌های approved این مود
-    try:
-        # ساخت WHERE clause براساس دسته‌های فعال
-        if enabled_categories:
-            # Build a proper placeholders list for psycopg
-            placeholders = ','.join(['%s'] * len(enabled_categories))
-            query_sql = f"""
-                SELECT ua.*, u.username, u.first_name
-                FROM user_attachments ua
-                LEFT JOIN users u ON ua.user_id = u.user_id
-                WHERE ua.mode = %s AND ua.status = 'approved' AND ua.category IN ({placeholders})
-                ORDER BY ua.like_count DESC, ua.approved_at DESC
-            """
-            params = (mode,) + tuple(enabled_categories)
-        else:
-            # اگر لیست خالی بود، همه رو نشون بده
-            query_sql = """
-                SELECT ua.*, u.username, u.first_name
-                FROM user_attachments ua
-                LEFT JOIN users u ON ua.user_id = u.user_id
-                WHERE ua.mode = %s AND ua.status = 'approved'
-                ORDER BY ua.like_count DESC, ua.approved_at DESC
-            """
-            params = (mode,)
-        
-        # Use proper connection context manager and cursor (DatabaseAdapter pooled)
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query_sql, params)
-            rows = cursor.fetchall()
-            cursor.close()
-        attachments = [dict(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Error fetching all user attachments: {e}")
-        attachments = []
-    
-    if not attachments:
-        lang = get_user_lang(update, context, db) or 'fa'
-        mode_name = t(f"mode.{mode}_btn", lang)
-        await query.edit_message_text(
-            f"{t('mode.label', lang)}: {mode_name}\n\n" + t('attachment.none', lang),
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(t("ua.submit", lang), callback_data="ua_submit"),
-                InlineKeyboardButton(t("menu.buttons.back", lang), callback_data=f"ua_browse_mode_{mode}")
-            ]])
-        )
-        return
-    
-    # ذخیره برای pagination
-    context.user_data['browse_attachments'] = attachments
+    # آماده‌سازی صفحه‌بندی
     context.user_data['browse_page'] = 0
     
     # نمایش صفحه اول
     await show_attachments_page(update, context)
 
 
-async def browse_category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def browse_category_selected(update: Update, context: CustomContext):
     """انتخاب دسته - نمایش مستقیم اتچمنت‌ها"""
     query = update.callback_query
     await query.answer()
@@ -214,32 +165,31 @@ async def browse_category_selected(update: Update, context: ContextTypes.DEFAULT
     
     mode = context.user_data['browse_mode']
     
-    # دریافت اتچمنت‌های approved این دسته
-    try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-            SELECT ua.*, u.username, u.first_name
-            FROM user_attachments ua
-            LEFT JOIN users u ON ua.user_id = u.user_id
-            WHERE ua.category = %s AND ua.mode = %s AND ua.status = 'approved'
-            ORDER BY ua.like_count DESC, ua.approved_at DESC
-                """,
-                (category, mode),
-            )
-            rows = cursor.fetchall()
-            cursor.close()
-        attachments = [dict(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Error fetching user attachments: {e}")
-        attachments = []
+    # آماده‌سازی صفحه‌بندی
+    context.user_data['browse_page'] = 0
     
-    if not attachments:
-        lang = get_user_lang(update, context, db) or 'fa'
-        category_name = t(f"category.{category}", lang)
+    # نمایش صفحه اول
+    await show_attachments_page(update, context)
+
+
+async def show_attachments_page(update: Update, context: CustomContext):
+    """نمایش یک صفحه از اتچمنت‌ها"""
+    query = update.callback_query
+    if query:
+        await query.answer()
+    
+    mode = context.user_data.get('browse_mode', 'br')
+    category = context.user_data.get('browse_category', 'all')
+    page = context.user_data.get('browse_page', 0)
+    lang = await get_user_lang(update, context, db) or 'fa'
+    
+    # دریافت آمار و داده‌ها از دیتابیس
+    total_count = await db.get_approved_user_attachments_count(mode, category)
+    if total_count == 0:
+        mode_name = t(f"mode.{mode}_btn", lang)
+        cat_name = t(f"category.{category}", 'en') if category != 'all' else t('ua.all_categories', lang)
         await query.edit_message_text(
-            f"{t('category.label', lang)}: {category_name}\n\n" + t('attachment.none', lang),
+            f"{t('mode.label', lang)}: {mode_name} › {cat_name}\n\n" + t('attachment.none', lang),
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(t("ua.submit", lang), callback_data="ua_submit"),
@@ -247,46 +197,38 @@ async def browse_category_selected(update: Update, context: ContextTypes.DEFAULT
             ]])
         )
         return
-    
-    # ذخیره برای pagination
-    context.user_data['browse_attachments'] = attachments
-    context.user_data['browse_page'] = 0
-    
-    # نمایش صفحه اول
-    await show_attachments_page(update, context)
 
-
-async def show_attachments_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش یک صفحه از اتچمنت‌ها"""
-    query = update.callback_query
-    if query:
-        await query.answer()
+    attachments = await db.get_approved_user_attachments_paginated(
+        mode, category, 
+        limit=ATTACHMENTS_PER_PAGE, 
+        offset=page * ATTACHMENTS_PER_PAGE
+    )
     
-    attachments = context.user_data.get('browse_attachments', [])
-    page = context.user_data.get('browse_page', 0)
-    lang = get_user_lang(update, context, db) or 'fa'
-    mode_name = t(f"mode.{context.user_data['browse_mode']}_btn", lang)
-    category = context.user_data.get('browse_category', '')
+    # اطمینان از صحت نمایش نام سلاح
+    for att in attachments:
+        if not att.get('weapon_display') and att.get('custom_weapon_name'):
+            att['weapon_display'] = att['custom_weapon_name']
+    
+    mode_name = t(f"mode.{mode}_btn", lang)
     cat_display = t('ua.all_categories', lang) if category == 'all' else WEAPON_CATEGORIES_SHORT.get(category, category)
     
-    total_pages = (len(attachments) - 1) // ATTACHMENTS_PER_PAGE + 1
-    start_idx = page * ATTACHMENTS_PER_PAGE
-    end_idx = min(start_idx + ATTACHMENTS_PER_PAGE, len(attachments))
-    
-    page_attachments = attachments[start_idx:end_idx]
+    total_pages = (total_count - 1) // ATTACHMENTS_PER_PAGE + 1
+    start_idx = page * ATTACHMENTS_PER_PAGE + 1
+    end_idx = start_idx + len(attachments) - 1
     
     # ساخت پیام
     message = (
-        f"{t('mode.label', lang)}: {mode_name} › {cat_display}\n"
-        f"{t('ua.browse', lang)}\n\n"
-        f"{t('pagination.showing_range', lang, start=start_idx+1, end=end_idx, total=len(attachments))}\n"
-        f"{t('pagination.page_of', lang, page=page+1, total=total_pages)}\n\n"
+        f"*{t('ua.browse', lang)}*\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"{t('mode.label', lang)}: {mode_name}  |  {cat_display}\n"
+        f"{t('pagination.page_of', lang, page=page+1, total=total_pages)}  •  "
+        f"{t('pagination.showing_range', lang, start=start_idx, end=end_idx, total=total_count)}\n"
     )
     
     # ساخت کیبورد
     keyboard = []
     
-    for att in page_attachments:
+    for att in attachments:
         weapon = att.get('custom_weapon_name') or t('common.unknown', lang)
         att_name = att.get('name') or att.get('attachment_name') or t('common.unknown', lang)
         likes = att.get('like_count', 0)
@@ -296,10 +238,13 @@ async def show_attachments_page(update: Update, context: ContextTypes.DEFAULT_TY
         # اگر همه دسته‌ها: نمایش مخفف دسته
         if category == 'all':
             cat_short = WEAPON_CATEGORIES_SHORT.get(cat_key, cat_key)
-            button_text = f"{cat_short} [{weapon}] {att_name[:15]} - @{username}"
+            button_text = f"{cat_short} • {weapon} — {att_name[:18]}"
         else:
-            # فرمت بدون دسته
-            button_text = f"[{weapon}] {att_name[:20]} - @{username}"
+            button_text = f"🔫 {weapon} — {att_name[:22]}"
+        
+        # نمایش لایک‌ها اگر وجود داشت
+        if likes > 0:
+            button_text += f"  👍{likes}"
         
         keyboard.append([
             InlineKeyboardButton(
@@ -347,23 +292,19 @@ async def show_attachments_page(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
-async def browse_prev_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def browse_prev_page(update: Update, context: CustomContext):
     """صفحه قبل"""
     context.user_data['browse_page'] = max(0, context.user_data.get('browse_page', 0) - 1)
     await show_attachments_page(update, context)
 
 
-async def browse_next_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def browse_next_page(update: Update, context: CustomContext):
     """صفحه بعد"""
-    attachments = context.user_data.get('browse_attachments', [])
-    total_pages = (len(attachments) - 1) // ATTACHMENTS_PER_PAGE + 1
-    current_page = context.user_data.get('browse_page', 0)
-    
-    context.user_data['browse_page'] = min(total_pages - 1, current_page + 1)
+    context.user_data['browse_page'] = context.user_data.get('browse_page', 0) + 1
     await show_attachments_page(update, context)
 
 
-async def view_attachment_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def view_attachment_detail(update: Update, context: CustomContext):
     """نمایش جزئیات یک اتچمنت"""
     query = update.callback_query
     await query.answer()
@@ -371,28 +312,29 @@ async def view_attachment_detail(update: Update, context: ContextTypes.DEFAULT_T
     attachment_id = int(query.data.replace('ua_view_', ''))
     
     # دریافت اتچمنت
-    attachment = db.get_user_attachment(attachment_id)
+    attachment = await db.get_user_attachment(attachment_id)
     
     if not attachment:
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('attachment.not_found', lang), show_alert=True)
         return
     
     # افزایش view_count
     try:
-        with db.transaction() as conn:
-            conn.execute("""
-                UPDATE user_attachments 
-                SET view_count = view_count + 1 
-                WHERE id = %s
-            """, (attachment_id,))
+        async with db.transaction() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute("""
+                    UPDATE user_attachments 
+                    SET view_count = view_count + 1 
+                    WHERE id = %s
+                """, (attachment_id,))
     except Exception as e:
         logger.error(f"Error updating view count: {e}")
     
     # ساخت پیام
     from telegram.helpers import escape_markdown
     
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     username = attachment.get('username') or attachment.get('first_name') or t('user.anonymous', lang)
     description = attachment.get('description') or t('common.no_description', lang)
     views = attachment.get('view_count', 0) + 1
@@ -409,7 +351,7 @@ async def view_attachment_detail(update: Update, context: ContextTypes.DEFAULT_T
     
     # دریافت نام دسته با ترجمه
     category_key = attachment.get('category', attachment.get('category_name', ''))
-    category_local = t(f"category.{category_key}", lang)
+    category_local = t(f"category.{category_key}", 'en')
     category_name = escape_markdown(str(category_local), version=2)
     
     description_esc = escape_markdown(str(description), version=2)
@@ -426,40 +368,41 @@ async def view_attachment_detail(update: Update, context: ContextTypes.DEFAULT_T
     date_str = escape_markdown(sub_ts, version=2)
     
     caption = (
-        f"📎 *{att_name}*\n\n"
-        f"🎮 *{t('mode.label', lang)}:* {mode_name_esc}\n"
-        f"🔫 *{t('weapon.label', lang)}:* {weapon_name}\n"
-        f"📂 *{t('category.label', lang)}:* {category_name}\n\n"
-        f"💬 *{escape_markdown(t('ua.view.description_label', lang), version=2)}:*\n{description_esc}\n\n"
-        f"👤 *{escape_markdown(t('ua.view.sender_label', lang), version=2)}:* @{escape_markdown(str(username), version=2)}\n"
-        f"👁 *{escape_markdown(t('ua.view.views_label', lang), version=2)}:* {views}\n"
-        f"📅 *{escape_markdown(t('ua.view.date_label', lang), version=2)}:* {date_str}"
+        f"📎 *{att_name}*\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"🎮 *{t('mode.label', lang)}:* {mode_name_esc}  •  "
+        f"📂 {category_name}\n"
+        f"🔫 *{t('weapon.label', lang)}:* {weapon_name}\n\n"
+        f"💬 {description_esc}\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"👤 @{escape_markdown(str(username), version=2)}  •  "
+        f"📅 {date_str}  •  👁 {views}"
     )
     
     # بررسی اینکه کاربر قبلاً این پست را گزارش کرده یا نه، برای مخفی کردن دکمه گزارش
     already_reported = False
     try:
-        with db.get_connection() as conn:
-            cur = conn.cursor()
-            try:
-                cur.execute(
-                    """
-                    SELECT 1 FROM user_attachment_reports
-                    WHERE attachment_id = %s AND reporter_id = %s
-                    LIMIT 1
-                    """,
-                    (attachment_id, update.effective_user.id),
-                )
-            except Exception:
-                cur.execute(
-                    """
-                    SELECT 1 FROM user_attachment_reports
-                    WHERE attachment_id = %s AND user_id = %s
-                    LIMIT 1
-                    """,
-                    (attachment_id, update.effective_user.id),
-                )
-            already_reported = cur.fetchone() is not None
+        async with db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    await cur.execute(
+                        """
+                        SELECT 1 FROM user_attachment_reports
+                        WHERE attachment_id = %s AND reporter_id = %s
+                        LIMIT 1
+                        """,
+                        (attachment_id, update.effective_user.id),
+                    )
+                except Exception:
+                    await cur.execute(
+                        """
+                        SELECT 1 FROM user_attachment_reports
+                        WHERE attachment_id = %s AND user_id = %s
+                        LIMIT 1
+                        """,
+                        (attachment_id, update.effective_user.id),
+                    )
+                already_reported = await cur.fetchone() is not None
     except Exception as _pre_err:
         logger.error(f"Error prechecking already_reported: {_pre_err}")
 
@@ -486,29 +429,30 @@ async def view_attachment_detail(update: Update, context: ContextTypes.DEFAULT_T
         logger.warning(f"Failed to delete previous attachment detail message: {e}")
 
 
-async def like_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def like_attachment(update: Update, context: CustomContext):
     """لایک اتچمنت"""
     query = update.callback_query
     
     attachment_id = int(query.data.replace('ua_like_', ''))
     
     try:
-        with db.transaction() as conn:
-            conn.execute("""
-                UPDATE user_attachments 
-                SET like_count = like_count + 1 
-                WHERE id = %s
-            """, (attachment_id,))
+        async with db.transaction() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute("""
+                    UPDATE user_attachments 
+                    SET like_count = like_count + 1 
+                    WHERE id = %s
+                """, (attachment_id,))
         
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('success.generic', lang), show_alert=True)
     except Exception as e:
         logger.error(f"Error liking attachment: {e}")
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('error.generic', lang), show_alert=True)
 
 
-async def report_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def report_attachment(update: Update, context: CustomContext):
     """گزارش اتچمنت"""
     query = update.callback_query
     
@@ -518,102 +462,103 @@ async def report_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # محدودیت‌ها: هر کاربر فقط یکبار برای هر پست، و حداکثر 5 گزارش در روز
     today_count = 0
     try:
-        with db.get_connection() as conn:
-            cur = conn.cursor()
-            # بررسی گزارش تکراری برای همان پست
-            try:
-                cur.execute(
-                    """
-                    SELECT 1 
-                    FROM user_attachment_reports 
-                    WHERE attachment_id = %s AND reporter_id = %s 
-                    LIMIT 1
-                    """,
-                    (attachment_id, reporter_id),
-                )
-            except Exception:
-                # سازگاری با اسکیما قدیمی (user_id به جای reporter_id)
-                cur.execute(
-                    """
-                    SELECT 1 
-                    FROM user_attachment_reports 
-                    WHERE attachment_id = %s AND user_id = %s 
-                    LIMIT 1
-                    """,
-                    (attachment_id, reporter_id),
-                )
-            dup = cur.fetchone()
-            if dup:
-                lang = get_user_lang(update, context, db) or 'fa'
-                await query.answer(t('ua.report.duplicate', lang), show_alert=True)
-                return
-            
-            # محدودیت ۵ گزارش در روز
-            today_count = 0
-            try:
-                cur.execute(
-                    """
-                    SELECT COUNT(*) AS cnt
-                    FROM user_attachment_reports 
-                    WHERE reporter_id = %s AND reported_at >= CURRENT_DATE
-                    """,
-                    (reporter_id,),
-                )
-            except Exception:
-                # سازگاری با ستون created_at
-                cur.execute(
-                    """
-                    SELECT COUNT(*) AS cnt
-                    FROM user_attachment_reports 
-                    WHERE user_id = %s AND created_at >= CURRENT_DATE
-                    """,
-                    (reporter_id,),
-                )
-            row = cur.fetchone()
-            today_count = int((row or {}).get('cnt') or 0)
-            if today_count >= 5:
-                lang = get_user_lang(update, context, db) or 'fa'
-                await query.answer(t('ua.report.limit_reached', lang), show_alert=True)
-                return
+        async with db.get_connection() as conn:
+            async with conn.cursor() as cur:
+                # بررسی گزارش تکراری برای همان پست
+                try:
+                    await cur.execute(
+                        """
+                        SELECT 1 
+                        FROM user_attachment_reports 
+                        WHERE attachment_id = %s AND reporter_id = %s 
+                        LIMIT 1
+                        """,
+                        (attachment_id, reporter_id),
+                    )
+                except Exception:
+                    # سازگاری با اسکیما قدیمی (user_id به جای reporter_id)
+                    await cur.execute(
+                        """
+                        SELECT 1 
+                        FROM user_attachment_reports 
+                        WHERE attachment_id = %s AND user_id = %s 
+                        LIMIT 1
+                        """,
+                        (attachment_id, reporter_id),
+                    )
+                dup = await cur.fetchone()
+                if dup:
+                    lang = await get_user_lang(update, context, db) or 'fa'
+                    await query.answer(t('ua.report.duplicate', lang), show_alert=True)
+                    return
+                
+                # محدودیت ۵ گزارش در روز
+                today_count = 0
+                try:
+                    await cur.execute(
+                        """
+                        SELECT COUNT(*) AS cnt
+                        FROM user_attachment_reports 
+                        WHERE reporter_id = %s AND reported_at >= CURRENT_DATE
+                        """,
+                        (reporter_id,),
+                    )
+                except Exception:
+                    # سازگاری با ستون created_at
+                    await cur.execute(
+                        """
+                        SELECT COUNT(*) AS cnt
+                        FROM user_attachment_reports 
+                        WHERE user_id = %s AND created_at >= CURRENT_DATE
+                        """,
+                        (reporter_id,),
+                    )
+                row = await cur.fetchone()
+                today_count = int((row or {}).get('cnt') or 0)
+                if today_count >= 5:
+                    lang = await get_user_lang(update, context, db) or 'fa'
+                    await query.answer(t('ua.report.limit_reached', lang), show_alert=True)
+                    return
     except Exception as pre_err:
         logger.error(f"Precheck error on reporting attachment: {pre_err}")
 
     # ذخیره report (ساده)
     try:
-        with db.transaction() as conn:
-            # افزایش report_count
-            conn.execute("""
-                UPDATE user_attachments 
-                SET report_count = report_count + 1 
-                WHERE id = %s
-            """, (attachment_id,))
-            
-            # ثبت در جدول reports (با fallback برای اسکیما قدیمی)
-            try:
-                conn.execute("""
-                    INSERT INTO user_attachment_reports (attachment_id, reporter_id, reason, reported_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                """, (attachment_id, reporter_id, 'محتوای نامناسب'))
-            except Exception:
-                conn.execute("""
-                    INSERT INTO user_attachment_reports (attachment_id, user_id, reason, created_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                """, (attachment_id, reporter_id, 'محتوای نامناسب'))
+        async with db.transaction() as conn:
+            async with conn.cursor() as cursor:
+                # افزایش report_count
+                await cursor.execute("""
+                    UPDATE user_attachments 
+                    SET report_count = report_count + 1 
+                    WHERE id = %s
+                """, (attachment_id,))
+                
+                # ثبت در جدول reports (با fallback برای اسکیما قدیمی)
+                try:
+                    await cursor.execute("""
+                        INSERT INTO user_attachment_reports (attachment_id, reporter_id, reason, reported_at)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    """, (attachment_id, reporter_id, 'محتوای نامناسب'))
+                except Exception:
+                    await cursor.execute("""
+                        INSERT INTO user_attachment_reports (attachment_id, user_id, reason, created_at)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    """, (attachment_id, reporter_id, 'محتوای نامناسب'))
         # بعد از ثبت گزارش، کش آمار را پاک می‌کنیم تا شمارنده‌ها به‌روز شوند
         try:
-            cache.invalidate('stats')
+            await cache.invalidate('stats')
         except Exception:
             pass
         used_now = (today_count or 0) + 1
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('ua.report.saved_today', lang, used=used_now), show_alert=True)
     except Exception as e:
         logger.error(f"Error reporting attachment: {e}")
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('ua.report.duplicate', lang), show_alert=True)
 
 
-async def browse_back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def browse_back_to_list(update: Update, context: CustomContext):
     """بازگشت به لیست"""
     query = update.callback_query
     await query.answer()

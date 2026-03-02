@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 Base handler برای تمام admin handlers
 شامل توابع مشترک و helper methods
@@ -6,11 +7,12 @@ Base handler برای تمام admin handlers
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from typing import Dict, List
-from config.config import ADMIN_IDS, MESSAGES
+from config.config import SUPER_ADMIN_ID
 from core.security.role_manager import Permission
 from utils.logger import get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
+from core.audit import AuditLogger
 
 logger = get_logger('admin_base', 'admin.log')
 
@@ -24,28 +26,35 @@ class BaseAdminHandler:
             db: DatabaseAdapter instance
         """
         self.db = db
+        from core.container import get_container
+        self.container = get_container()
         
         # ایجاد role manager برای مدیریت نقش‌ها و دسترسی‌ها
         from core.security.role_manager import RoleManager
         self.role_manager = RoleManager(db)
+        
+        # ایجاد audit logger برای ثبت فعالیت‌ها
+        self.audit = AuditLogger()
+        self._sub_handlers = []
     
-    def is_admin(self, user_id: int) -> bool:
+    
+    async def is_admin(self, user_id: int) -> bool:
         """بررسی دسترسی ادمین"""
         if hasattr(self, 'role_manager'):
-            return self.role_manager.is_admin(user_id)
-        # fallback به سیستم قدیمی
-        return user_id in ADMIN_IDS
+            return await self.role_manager.is_admin(user_id)
+        # fallback به سوپراادمین
+        return user_id == SUPER_ADMIN_ID
     
     async def check_permission(self, user_id: int, permission) -> bool:
         """بررسی دسترسی کاربر به یک permission خاص"""
         if hasattr(self, 'role_manager'):
-            return self.role_manager.has_permission(user_id, permission)
+            return await self.role_manager.has_permission(user_id, permission)
         # fallback: اگر ادمین است true برگردان
         return self.is_admin(user_id)
     
-    async def send_permission_denied(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def send_permission_denied(self, update: Update, context: CustomContext):
         """ارسال پیام عدم دسترسی"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         message = t("admin.permission.denied.title", lang) + "\n\n" + t("admin.permission.denied.body", lang)
         
         keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_menu_return")]]
@@ -64,17 +73,17 @@ class BaseAdminHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
-    async def admin_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def admin_cancel(self, update: Update, context: CustomContext):
         """لغو عملیات و بازگشت به منوی ادمین"""
         query = update.callback_query
         if query:
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             await query.answer(t("common.cancelled", lang))
         
         # Clear user data
         context.user_data.clear()
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         message = t("admin.canceled_return", lang)
         
         if query:
@@ -87,21 +96,28 @@ class BaseAdminHandler:
             
         return ConversationHandler.END
     
+    async def handle_invalid_input(self, update: Update, context: CustomContext):
+        """هندلر برای ورودی‌های نامعتبر (فال‌بک)"""
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        # استفاده از پیام عمومی برای ورودی نامعتبر
+        await update.message.reply_text(t("admin.texts.error.text_only", lang))
+        return None  # ماندن در وضعیت فعلی
+    
     # ========== Navigation Stack Methods ==========
     
-    def _push_navigation(self, context: ContextTypes.DEFAULT_TYPE, state: int, data: dict = None):
+    def _push_navigation(self, context: CustomContext, state: int, data: dict = None):
         """اضافه کردن یک مرحله به navigation stack"""
         if 'nav_stack' not in context.user_data:
             context.user_data['nav_stack'] = []
         context.user_data['nav_stack'].append({'state': state, 'data': data or {}})
     
-    def _pop_navigation(self, context: ContextTypes.DEFAULT_TYPE):
+    def _pop_navigation(self, context: CustomContext):
         """برگشت به مرحله قبلی"""
         if 'nav_stack' in context.user_data and context.user_data['nav_stack']:
             return context.user_data['nav_stack'].pop()
         return None
     
-    def _clear_navigation(self, context: ContextTypes.DEFAULT_TYPE):
+    def _clear_navigation(self, context: CustomContext):
         """پاک کردن navigation stack"""
         if 'nav_stack' in context.user_data:
             context.user_data['nav_stack'] = []
@@ -175,13 +191,33 @@ class BaseAdminHandler:
         
         return keyboard
     
-    async def admin_menu_return(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def _make_mode_selection_keyboard(self, prefix: str, lang: str = 'fa', allowed_modes: List[str] = None) -> List[List[InlineKeyboardButton]]:
+        """
+        ساخت کیبورد انتخاب مود به صورت عمودی (استاندارد)
+        
+        Args:
+            prefix: پیشوند برای callback_data (مثلاً edit_att_mode_)
+            lang: زبان
+            allowed_modes: لیست مودهای مجاز (اختیاری)
+            
+        Returns:
+            لیست دکمه‌ها (هر مود در یک ردیف)
+        """
+        keyboard = []
+        # ترتیب: BR بالاتر، MP پایین‌تر (یا برعکس طبق سلیقه، اینجا عمودی است)
+        if allowed_modes is None or 'br' in allowed_modes:
+            keyboard.append([InlineKeyboardButton(t("mode.br_btn", lang), callback_data=f"{prefix}br")])
+        if allowed_modes is None or 'mp' in allowed_modes:
+            keyboard.append([InlineKeyboardButton(t("mode.mp_btn", lang), callback_data=f"{prefix}mp")])
+        return keyboard
+    
+    async def admin_menu_return(self, update: Update, context: CustomContext):
         """بازگشت به منوی اصلی ادمین"""
         query = update.callback_query if update.callback_query else None
         
         user_id = update.effective_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        keyboard = self._get_admin_main_keyboard(user_id, lang)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        keyboard = await self._get_admin_main_keyboard(user_id, lang)
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         if query:
@@ -208,7 +244,7 @@ class BaseAdminHandler:
         from handlers.admin.admin_states import ADMIN_MENU
         return ADMIN_MENU
     
-    def _clear_temp_data(self, context: ContextTypes.DEFAULT_TYPE):
+    def _clear_temp_data(self, context: CustomContext):
         """پاک کردن داده‌های موقت از context"""
         keys_to_remove = [
             'add_att_category', 'add_att_weapon', 'add_att_mode',
@@ -224,7 +260,7 @@ class BaseAdminHandler:
         for key in keys_to_remove:
             context.user_data.pop(key, None)
     
-    def _get_admin_main_keyboard(self, user_id: int, lang: str = 'fa') -> List[List[InlineKeyboardButton]]:
+    async def _get_admin_main_keyboard(self, user_id: int, lang: str = 'fa') -> List[List[InlineKeyboardButton]]:
         """
         ساخت کیبورد منوی اصلی ادمین با فیلتر دسترسی و دسته‌بندی منطقی
         
@@ -236,105 +272,137 @@ class BaseAdminHandler:
         """
         from core.security.role_manager import Permission
         
-        # دریافت دسترسی‌های کاربر
-        user_permissions = self.role_manager.get_user_permissions(user_id)
-        
-        keyboard = []
-        
-        # ========== 1️⃣ مدیریت اتچمنت‌ها (جدید با زیرمنو) ==========
-        # اگر کاربر دسترسی به هر یک از بخش‌های اتچمنت داشته باشد، دکمه را می‌بیند
-        has_att_perm = (Permission.MANAGE_ATTACHMENTS_BR in user_permissions or 
-                       Permission.MANAGE_ATTACHMENTS_MP in user_permissions or
-                       Permission.MANAGE_CATEGORIES in user_permissions)
-                       
-        if has_att_perm:
-            keyboard.append([
-                InlineKeyboardButton(t("admin.menu.attachments", lang), callback_data="admin_manage_attachments")
-            ])
-        
-        # ========== 2️⃣ مدیریت محتوای کاربران ==========
-        if Permission.MANAGE_USER_ATTACHMENTS in user_permissions or self.role_manager.is_super_admin(user_id):
-            keyboard.append([
-                InlineKeyboardButton(t("admin.buttons.ua_admin", lang), callback_data="ua_admin_menu")
-            ])
-        
-        # ========== 3️⃣ محتوای تکمیلی (تنظیمات بازی، پیشنهادی) ==========
-        supp_row1 = []
-        if Permission.MANAGE_GUIDES_BR in user_permissions or Permission.MANAGE_GUIDES_MP in user_permissions:
-            supp_row1.append(InlineKeyboardButton(t("admin.buttons.game_settings", lang), callback_data="admin_guides"))
-        if Permission.MANAGE_SUGGESTED_ATTACHMENTS in user_permissions:
-            supp_row1.append(InlineKeyboardButton(t("admin.buttons.suggested", lang), callback_data="admin_manage_suggested"))
-        if supp_row1:
-            keyboard.append(supp_row1)
+        # ─── Super Admin: همه دکمه‌ها بدون فیلتر ───
+        is_super = await self.role_manager.is_super_admin(user_id)
+        if is_super:
+            keyboard = [
+                # ─── بخش مدیریت کاربران و دسترسی ───
+                [
+                    InlineKeyboardButton(t("admin.buttons.manage_users", lang), callback_data="admin_users"),
+                    InlineKeyboardButton(t("admin.buttons.manage_admins", lang), callback_data="manage_admins"),
+                ],
+                # ─── بخش اطلاع‌رسانی ───
+                [
+                    InlineKeyboardButton(t("admin.buttons.notify_send", lang), callback_data="admin_notify"),
+                    InlineKeyboardButton(t("admin.buttons.notify_settings", lang), callback_data="admin_notify_settings"),
+                ],
+                # ─── بخش پشتیبانی و بازخورد ───
+                [
+                    InlineKeyboardButton(t("admin.buttons.tickets", lang), callback_data="admin_tickets"),
+                    InlineKeyboardButton(t("admin.buttons.feedback_dashboard", lang), callback_data="fb_dashboard"),
+                ],
+                # ─── بخش محتوا و راهنما ───
+                [
+                    InlineKeyboardButton(t("admin.buttons.cms", lang), callback_data="admin_cms"),
+                    InlineKeyboardButton(t("admin.buttons.faq", lang), callback_data="admin_faqs"),
+                ],
+                # ─── بخش فنی و سیستم ───
+                [
+                    InlineKeyboardButton(t("admin.buttons.analytics", lang), callback_data="attachment_analytics"),
+                    InlineKeyboardButton(t("admin.buttons.data_health", lang), callback_data="data_health"),
+                ],
+                # ─── بخش زیرساخت و داده ───
+                [
+                    InlineKeyboardButton(t("admin.buttons.manage_channels", lang), callback_data="channel_management"),
+                    InlineKeyboardButton(t("admin.buttons.data_mgmt", lang), callback_data="admin_data_management"),
+                ],
+                # ─── تنظیمات ربات ───
+                [
+                    InlineKeyboardButton(t("admin.buttons.edit_texts", lang), callback_data="admin_texts"),
+                    InlineKeyboardButton(t("admin.buttons.game_settings", lang), callback_data="admin_guides"),
+                ],
+                [InlineKeyboardButton(t("admin.menu.attachments", lang), callback_data="admin_manage_attachments")],
+                [InlineKeyboardButton(t("admin.buttons.exit", lang), callback_data="admin_exit")],
+            ]
+            return keyboard
 
-        # ========== 4️⃣ محتوا و متن (CMS, Texts) ==========
-        content_row = []
-        if Permission.MANAGE_CMS in user_permissions:
-            content_row.append(InlineKeyboardButton(t("admin.buttons.cms", lang), callback_data="admin_cms"))
-        if Permission.MANAGE_TEXTS in user_permissions:
-            content_row.append(InlineKeyboardButton(t("admin.buttons.edit_texts", lang), callback_data="admin_texts"))
-        if content_row:
-            keyboard.append(content_row)
-            
-        # ========== 5️⃣ پشتیبانی (Tickets, FAQ) ==========
+        # ─── سایر ادمین‌ها: فیلتر بر اساس دسترسی ───
+        user_permissions = await self.role_manager.get_user_permissions(user_id)
+        keyboard = []
+
+        # 1. مدیریت کاربران و دسترسی
+        user_row = []
+        if Permission.MANAGE_USERS in user_permissions:
+            user_row.append(InlineKeyboardButton(t("admin.buttons.manage_users", lang), callback_data="admin_users"))
+        if Permission.MANAGE_ADMINS in user_permissions:
+            user_row.append(InlineKeyboardButton(t("admin.buttons.manage_admins", lang), callback_data="manage_admins"))
+        if user_row:
+            keyboard.append(user_row)
+
+        # 2. اطلاع‌رسانی
+        notify_row = []
+        if Permission.SEND_NOTIFICATIONS in user_permissions:
+            notify_row.append(InlineKeyboardButton(t("admin.buttons.notify_send", lang), callback_data="admin_notify"))
+        if Permission.MANAGE_NOTIFICATION_SETTINGS in user_permissions:
+            notify_row.append(InlineKeyboardButton(t("admin.buttons.notify_settings", lang), callback_data="admin_notify_settings"))
+        if notify_row:
+            keyboard.append(notify_row)
+
+        # 3. پشتیبانی و بازخورد
         support_row = []
         if Permission.MANAGE_TICKETS in user_permissions:
             support_row.append(InlineKeyboardButton(t("admin.buttons.tickets", lang), callback_data="admin_tickets"))
-        if Permission.MANAGE_FAQS in user_permissions:
-            support_row.append(InlineKeyboardButton(t("admin.buttons.faq", lang), callback_data="admin_faqs"))
+        if Permission.VIEW_FEEDBACK in user_permissions:
+            support_row.append(InlineKeyboardButton(t("admin.buttons.feedback_dashboard", lang), callback_data="fb_dashboard"))
         if support_row:
             keyboard.append(support_row)
 
-        # ========== 6️⃣ مدیریت سیستم (Admins, Channels) ==========
-        sys_row = []
-        if Permission.MANAGE_ADMINS in user_permissions:
-            sys_row.append(InlineKeyboardButton(t("admin.buttons.manage_admins", lang), callback_data="manage_admins"))
-        if Permission.MANAGE_CHANNELS in user_permissions:
-            sys_row.append(InlineKeyboardButton(t("admin.buttons.manage_channels", lang), callback_data="channel_management"))
-        if sys_row:
-            keyboard.append(sys_row)
+        # 4. محتوا و فایل‌ها
+        content_row = []
+        if Permission.MANAGE_TEXTS in user_permissions:
+            content_row.append(InlineKeyboardButton(t("admin.buttons.cms", lang), callback_data="admin_cms"))
+        if Permission.MANAGE_FAQS in user_permissions:
+            content_row.append(InlineKeyboardButton(t("admin.buttons.faq", lang), callback_data="admin_faqs"))
+        if content_row:
+            keyboard.append(content_row)
 
-        # ========== 7️⃣ ارتباطات (Notify) ==========
-        comm_row = []
-        if Permission.SEND_NOTIFICATIONS in user_permissions:
-            comm_row.append(InlineKeyboardButton(t("admin.buttons.notify_send", lang), callback_data="admin_notify"))
-        if Permission.MANAGE_NOTIFICATION_SETTINGS in user_permissions:
-            comm_row.append(InlineKeyboardButton(t("admin.buttons.notify_settings", lang), callback_data="admin_notify_settings"))
-        if comm_row:
-            keyboard.append(comm_row)
-        
-        # ========== 8️⃣ آمار و سلامت (Analytics, Health) ==========
+        # 5. فنی و تحلیل
         analytics_row = []
         if Permission.VIEW_ANALYTICS in user_permissions:
             analytics_row.append(InlineKeyboardButton(t("admin.buttons.analytics", lang), callback_data="attachment_analytics"))
-        if Permission.VIEW_HEALTH_REPORTS in user_permissions:
             analytics_row.append(InlineKeyboardButton(t("admin.buttons.data_health", lang), callback_data="data_health"))
         if analytics_row:
             keyboard.append(analytics_row)
-            
-        # ========== 9️⃣ داده و بازخورد (Data Mgmt, Feedback) ==========
-        data_row = []
+
+        # 6. زیرساخت و داده
+        infra_row = []
+        # فرض بر این است که مدیریت کانال هم جزئی از تنظیمات یا مدیریت سیستم است
+        if Permission.MANAGE_SETTINGS in user_permissions:
+            infra_row.append(InlineKeyboardButton(t("admin.buttons.manage_channels", lang), callback_data="channel_management"))
         if Permission.IMPORT_EXPORT in user_permissions or Permission.BACKUP_DATA in user_permissions:
-            data_row.append(InlineKeyboardButton(t("admin.buttons.data_mgmt", lang), callback_data="admin_data_management"))
-        if Permission.VIEW_ANALYTICS in user_permissions: # Access to feedback usually tied to analytics or support
-            data_row.append(InlineKeyboardButton(t("admin.buttons.feedback_dashboard", lang), callback_data="fb_dashboard"))
-        if data_row:
-            keyboard.append(data_row)
-        
-        # ========== 🔟 خروج ==========
+            infra_row.append(InlineKeyboardButton(t("admin.buttons.data_mgmt", lang), callback_data="admin_data_management"))
+        if infra_row:
+            keyboard.append(infra_row)
+
+        # 7. تنظیمات کلیدی
+        settings_row = []
+        if Permission.MANAGE_TEXTS in user_permissions:
+            settings_row.append(InlineKeyboardButton(t("admin.buttons.edit_texts", lang), callback_data="admin_texts"))
+        if Permission.MANAGE_SETTINGS in user_permissions: # تنظیمات بازی/راهنما
+            settings_row.append(InlineKeyboardButton(t("admin.buttons.game_settings", lang), callback_data="admin_guides"))
+        if settings_row:
+            keyboard.append(settings_row)
+
+        # 8. دکمه‌های اصلی و خروجی
+        if (Permission.MANAGE_ATTACHMENTS_BR in user_permissions or
+            Permission.MANAGE_ATTACHMENTS_MP in user_permissions or
+            Permission.MANAGE_USER_ATTACHMENTS in user_permissions or
+            Permission.MANAGE_SUGGESTED_ATTACHMENTS in user_permissions or
+            Permission.MANAGE_CATEGORIES in user_permissions):
+            keyboard.append([InlineKeyboardButton(t("admin.menu.attachments", lang), callback_data="admin_manage_attachments")])
+
         keyboard.append([InlineKeyboardButton(t("admin.buttons.exit", lang), callback_data="admin_exit")])
-        
         return keyboard
     
-    async def data_management_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def data_management_menu(self, update: Update, context: CustomContext):
         """نمایش منوی مدیریت داده و بکاپ"""
         query = update.callback_query
         await query.answer()
         
         user_id = update.effective_user.id
-        user_permissions = self.role_manager.get_user_permissions(user_id)
+        user_permissions = await self.role_manager.get_user_permissions(user_id)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         message = t("admin.data_mgmt.title", lang) + "\n\n" + t("admin.data_mgmt.body", lang)
         
         keyboard = []
@@ -363,7 +431,7 @@ class BaseAdminHandler:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
-    async def handle_navigation_back(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_navigation_back(self, update: Update, context: CustomContext):
         """مدیریت دکمه بازگشت"""
         query = update.callback_query
         # توجه: answer() قبلاً در handler caller صدا زده شده
@@ -387,7 +455,7 @@ class BaseAdminHandler:
         
         return state
     
-    async def _rebuild_state_screen(self, update: Update, context: ContextTypes.DEFAULT_TYPE, state: int):
+    async def _rebuild_state_screen(self, update: Update, context: CustomContext, state: int):
         """
         بازسازی و نمایش صفحه مربوط به state قبلی
         این متد باید در هر handler که از navigation استفاده می‌کند override شود

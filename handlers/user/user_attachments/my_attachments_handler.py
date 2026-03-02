@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 My Attachments Handler - مدیریت اتچمنت‌های شخصی کاربر
 """
@@ -10,36 +11,40 @@ from core.database.database_adapter import get_database_adapter
 from utils.logger import get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
+from utils.validation import safe_int
 
 logger = get_logger('my_attachments', 'user.log')
 db = get_database_adapter()
 
+# تعداد اتچمنت در هر صفحه
+MY_ATTACHMENTS_PER_PAGE = 5
 
-async def my_attachments_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def my_attachments_menu(update: Update, context: CustomContext):
     """منوی اتچمنت‌های من"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     user_id = update.effective_user.id
     
     # دریافت آمار کاربر
-    stats = db.get_user_submission_stats(user_id)
+    stats = await db.get_user_submission_stats(user_id)
     
     # دریافت تمام اتچمنت‌های کاربر
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT ua.*
-                FROM user_attachments ua
-                WHERE ua.user_id = %s
-                ORDER BY ua.submitted_at DESC
-                """,
-                (user_id,),
-            )
-            rows = cursor.fetchall()
+        async with db.get_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT ua.*
+                    FROM user_attachments ua
+                    WHERE ua.user_id = %s
+                    ORDER BY ua.submitted_at DESC
+                    """,
+                    (user_id,),
+                )
+                rows = await cursor.fetchall()
         all_attachments = [dict(row) for row in rows]
     except Exception as e:
         logger.error(f"Error fetching user attachments: {e}")
@@ -51,18 +56,26 @@ async def my_attachments_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     rejected = [a for a in all_attachments if a['status'] == 'rejected']
     
     # پیام آمار
+    divider = "━━━━━━━━━━━━━━"
+    total = stats.get('total_submissions', 0)
+    approved_n = stats.get('approved_count', 0)
+    rejected_n = stats.get('rejected_count', 0)
+    pending_n = len(pending)
+
     message = (
-        f"{t('ua.my.title', lang)}\n\n"
+        f"{t('ua.my.title', lang)}\n"
+        f"{divider}\n"
         f"{t('ua.my.stats_header', lang)}\n"
-        f"{t('ua.my.stats.total', lang, n=stats['total_submissions'])}\n"
-        f"{t('ua.my.stats.approved', lang, n=stats['approved_submissions'])}\n"
-        f"{t('ua.my.stats.rejected', lang, n=stats['rejected_submissions'])}\n"
-        f"{t('ua.my.stats.pending', lang, n=len(pending))}\n\n"
+        f"{t('ua.my.stats.total', lang, n=total)}\n"
+        f"{t('ua.my.stats.approved', lang, n=approved_n)}\n"
+        f"{t('ua.my.stats.rejected', lang, n=rejected_n)}\n"
+        f"{t('ua.my.stats.pending', lang, n=pending_n)}\n"
+        f"{divider}\n"
     )
-    
-    if stats['is_banned']:
+
+    if stats.get('is_banned'):
         message += t('ua.my.status.banned', lang) + "\n"
-    elif stats['strike_count'] > 0:
+    elif stats.get('strike_count', 0) > 0:
         message += t('ua.my.status.strikes', lang, strike=f"{stats['strike_count']:.1f}") + "\n"
     
     # کیبورد
@@ -83,6 +96,9 @@ async def my_attachments_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="ua_menu")])
     
+    # تنظیم صفحه اولیه برای فیلترها
+    context.user_data['my_att_page'] = 0
+    
     try:
         await query.edit_message_text(
             message,
@@ -102,11 +118,11 @@ async def my_attachments_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 
-async def show_my_attachments_by_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش اتچمنت‌های کاربر بر اساس وضعیت"""
+async def show_my_attachments_by_status(update: Update, context: CustomContext):
+    """نمایش اتچمنت‌های کاربر بر اساس وضعیت با صفحه‌بندی"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     status_map = {
         'ua_my_pending': 'pending',
@@ -114,27 +130,28 @@ async def show_my_attachments_by_status(update: Update, context: ContextTypes.DE
         'ua_my_rejected': 'rejected'
     }
     
-    status = status_map.get(query.data, 'pending')
+    # دریافت وضعیت از callback یا user_data
+    if query.data in status_map:
+        status = status_map[query.data]
+        context.user_data['my_att_status'] = status
+        context.user_data['my_att_page'] = 0
+    else:
+        status = context.user_data.get('my_att_status', 'pending')
+    
+    page = context.user_data.get('my_att_page', 0)
     user_id = update.effective_user.id
     
-    # دریافت اتچمنت‌ها
-    try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT ua.*
-                FROM user_attachments ua
-                WHERE ua.user_id = %s AND ua.status = %s
-                ORDER BY ua.submitted_at DESC
-                """,
-                (user_id, status),
-            )
-            rows = cursor.fetchall()
-        attachments = [dict(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Error fetching attachments: {e}")
-        attachments = []
+    # دریافت تعداد کل برای صفحه‌بندی
+    total_count = await db.get_user_attachments_count(user_id, status)
+    total_pages = (total_count - 1) // MY_ATTACHMENTS_PER_PAGE + 1
+    
+    # دریافت اتچمنت‌های این صفحه
+    attachments = await db.get_user_attachments_paginated(
+        user_id, 
+        status, 
+        limit=MY_ATTACHMENTS_PER_PAGE, 
+        offset=page * MY_ATTACHMENTS_PER_PAGE
+    )
     
     # عنوان بر اساس وضعیت
     status_titles = {
@@ -148,12 +165,16 @@ async def show_my_attachments_by_status(update: Update, context: ContextTypes.DE
         message += t('attachment.none', lang)
         keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="ua_my")]]
     else:
-        message += t('ua.my.count', lang, n=len(attachments)) + "\n\n"
+        start_idx = page * MY_ATTACHMENTS_PER_PAGE + 1
+        end_idx = min(start_idx + len(attachments) - 1, total_count)
+        
+        message += t('pagination.showing_range', lang, start=start_idx, end=end_idx, total=total_count) + "\n"
+        message += t('pagination.page_of', lang, page=page+1, total=total_pages) + "\n\n"
         
         keyboard = []
-        for att in attachments[:20]:  # حداکثر 20 تا
+        for att in attachments:
             mode_icon = "🎮" if att['mode'] == 'mp' else "🪂"
-            weapon = att.get('custom_weapon_name', t('common.unknown', lang))
+            weapon = att.get('weapon_display') or att.get('weapon_name') or t('common.unknown', lang)
             btn_text = f"{mode_icon} {att['attachment_name'][:25]} - {weapon}"
             callback_data = f"ua_my_detail_{att['id']}"
             
@@ -161,6 +182,16 @@ async def show_my_attachments_by_status(update: Update, context: ContextTypes.DE
                 InlineKeyboardButton(btn_text, callback_data=callback_data)
             ])
         
+        # دکمه‌های ناوبری صفحه‌بندی
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton(t('nav.prev', lang), callback_data="ua_my_prev"))
+        if page < total_pages - 1:
+            nav_buttons.append(InlineKeyboardButton(t('nav.next', lang), callback_data="ua_my_next"))
+        
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+            
         keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="ua_my")])
     
     try:
@@ -182,30 +213,30 @@ async def show_my_attachments_by_status(update: Update, context: ContextTypes.DE
         )
 
 
-async def show_my_attachment_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_my_attachment_detail(update: Update, context: CustomContext):
     """نمایش جزئیات اتچمنت شخصی"""
     query = update.callback_query
     await query.answer()
     
-    attachment_id = int(query.data.replace('ua_my_detail_', ''))
+    attachment_id = safe_int(query.data.replace('ua_my_detail_', ''))
     
     # دریافت اتچمنت
-    attachment = db.get_user_attachment(attachment_id)
+    attachment = await db.get_user_attachment(attachment_id)
     
     if not attachment:
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('attachment.not_found', lang), show_alert=True)
         return
     
     if attachment['user_id'] != update.effective_user.id:
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     # ساخت پیام
     from telegram.helpers import escape_markdown
     
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     mode_name = t(f"mode.{attachment['mode']}_short", lang)
     status_icons = {
         'pending': '⏳',
@@ -218,7 +249,7 @@ async def show_my_attachment_detail(update: Update, context: ContextTypes.DEFAUL
     
     # دریافت نام دسته از کلید
     category_key = attachment.get('category', attachment.get('category_name', ''))
-    category_persian = t(f"category.{category_key}", lang)
+    category_persian = t(f"category.{category_key}", 'en')
     
     # Escape for MarkdownV2
     att_name = escape_markdown(str(attachment['attachment_name']), version=2)
@@ -237,7 +268,7 @@ async def show_my_attachment_detail(update: Update, context: ContextTypes.DEFAUL
     elif isinstance(sub_at, str):
         sub_ts = sub_at[:10]
     else:
-        sub_ts = 'نامشخص'
+        sub_ts = t('common.unknown', lang)
     date_str = escape_markdown(sub_ts, version=2)
     
     caption = (
@@ -261,7 +292,7 @@ async def show_my_attachment_detail(update: Update, context: ContextTypes.DEFAUL
         elif isinstance(appr_at, str):
             appr_ts = appr_at[:10]
         else:
-            appr_ts = 'نامشخص'
+            appr_ts = t('common.unknown', lang)
         approved_date = escape_markdown(appr_ts, version=2)
         caption += (
             f"✅ {escape_markdown(t('ua.approved_at', lang), version=2)}: {approved_date}\n"
@@ -302,13 +333,13 @@ async def show_my_attachment_detail(update: Update, context: ContextTypes.DEFAUL
         logger.warning(f"Failed to delete previous my_attachments detail message: {e}")
 
 
-async def ask_delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ask_delete_confirmation(update: Update, context: CustomContext):
     """پرسش برای تایید حذف"""
     query = update.callback_query
     await query.answer()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
-    attachment_id = int(query.data.replace('ua_my_ask_del_', ''))
+    attachment_id = safe_int(query.data.replace('ua_my_ask_del_', ''))
     
     keyboard = [
         [
@@ -338,16 +369,16 @@ async def ask_delete_confirmation(update: Update, context: ContextTypes.DEFAULT_
             )
 
 
-async def perform_delete_my_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def perform_delete_my_attachment(update: Update, context: CustomContext):
     """اجرای حذف اتچمنت شخصی"""
     query = update.callback_query
     
-    attachment_id = int(query.data.replace('ua_my_confirm_del_', ''))
+    attachment_id = safe_int(query.data.replace('ua_my_confirm_del_', ''))
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     # بررسی مالکیت
-    attachment = db.get_user_attachment(attachment_id)
+    attachment = await db.get_user_attachment(attachment_id)
     
     if not attachment or attachment['user_id'] != user_id:
         await query.answer(t('error.unauthorized', lang), show_alert=True)
@@ -355,7 +386,7 @@ async def perform_delete_my_attachment(update: Update, context: ContextTypes.DEF
     
     # حذف با متد جدید دیتابیس
     try:
-        if db.delete_user_attachment(attachment_id, deleted_by=user_id):
+        if await db.delete_user_attachment(attachment_id, deleted_by=user_id):
             await query.answer(t('ua.success.deleted', lang), show_alert=True)
             
             # حذف پیام و بازگشت
@@ -369,29 +400,20 @@ async def perform_delete_my_attachment(update: Update, context: ContextTypes.DEF
             await my_attachments_menu(update, context)
             
     except Exception as e:
-        logger.error(f"Error deleting attachment {attachment_id}: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
-async def back_from_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بازگشت از جزئیات"""
-    query = update.callback_query
-    await query.answer()
-    
-    # حذف تصویر
-    try:
-        await query.message.delete()
-    except Exception as e:
-        logger.warning(f"Failed to delete my_attachments image message on back: {e}")
-    
-    # استفاده از callback ذخیره شده
-    callback_data = context.user_data.get('temp_callback_data', 'ua_my')
-    context.user_data['query_data'] = callback_data
-    
-    if callback_data == 'ua_my':
-        await my_attachments_menu(update, context)
-    else:
-        await show_my_attachments_by_status(update, context)
+async def my_attachments_prev_page(update: Update, context: CustomContext):
+    """صفحه قبل اتچمنت‌های من"""
+    context.user_data['my_att_page'] = max(0, context.user_data.get('my_att_page', 0) - 1)
+    await show_my_attachments_by_status(update, context)
+
+
+async def my_attachments_next_page(update: Update, context: CustomContext):
+    """صفحه بعد اتچمنت‌های من"""
+    context.user_data['my_att_page'] = context.user_data.get('my_att_page', 0) + 1
+    await show_my_attachments_by_status(update, context)
 
 
 # Export handlers
@@ -399,7 +421,8 @@ my_attachments_handlers = [
     CallbackQueryHandler(show_my_attachment_detail, pattern="^ua_my_detail_\\d+$"),
     CallbackQueryHandler(ask_delete_confirmation, pattern="^ua_my_ask_del_\\d+$"),
     CallbackQueryHandler(perform_delete_my_attachment, pattern="^ua_my_confirm_del_\\d+$"),
+    CallbackQueryHandler(my_attachments_prev_page, pattern="^ua_my_prev$"),
+    CallbackQueryHandler(my_attachments_next_page, pattern="^ua_my_next$"),
     CallbackQueryHandler(show_my_attachments_by_status, pattern="^ua_my_(pending|approved|rejected)$"),
     CallbackQueryHandler(my_attachments_menu, pattern="^ua_my$"),
 ]
-

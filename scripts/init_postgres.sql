@@ -341,13 +341,7 @@ CREATE TABLE IF NOT EXISTS suggested_attachments (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_suggested_attachment_mode ON suggested_attachments (attachment_id, mode);
 CREATE INDEX IF NOT EXISTS ix_suggested_mode ON suggested_attachments (mode);
 
--- ========== UA Settings ==========
-CREATE TABLE IF NOT EXISTS user_attachment_settings (
-  setting_key TEXT PRIMARY KEY,
-  setting_value TEXT,
-  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  updated_by BIGINT
-);
+
 
 -- ========== UA Cache Tables ==========
 CREATE TABLE IF NOT EXISTS ua_stats_cache (

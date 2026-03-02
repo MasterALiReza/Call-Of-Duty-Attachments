@@ -44,15 +44,11 @@ def t(key: str, lang: str = 'fa', **kwargs) -> str:
         # 2) Fallback to global fallback language
         if text is None:
             try:
-                from config.config import FALLBACK_LANG, MESSAGES
+                from config.config import FALLBACK_LANG
 
                 if lang != FALLBACK_LANG:
                     fallback_translations = _load_translations(FALLBACK_LANG)
                     text = fallback_translations.get(key)
-
-                # 3) Legacy fallback to MESSAGES dict
-                if text is None:
-                    text = MESSAGES.get(key, key)
             except Exception:
                 # If config import fails for any reason, fall back to the key
                 text = key
@@ -73,6 +69,44 @@ def t(key: str, lang: str = 'fa', **kwargs) -> str:
 def kb(key: str, lang: str = 'fa') -> str:
     return t(key, lang)
 
+def get_all_translations_for_key(key: str) -> list[str]:
+    """Return all translations for a given key across all available locales."""
+    result = set()
+    for locale_file in _locales_dir.glob("*.json"):
+        lang = locale_file.stem
+        _load_translations(lang)
+        if lang in _translations and key in _translations[lang]:
+            result.add(_translations[lang][key])
+            
+    return list(result)
+
+def build_regex_for_key(key: str) -> str:
+    """Builds an exact-match Regex pattern matching ANY language's translation for the key.
+    Includes support for optional trailing count like (10).
+    """
+    texts = get_all_translations_for_key(key)
+    if not texts:
+        texts = [key]  # safe fallback
+        
+    import re
+    escaped = [re.escape(text) for text in texts]
+    # Match exact text OR text followed by optional count in parentheses
+    return r'^(' + '|'.join(escaped) + r')(?:\s*\(\d+\))?$'
+
+def build_regex_for_keys(keys: list[str]) -> str:
+    """Builds an exact-match Regex pattern matching ANY language's translation for ANY of the keys.
+    Includes support for optional trailing count like (10).
+    """
+    all_texts = set()
+    for key in keys:
+        all_texts.update(get_all_translations_for_key(key))
+    
+    if not all_texts:
+        all_texts = set(keys)
+        
+    import re
+    escaped = [re.escape(text) for text in all_texts]
+    return r'^(' + '|'.join(escaped) + r')(?:\s*\(\d+\))?$'
 
 def reload_translations():
     _translations.clear()

@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 مدیریت سلاح‌ها
 ⚠️ این کد عیناً از user_handlers.py خط 418-596 کپی شده
@@ -5,7 +6,7 @@
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from config.config import WEAPON_CATEGORIES, CATEGORY_SETTINGS, GAME_MODES
+from config.config import GAME_MODES, WEAPON_CATEGORIES_IDS
 from managers.channel_manager import require_channel_membership
 from utils.logger import log_user_action, get_logger
 from utils.language import get_user_lang
@@ -22,7 +23,7 @@ class WeaponHandler(BaseUserHandler):
     @require_channel_membership
     @log_user_action("show_weapons")
 
-    async def show_weapons(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def show_weapons(self, update: Update, context: CustomContext):
         """نمایش سلاح‌های یک دسته با درنظرگرفتن فعال/غیرفعال بودن دسته"""
         query = update.callback_query
         await query.answer()
@@ -34,8 +35,8 @@ class WeaponHandler(BaseUserHandler):
         from config.config import is_category_enabled
         mode = context.user_data.get('selected_mode', 'mp')
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if not is_category_enabled(category, mode):
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if not await is_category_enabled(category, mode, self.db):
             mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
             await safe_edit_message_text(
                 query,
@@ -45,7 +46,7 @@ class WeaponHandler(BaseUserHandler):
             return
         
         context.user_data['current_category'] = category
-        weapons = self.db.get_weapons_in_category(category)
+        weapons = await self.db.get_weapons_in_category(category)
         if not weapons:
             reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="categories")]])
             await safe_edit_message_text(
@@ -69,7 +70,7 @@ class WeaponHandler(BaseUserHandler):
             back_text = f"{t('menu.buttons.back', lang)} ({t('mode.label', lang)}: {mode_btn})"
             keyboard.append([InlineKeyboardButton(back_text, callback_data=f"mode_{selected_mode}")])
             # نمایش mode در header
-            category_name = t(f"category.{category}", lang)
+            category_name = t(f"category.{category}", 'en')
             await safe_edit_message_text(
                 query,
                 f"📍 {t('mode.label', lang)}: {mode_short}\n**{category_name}**\n\n{t('weapon.choose', lang)}",
@@ -79,7 +80,7 @@ class WeaponHandler(BaseUserHandler):
         else:
             # بازگشت به انتخاب mode (فلوی قدیمی)
             keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="categories")])
-            category_name = t(f"category.{category}", lang)
+            category_name = t(f"category.{category}", 'en')
             await safe_edit_message_text(
                 query,
                 f"**{category_name}**\n\n{t('weapon.choose', lang)}",
@@ -90,11 +91,11 @@ class WeaponHandler(BaseUserHandler):
     @require_channel_membership
     @log_user_action("show_weapon_menu")
 
-    async def show_weapon_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def show_weapon_menu(self, update: Update, context: CustomContext):
         """نمایش منوی انتخاب Mode برای سلاح یا مستقیم نمایش اتچمنت‌ها اگر mode از قبل انتخاب شده"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # پشتیبانی از دو حالت کال‌بک:
         # 1) "wpn_{weapon}" (از لیست دسته)
@@ -111,9 +112,9 @@ class WeaponHandler(BaseUserHandler):
 
         # اگر دسته تعیین نشده بود، آن را بر اساس دیتابیس پیدا کن
         if not category:
-            for cat in WEAPON_CATEGORIES:
+            for cat in WEAPON_CATEGORIES_IDS:
                 try:
-                    weapons = self.db.get_weapons_in_category(cat)
+                    weapons = await self.db.get_weapons_in_category(cat)
                 except Exception:
                     weapons = []
                 if weapon_name in weapons:
@@ -126,9 +127,14 @@ class WeaponHandler(BaseUserHandler):
         if selected_mode:
             context.user_data['current_mode'] = selected_mode
             # نمایش مستقیم منوی اتچمنت‌ها
-            weapon_data = self.db.get_weapon_attachments(category, weapon_name, mode=selected_mode)
-            top_count = len(weapon_data.get('top_attachments', []))
-            all_count = len(weapon_data.get('all_attachments', []))
+            weapon_data = await self.db.get_weapon_attachments(category, weapon_name, mode=selected_mode)
+            
+            # Handle list structure from DB
+            all_attachments = weapon_data if isinstance(weapon_data, list) else weapon_data.get('all_attachments', [])
+            top_attachments = [a for a in all_attachments if a.get('top') or a.get('season_top')] if isinstance(weapon_data, list) else weapon_data.get('top_attachments', [])
+            
+            top_count = len(top_attachments)
+            all_count = len(all_attachments)
             
             keyboard = []
             
@@ -183,11 +189,11 @@ class WeaponHandler(BaseUserHandler):
             return
         
         # دریافت تعداد اتچمنت‌ها برای هر mode (فلوی قدیمی - backward compatibility)
-        br_data = self.db.get_weapon_attachments(category, weapon_name, mode="br")
-        mp_data = self.db.get_weapon_attachments(category, weapon_name, mode="mp")
+        br_data = await self.db.get_weapon_attachments(category, weapon_name, mode="br")
+        mp_data = await self.db.get_weapon_attachments(category, weapon_name, mode="mp")
         
-        br_count = len(br_data.get('all_attachments', []))
-        mp_count = len(mp_data.get('all_attachments', []))
+        br_count = len(br_data) if isinstance(br_data, list) else len(br_data.get('all_attachments', []))
+        mp_count = len(mp_data) if isinstance(mp_data, list) else len(mp_data.get('all_attachments', []))
         
         # ساخت دکمه‌های انتخاب Mode
         keyboard = []
@@ -226,11 +232,11 @@ class WeaponHandler(BaseUserHandler):
     @require_channel_membership
     @log_user_action("show_mode_menu")
 
-    async def show_mode_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def show_mode_menu(self, update: Update, context: CustomContext):
         """نمایش منوی اتچمنت‌های سلاح برای mode انتخاب شده"""
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # پردازش callback: mode_{br|mp}_{weapon}
         data_parts = query.data.split("_", 2)
@@ -243,9 +249,14 @@ class WeaponHandler(BaseUserHandler):
         category = context.user_data.get('current_category')
         context.user_data['current_mode'] = mode
         
-        weapon_data = self.db.get_weapon_attachments(category, weapon_name, mode=mode)
-        top_count = len(weapon_data.get('top_attachments', []))
-        all_count = len(weapon_data.get('all_attachments', []))
+        weapon_data = await self.db.get_weapon_attachments(category, weapon_name, mode=mode)
+        
+        # Handle list structure from DB
+        all_attachments = weapon_data if isinstance(weapon_data, list) else weapon_data.get('all_attachments', [])
+        top_attachments = [a for a in all_attachments if a.get('top') or a.get('season_top')] if isinstance(weapon_data, list) else weapon_data.get('top_attachments', [])
+        
+        top_count = len(top_attachments)
+        all_count = len(all_attachments)
         
         keyboard = []
         

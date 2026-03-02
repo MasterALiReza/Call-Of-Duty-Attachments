@@ -1,3 +1,4 @@
+from core.context import CustomContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.admin.modules.base_handler import BaseAdminHandler
@@ -8,7 +9,7 @@ from core.security.role_manager import Permission
 class AttachmentManagementHandler(BaseAdminHandler):
     """مدیریت منوی اصلی اتچمنت‌ها"""
     
-    async def attachment_management_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def attachment_management_menu(self, update: Update, context: CustomContext):
         """نمایش منوی مدیریت اتچمنت‌ها"""
         query = update.callback_query
         try:
@@ -17,8 +18,8 @@ class AttachmentManagementHandler(BaseAdminHandler):
             pass
             
         user_id = update.effective_user.id
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        user_permissions = self.role_manager.get_user_permissions(user_id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        user_permissions = await self.role_manager.get_user_permissions(user_id)
         
         # عنوان منو
         message = t("admin.menu.attachments", lang) + "\n\n" + t("admin.panel.welcome", lang).split('\n')[-1]
@@ -41,15 +42,23 @@ class AttachmentManagementHandler(BaseAdminHandler):
         if row2:
             keyboard.append(row2)
             
-        # ردیف ۳: مدیریت ساختار (سلاح‌ها و دسته‌ها) -> منتقل شده به اینجا طبق درخواست
-        row3 = []
+        # ردیف ۳: مدیریت ساختار (سلاح‌ها و دسته‌ها)
         if Permission.MANAGE_CATEGORIES in user_permissions:
-             # نام دکمه‌ها از کلیدهای موجود خوانده می‌شود
-             # admin.buttons.weapon_mgmt, admin.buttons.category_mgmt
              keyboard.append([
                  InlineKeyboardButton(t("admin.buttons.weapon_mgmt", lang), callback_data="admin_weapon_mgmt"),
                  InlineKeyboardButton(t("admin.buttons.category_mgmt", lang), callback_data="admin_category_mgmt")
              ])
+        
+        # ردیف ۴: بخش تعاملی (پیشنهادی و اتچمنت کاربران)
+        community_row = []
+        if Permission.MANAGE_SUGGESTED_ATTACHMENTS in user_permissions:
+            community_row.append(InlineKeyboardButton(t("admin.buttons.suggested_attachments", lang), callback_data="admin_manage_suggested"))
+        
+        if Permission.MANAGE_USER_ATTACHMENTS in user_permissions or await self.role_manager.is_super_admin(user_id):
+            community_row.append(InlineKeyboardButton(t("admin.buttons.user_attachments", lang), callback_data="ua_admin_menu"))
+            
+        if community_row:
+            keyboard.append(community_row)
         
         # دکمه بازگشت به منوی اصلی
         keyboard.append([

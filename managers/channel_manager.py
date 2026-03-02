@@ -181,7 +181,7 @@ class ChannelManager:
                 return False, []  # برای non-member هم از cache استفاده کن
         
         # فقط کانال‌های فعال رو چک می‌کنیم
-        channels = self.db.get_required_channels()
+        channels = await self.db.get_required_channels()
         
         if not channels:
             _add_to_cache(user_id, True)
@@ -359,7 +359,7 @@ def require_channel_membership(func):
         is_first_time = update.message is not None
         # زبان کاربر برای محلی‌سازی پیام‌ها
         try:
-            lang = get_user_lang(update, context, db) or DEFAULT_LANG
+            lang = await get_user_lang(update, context, db) or DEFAULT_LANG
         except Exception:
             lang = DEFAULT_LANG
         message = channel_manager.create_membership_message(not_joined, is_first_time=is_first_time, lang=lang)
@@ -391,7 +391,7 @@ async def _track_join_success(user_id: int, channels: list):
     try:
         analytics = Analytics()
         for channel in channels:
-            analytics.track_join_success(user_id, channel['channel_id'])
+            await analytics.track_join_success(user_id, channel['channel_id'])
         logger.debug(f"Analytics: Tracked join success for user {user_id}")
     except Exception as e:
         logger.error(f"[Analytics] Error in background tracking: {e}")
@@ -406,14 +406,14 @@ async def _send_main_menu(query, context: ContextTypes.DEFAULT_TYPE, db, user_id
     
     # ثبت کاربر برای نوتیفیکیشن
     try:
-        subs = Subscribers()
-        subs.add(user_id)
+        subs = Subscribers(db_adapter=db)
+        await subs.add(user_id)
     except Exception as e:
         logger.warning(f"Error registering user {user_id} for notifications: {e}")
     
     # تعیین زبان کاربر
     try:
-        lang = db.get_user_language(user_id) or DEFAULT_LANG
+        lang = await db.get_user_language(user_id) or DEFAULT_LANG
     except Exception:
         lang = DEFAULT_LANG
     
@@ -424,7 +424,7 @@ async def _send_main_menu(query, context: ContextTypes.DEFAULT_TYPE, db, user_id
     
     # بررسی فعال بودن سیستم اتچمنت کاربران
     try:
-        ua_system_enabled = db.get_ua_setting('system_enabled') or '1'
+        ua_system_enabled = await db.get_ua_setting('system_enabled') or '1'
         logger.info(f"[DEBUG channel_manager] UA system_enabled: {repr(ua_system_enabled)}")
         if ua_system_enabled in ('1', 'true', 'True'):
             keyboard.append([kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)])
@@ -446,7 +446,7 @@ async def _send_main_menu(query, context: ContextTypes.DEFAULT_TYPE, db, user_id
 
     # اگر کاربر ادمین است، دکمه پنل ادمین را اضافه کن
     try:
-        if db.is_admin(user_id):
+        if await db.is_admin(user_id):
             keyboard.append([kb("menu.buttons.admin", lang)])
     except Exception:
         pass
@@ -520,7 +520,7 @@ async def check_membership_callback(update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # دریافت لیست کانال‌ها برای analytics
-        all_channels = db.get_active_channels()
+        all_channels = await db.get_active_channels()
         
         # بررسی عضویت
         is_member, not_joined = await channel_manager.check_user_membership(
@@ -555,7 +555,7 @@ async def check_membership_callback(update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # هنوز عضو نشده
         try:
-            lang = db.get_user_language(user_id) or DEFAULT_LANG
+            lang = await db.get_user_language(user_id) or DEFAULT_LANG
         except Exception:
             lang = DEFAULT_LANG
         message = channel_manager.create_membership_message(not_joined, is_first_time=False, lang=lang)

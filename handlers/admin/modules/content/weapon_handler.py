@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول مدیریت سلاح‌ها (Weapons) - REFACTORED
 مسئول: حذف و پاک‌سازی سلاح‌ها
@@ -15,6 +16,7 @@ from handlers.admin.admin_states import (
     WEAPON_ACTION_MENU,
     WEAPON_DELETE_CONFIRM
 )
+from core.security.role_manager import require_permission, Permission
 from config.config import WEAPON_CATEGORIES, GAME_MODES
 from utils.logger import get_logger
 from utils.language import get_user_lang
@@ -43,7 +45,8 @@ class WeaponHandler(BaseAdminHandler):
     
     # ==================== Main Menu ====================
     
-    async def weapon_mgmt_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    @require_permission(Permission.MANAGE_ATTACHMENTS_BR, Permission.MANAGE_ATTACHMENTS_MP)
+    async def weapon_mgmt_menu(self, update: Update, context: CustomContext):
         """
         منوی اصلی مدیریت سلاح‌ها - انتخاب Mode
         
@@ -51,15 +54,15 @@ class WeaponHandler(BaseAdminHandler):
         """
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # پاک کردن navigation stack
         self._clear_navigation(context)
         
         # فیلتر کردن modeها بر اساس دسترسی کاربر
         user_id = update.effective_user.id
-        allowed_modes = self.role_manager.get_mode_permissions(user_id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        allowed_modes = await self.role_manager.get_mode_permissions(user_id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # اگر هیچ دسترسی ندارد
         if not allowed_modes:
@@ -86,7 +89,7 @@ class WeaponHandler(BaseAdminHandler):
     
     # ==================== Mode Selection ====================
     
-    async def weapon_mode_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def weapon_mode_selected(self, update: Update, context: CustomContext):
         """
         انتخاب Mode (BR/MP) - سپس نمایش Categories
         """
@@ -101,8 +104,8 @@ class WeaponHandler(BaseAdminHandler):
         
         # بررسی دسترسی به mode انتخاب شده
         user_id = update.effective_user.id
-        allowed_modes = self.role_manager.get_mode_permissions(user_id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        allowed_modes = await self.role_manager.get_mode_permissions(user_id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if mode not in allowed_modes:
             await query.answer(t("common.no_permission", lang), show_alert=True)
@@ -120,7 +123,7 @@ class WeaponHandler(BaseAdminHandler):
         
         # کیبورد دسته‌ها
         from config.config import build_category_keyboard
-        keyboard = build_category_keyboard(WEAPON_CATEGORIES, "wmcat_")
+        keyboard = await build_category_keyboard(callback_prefix="wmcat_", lang=lang)
         keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="nav_back")])
         
         await safe_edit_message_text(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -129,7 +132,7 @@ class WeaponHandler(BaseAdminHandler):
     
     # ==================== Category Selection ====================
     
-    async def weapon_select_category_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def weapon_select_category_menu(self, update: Update, context: CustomContext):
         """
         انتخاب دسته و نمایش سلاح‌ها
         
@@ -152,23 +155,23 @@ class WeaponHandler(BaseAdminHandler):
         context.user_data['weapon_mgmt_category'] = category
         
         mode = context.user_data.get('weapon_mgmt_mode', 'br')
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_name = t(f"mode.{mode}_short", lang)
         
         # دریافت سلاح‌ها
-        weapons = self.db.get_weapons_in_category(category, include_inactive=True)
+        weapons = await self.db.get_weapons_in_category(category, include_inactive=True)
         
         if not weapons:
             await safe_edit_message_text(
                 query,
-                t("admin.weapons.path", lang, mode=t(f"mode.{mode}_short", lang), category=WEAPON_CATEGORIES.get(category)) + "\n\n" + t("admin.weapons.none_in_category", lang),
+                t("admin.weapons.path", lang, mode=t(f"mode.{mode}_short", lang), category=t(f"category.{category}", 'en')) + "\n\n" + t("admin.weapons.none_in_category", lang),
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="nav_back")]]),
                 parse_mode='Markdown'
             )
             logger.warning(f"No weapons found in category: {category}")
             return WEAPON_SELECT_CATEGORY
         
-        text = t("admin.weapons.path", lang, mode=t(f"mode.{mode}_short", lang), category=WEAPON_CATEGORIES.get(category)) + "\n\n"
+        text = t("admin.weapons.path", lang, mode=t(f"mode.{mode}_short", lang), category=t(f"category.{category}", 'en')) + "\n\n"
         text += t("weapon.choose", lang)
         
         # کیبورد سلاح‌ها
@@ -181,7 +184,7 @@ class WeaponHandler(BaseAdminHandler):
     
     # ==================== Weapon Selection ====================
     
-    async def weapon_select_weapon_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def weapon_select_weapon_menu(self, update: Update, context: CustomContext):
         """
         نمایش منوی عملیات برای سلاح انتخابی
         
@@ -193,17 +196,17 @@ class WeaponHandler(BaseAdminHandler):
         """
         query = update.callback_query
         await query.answer()
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         if query.data == "nav_back":
             # بازگشت به لیست دسته‌ها
             context.user_data.pop('weapon_mgmt_weapon', None)
             mode = context.user_data.get('weapon_mgmt_mode', 'br')
             mode_name = t(f"mode.{mode}_short", lang)
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             
             from config.config import build_category_keyboard
-            keyboard = build_category_keyboard(WEAPON_CATEGORIES, "wmcat_")
+            keyboard = await build_category_keyboard(callback_prefix="wmcat_", lang=lang)
             keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="nav_back")])
             
             await safe_edit_message_text(
@@ -228,9 +231,9 @@ class WeaponHandler(BaseAdminHandler):
         context.user_data['weapon_mgmt_weapon'] = weapon
         
         # دریافت اطلاعات سلاح
-        info = self.db.get_weapon_info(category, weapon)
+        info = await self.db.get_weapon_info(category, weapon)
         
-        text = t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n"
+        text = t("admin.weapons.path_weapon", lang, mode=mode_name, category=t(f"category.{category}", 'en'), weapon=weapon) + "\n\n"
         text += t("admin.weapons.weapon.header", lang, weapon=weapon) + "\n\n"
         text += t("admin.weapons.stats.title", lang) + "\n"
         text += t("admin.weapons.stats.line", lang, mode=t("mode.br_short", lang), count=info['br']['attachment_count'], top=info['br']['top_count']) + "\n"
@@ -268,7 +271,7 @@ class WeaponHandler(BaseAdminHandler):
     
     # ==================== Action Selection ====================
     
-    async def weapon_action_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def weapon_action_selected(self, update: Update, context: CustomContext):
         """
         پردازش عملیات انتخابی
         
@@ -279,7 +282,7 @@ class WeaponHandler(BaseAdminHandler):
         همه نیاز به تایید دارند
         """
         query = update.callback_query
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # بازگشت
         if query.data == "nav_back":
@@ -295,13 +298,13 @@ class WeaponHandler(BaseAdminHandler):
         
         if action == "toggle":
             # تغییر وضعیت (فعال/غیرفعال)
-            success = self.db.toggle_weapon_status(category, weapon)
+            success = await self.db.toggle_weapon_status(category, weapon)
             if success:
                 # Invalidate caches
                 try:
                     from core.cache.cache_manager import get_cache
                     cache = get_cache()
-                    cache.invalidate_pattern("get_weapons_in_category")
+                    await cache.invalidate_pattern("get_weapons_in_category")
                 except Exception:
                     pass
                 
@@ -323,7 +326,7 @@ class WeaponHandler(BaseAdminHandler):
             clear_mode_btn = t(f"mode.{clear_mode}_btn", lang)
             
             text = (
-                t("admin.weapons.path_weapon", lang, mode=mode_name, category=WEAPON_CATEGORIES.get(category), weapon=weapon) + "\n\n"
+                t("admin.weapons.path_weapon", lang, mode=mode_name, category=t(f"category.{category}", 'en'), weapon=weapon) + "\n\n"
                 + t("admin.weapons.confirm.clear.title", lang) + "\n\n"
                 + t("admin.weapons.confirm.clear.prompt", lang, mode=clear_mode_short, weapon=weapon) + "\n\n"
                 + t("admin.weapons.confirm.clear.warning", lang, mode=clear_mode_short)
@@ -340,7 +343,7 @@ class WeaponHandler(BaseAdminHandler):
     
     # ==================== Confirmation & Execution ====================
     
-    async def weapon_delete_confirmed(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def weapon_delete_confirmed(self, update: Update, context: CustomContext):
         """
         اجرای حذف بعد از تایید
         
@@ -350,7 +353,7 @@ class WeaponHandler(BaseAdminHandler):
         - nav_back: انصراف
         """
         query = update.callback_query
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # انصراف
         if query.data == "nav_back":
@@ -364,13 +367,13 @@ class WeaponHandler(BaseAdminHandler):
         mode_name = t(f"mode.{mode}_btn", lang)
         
         # بکاپ قبل از حذف
-        backup_file = self.db.backup_database()
+        backup_file = await self.db.backup_database()
         
         if query.data == "wmconf_delete":
             # حذف کامل (دیگر استفاده نمی‌شود اما برای ایمنی نگه می‌داریم و خطا می‌دهیم)
             logger.warning(f"Legacy cleanup: Attempt to delete weapon blocked: {weapon}")
             msg = "⛔ Deletion of weapons is no longer supported."
-            # success = self.db.delete_weapon(category, weapon, mode=None)
+            # success = await self.db.delete_weapon(category, weapon, mode=None)
             # if success:
             #     msg = t("admin.weapons.delete.success", lang, weapon=weapon) + "\n"
             #     logger.info(f"Weapon {weapon} deleted completely")
@@ -381,7 +384,7 @@ class WeaponHandler(BaseAdminHandler):
         elif query.data.startswith("wmconf_clear_"):
             clear_mode = query.data.replace("wmconf_clear_", "")
             clear_mode_name = t(f"mode.{clear_mode}_short", lang)
-            success = self.db.delete_weapon(category, weapon, mode=clear_mode)
+            success = await self.db.delete_weapon(category, weapon, mode=clear_mode)
             if success:
                 msg = t("admin.weapons.clear.success", lang, mode=clear_mode_name, weapon=weapon) + "\n"
                 logger.info(f"Weapon {weapon} cleared for mode: {clear_mode}")
@@ -392,14 +395,8 @@ class WeaponHandler(BaseAdminHandler):
         # Invalidate caches if operation succeeded
         try:
             if 'success' in locals() and success:
-                from core.cache.cache_manager import get_cache
-                cache = get_cache()
-                # Category counts and related lists
-                cache.delete("category_counts")
-                cache.invalidate_pattern("get_weapons_in_category")
-                cache.invalidate_pattern("get_all_attachments")
-                cache.invalidate_pattern("get_weapon_attachments")
-                cache.invalidate_pattern("get_top_attachments")
+                from core.cache.cache_manager import invalidate_attachment_caches
+                await invalidate_attachment_caches(category, weapon)
         except Exception:
             pass
 
@@ -418,15 +415,15 @@ class WeaponHandler(BaseAdminHandler):
     
     # ==================== Helper Methods ====================
     
-    async def _rebuild_state_screen(self, update: Update, context: ContextTypes.DEFAULT_TYPE, state: int):
+    async def _rebuild_state_screen(self, update: Update, context: CustomContext, state: int):
         """بازسازی صفحه برای هر state"""
         query = update.callback_query
         
         if state == WEAPON_SELECT_MODE:
             # بازگشت به لیست modeها
             user_id = update.effective_user.id
-            allowed_modes = self.role_manager.get_mode_permissions(user_id)
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            allowed_modes = await self.role_manager.get_mode_permissions(user_id)
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             
             text = t("admin.weapons.menu.text", lang)
             
@@ -447,10 +444,10 @@ class WeaponHandler(BaseAdminHandler):
             # بازگشت به لیست دسته‌ها
             mode = context.user_data.get('weapon_mgmt_mode', 'br')
             mode_name = t(f"mode.{mode}_btn", lang)
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             
             from config.config import build_category_keyboard
-            keyboard = build_category_keyboard(WEAPON_CATEGORIES, "wmcat_")
+            keyboard = await build_category_keyboard(callback_prefix="wmcat_", lang=lang)
             keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="nav_back")])
             
             await safe_edit_message_text(
@@ -495,3 +492,30 @@ class WeaponHandler(BaseAdminHandler):
             keyboard.append(row)
         
         return keyboard
+    
+    # ==================== Navigation Handler ====================
+    
+    async def handle_navigation_back(self, update: Update, context: CustomContext):
+        """
+        مدیریت دکمه بازگشت در فلوی Weapon Management
+        """
+        query = update.callback_query
+        
+        # pop کردن navigation stack
+        nav_item = self._pop_navigation(context)
+        
+        if nav_item:
+            prev_state = nav_item.get('state')
+            
+            if prev_state == WEAPON_SELECT_MODE:
+                return await self.weapon_mgmt_menu(update, context)
+            elif prev_state == WEAPON_SELECT_CATEGORY:
+                # باید دوباره منو را لود کنیم
+                return await self.weapon_mode_selected(update, context)
+            elif prev_state == WEAPON_SELECT_WEAPON:
+                return await self.weapon_select_category_menu(update, context)
+        
+        # پیش‌فرض: بازگشت به پنل ادمین
+        if query:
+            await query.answer()
+        return await self.admin_menu_return(update, context)

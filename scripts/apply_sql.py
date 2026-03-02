@@ -83,7 +83,6 @@ def main() -> int:
         'user_attachments',
         'user_attachment_engagement',
         'suggested_attachments',
-        'user_attachment_settings',
         'ua_stats_cache',
         'ua_top_weapons_cache',
         'ua_top_users_cache',

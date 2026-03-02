@@ -4,12 +4,14 @@ User Handler Registry
 ⚠️ تمام کدها از main.py کپی شده‌اند - هیچ logic تغییر نکرده!
 """
 
+from telegram import Update
 from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
     ConversationHandler,
-    filters
+    filters,
+    ContextTypes
 )
 
 from .base_registry import BaseHandlerRegistry
@@ -23,6 +25,7 @@ from handlers.user.modules.cms.cms_handler import CMSUserHandler
 from handlers.user.modules.categories.weapon_handler import WeaponHandler
 from handlers.user.modules.attachments.top_handler import TopAttachmentsHandler
 from handlers.user.modules.attachments.all_handler import AllAttachmentsHandler
+from handlers.user.modules.analytics.leaderboard_handler import LeaderboardHandler
 from utils.subscribers_pg import SubscribersPostgres
 
 from handlers.user import SEARCHING
@@ -31,23 +34,40 @@ from handlers.user.modules.settings.language_handler import LanguageHandler
 from handlers.user.modules.notification_handler import NotificationHandler
 from handlers.user.modules.help_handler import HelpHandler
 
+from utils.i18n import build_regex_for_key, build_regex_for_keys
+
+# دکمه‌های منوی ثابت که توسط handlerهای اختصاصی مدیریت می‌شوند.
+# هر دکمه‌ای که اینجا اضافه شود به طور خودکار از dynamic fallback handler حذف می‌شود.
+MENU_KEYS = [
+    'menu.buttons.get', 'menu.buttons.search',
+    'menu.buttons.season_top', 'menu.buttons.season_list',
+    'menu.buttons.suggested', 'menu.buttons.game_settings',
+    'menu.buttons.user_settings', 'menu.buttons.notify',
+    'menu.buttons.contact', 'menu.buttons.help',
+    'menu.buttons.cms', 'menu.buttons.admin',
+    'menu.buttons.ua', 'menu.buttons.leaderboard'
+]
+
+# الگوی regex کامل‌شده برای خارج کردن دکمه‌های مشخص از dynamic handler
+_MENU_EXCLUSION_PATTERN = build_regex_for_keys(MENU_KEYS)
+
 
 class UserHandlerRegistry(BaseHandlerRegistry):
     """ثبت handlers مربوط به کاربران عادی"""
     
-    def __init__(self, application, db, bot_instance):
+    def __init__(self, application, db):
         """
         Args:
             application: Telegram Application
             db: Database adapter
-            bot_instance: Instance of CODMAttachmentsBot (برای دسترسی به handlers)
         """
         super().__init__(application, db)
-        self.bot = bot_instance
-        self.contact_handlers = bot_instance.contact_handlers
-        self.admin_handlers = bot_instance.admin_handlers
+        from core.container import get_container
+        container = get_container()
+        self.contact_handlers = container.contact
+        self.admin_handlers = container.admin
         
-        self.feedback_handler = FeedbackHandler(db)
+        self.feedback_handler = container.feedback_handler
         self.language_handler = LanguageHandler(db)
         
         # Initialize Subscribers (shared instance)
@@ -68,34 +88,22 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         
         self.help_handler = HelpHandler(db)
         
-        self.search_handler = SearchHandler(
-            db, 
-            main_menu_handler=self.main_menu_handler,
-            category_handler=self.category_handler,
-            season_handler=self.season_handler,
-            suggested_handler=self.suggested_handler,
-            guides_handler=self.guides_handler,
-            notification_handler=self.notification_handler,
-            cms_user_handler=self.cms_user_handler
-        )
-        # تزریق HelpHandler به SearchHandler برای پشتیبانی از search_cancel_and_help
-        self.search_handler.help_handler = self.help_handler
+        self.search_handler = SearchHandler(self.db)
+        self.leaderboard_handler = LeaderboardHandler(self.db)
 
-        # اتصال NotificationHandler کاربر به AdminHandlers جهت استفاده در admin_registry_states
-        try:
-            if hasattr(self.bot, "admin_handlers") and self.bot.admin_handlers is not None:
-                # admin_handlers.user_handlers.admin_exit_and_notifications در states استفاده می‌شود
-                setattr(self.bot.admin_handlers, "user_handlers", self.notification_handler)
-        except Exception:
-            # اگر به هر دلیل bot یا admin_handlers در دسترس نبود، فقط از این قابلیت صرف‌نظر می‌کنیم
-            pass
     
+    async def initialize(self):
+        """Asynchronous initialization of components"""
+        if hasattr(self.subs, 'initialize'):
+            await self.subs.initialize()
+
     def register(self):
         """ثبت تمام handlers مربوط به کاربران"""
         self._register_commands()
         self._register_message_handlers()
         self._register_search_conversation()
         self._register_callback_handlers()
+        self._register_analytics_handlers()
         self._register_season_top_handlers()
         self._register_suggested_handlers()
         self._register_feedback_handlers()
@@ -105,7 +113,7 @@ class UserHandlerRegistry(BaseHandlerRegistry):
     def _register_commands(self):
         """ثبت command handlers"""
         self.application.add_handler(CommandHandler("start", self.main_menu_handler.start))
-        self.application.add_handler(CommandHandler("myid", self.bot.show_user_id))
+        self.application.add_handler(CommandHandler("myid", self.main_menu_handler.show_user_id))
         self.application.add_handler(CommandHandler("subscribe", self.notification_handler.subscribe_cmd))
         self.application.add_handler(CommandHandler("unsubscribe", self.notification_handler.unsubscribe_cmd))
     
@@ -113,24 +121,17 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         """ثبت message handlers"""
         # هندلرهای پیام‌های متنی برای دکمه‌های کیبورد
         # دریافت اتچمنت - اول مود را می‌پرسد
-        self.application.add_handler(MessageHandler(filters.Regex('^🔫 دریافت اتچمنت$'), self.category_handler.show_mode_selection_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^🔫 Get Attachments$'), self.category_handler.show_mode_selection_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^📖 راهنما$'), self.help_handler.help_command_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^📖 Help$'), self.help_handler.help_command_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^⚙️ تنظیمات کالاف$'), self.guides_handler.game_settings_menu))
-        self.application.add_handler(MessageHandler(filters.Regex('^⚙️ تنظیمات بازی$'), self.guides_handler.game_settings_menu))
-        self.application.add_handler(MessageHandler(filters.Regex('^⚙️ Game Settings$'), self.guides_handler.game_settings_menu))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.get')), self.category_handler.show_mode_selection_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.help')), self.help_handler.help_command_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.game_settings')), self.guides_handler.game_settings_menu))
         # تنظیمات ربات (کاربر)
-        self.application.add_handler(MessageHandler(filters.Regex('^⚙️ تنظیمات ربات$'), self.language_handler.open_user_settings))
-        self.application.add_handler(MessageHandler(filters.Regex('^⚙️ Bot Settings$'), self.language_handler.open_user_settings))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.user_settings')), self.language_handler.open_user_settings))
         # محتوای CMS (پیام)
-        self.application.add_handler(MessageHandler(filters.Regex('^📰 محتوا$'), self.cms_user_handler.cms_home_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^📰 Content$'), self.cms_user_handler.cms_home_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.cms')), self.cms_user_handler.cms_home_msg))
         
         # Import show_user_attachments_menu برای handler
         from handlers.user.user_attachments.submission_handler import show_user_attachments_menu
-        self.application.add_handler(MessageHandler(filters.Regex('^🎮 اتچمنت کاربران$'), show_user_attachments_menu))
-        self.application.add_handler(MessageHandler(filters.Regex('^🎮 User Attachments$'), show_user_attachments_menu))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.ua')), show_user_attachments_menu))
         
         # منوی راهنماها (Reply Keyboard) - برای backward compatibility
         self.application.add_handler(MessageHandler(filters.Regex('^Basic$'), self.guides_handler.guide_basic_msg))
@@ -138,19 +139,14 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         self.application.add_handler(MessageHandler(filters.Regex('^Hud$'), self.guides_handler.guide_hud_msg))
         
         # منوی اصلی - برترهای فصل
-        self.application.add_handler(MessageHandler(filters.Regex('^⭐ برترهای فصل$'), self.season_handler.season_top_media_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^⭐ Season Top$'), self.season_handler.season_top_media_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^📋 لیست برترها$'), self.season_handler.season_top_list_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^📋 Top List$'), self.season_handler.season_top_list_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.season_top')), self.season_handler.season_top_media_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.season_list')), self.season_handler.season_top_list_msg))
         
         # کیبورد سطح سلاح
-        self.application.add_handler(MessageHandler(filters.Regex('^⭐ برترها$'), self.top_handler.show_top_attachments_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^⭐ برترین اتچمنت‌ها$'), self.top_handler.show_top_attachments_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^⭐ Top Attachments$'), self.top_handler.show_top_attachments_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^📋 همه اتچمنت‌ها$'), self.all_handler.show_all_attachments_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^📋 All Attachments$'), self.all_handler.show_all_attachments_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^(⬅️|🔙) بازگشت$'), self.main_menu_handler.back_msg))
-        self.application.add_handler(MessageHandler(filters.Regex('^(⬅️|🔙) Back$'), self.main_menu_handler.back_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('weapon.menu.top')), self.top_handler.show_top_attachments_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('weapon.menu.all')), self.all_handler.show_all_attachments_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.back')), self.main_menu_handler.back_msg))
+        self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.leaderboard')), self.leaderboard_handler.show_leaderboard))
     
     def _register_search_conversation(self):
         """ثبت ConversationHandler جستجو"""
@@ -158,45 +154,30 @@ class UserHandlerRegistry(BaseHandlerRegistry):
             entry_points=[
                 CallbackQueryHandler(self.search_handler.search_start, pattern="^search$"),
                 CallbackQueryHandler(self.search_handler.search_start, pattern="^search_weapon$"),
-                MessageHandler(filters.Regex('^🔍 جستجوی اتچمنت$'), self.search_handler.search_start_msg),
-                MessageHandler(filters.Regex('^🔍 جستجو$'), self.search_handler.search_start_msg),
-                MessageHandler(filters.Regex('^🔍 Search Attachments$'), self.search_handler.search_start_msg),
-                MessageHandler(filters.Regex('^🔍 Search$'), self.search_handler.search_start_msg)
+                MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.search')), self.search_handler.search_start_msg)
             ],
             states={
                 SEARCHING: [
                     # ابتدا دکمه‌های کیبورد را چک می‌کنیم - IMPORTANT: باید قبل از handler عمومی باشد
-                    # اگر کاربر دوباره دکمه جستجو رو بزنه، بی‌صدا دوباره پیام رو نمایش بده
-                    MessageHandler(filters.Regex('^🔍 جستجوی اتچمنت$'), self.search_handler.search_restart_silently),
-                    MessageHandler(filters.Regex('^🔍 جستجو$'), self.search_handler.search_restart_silently),
-                    MessageHandler(filters.Regex('^🔍 Search Attachments$'), self.search_handler.search_restart_silently),
-                    MessageHandler(filters.Regex('^🔍 Search$'), self.search_handler.search_restart_silently),
+                # اگر کاربر دوباره دکمه جستجو رو بزنه، بی‌صدا دوباره پیام رو نمایش بده
+                MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.search')), self.search_handler.search_restart_silently),
                     # دکمه‌های دیگه - لغو جستجو و رفتن به بخش دیگه
-                    MessageHandler(filters.Regex('^🔫 دریافت اتچمنت$'), self.search_handler.search_cancel_and_show_mode_selection),
-                    MessageHandler(filters.Regex('^🔫 Get Attachments$'), self.search_handler.search_cancel_and_show_mode_selection),
-                    MessageHandler(filters.Regex('^⭐ برترهای فصل$'), self.search_handler.search_cancel_and_season_top),
-                    MessageHandler(filters.Regex('^⭐ Season Top$'), self.search_handler.search_cancel_and_season_top),
-                    MessageHandler(filters.Regex('^📋 لیست برترها$'), self.search_handler.search_cancel_and_season_list),
-                    MessageHandler(filters.Regex('^📋 Top List$'), self.search_handler.search_cancel_and_season_list),
-                    MessageHandler(filters.Regex('^💡 اتچمنت‌های پیشنهادی$'), self.search_handler.search_cancel_and_suggested),
-                    MessageHandler(filters.Regex('^💡 Suggested Attachments$'), self.search_handler.search_cancel_and_suggested),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.get')), self._search_cancel_and_show_mode_selection),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.season_top')), self._search_cancel_and_season_top),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.season_list')), self._search_cancel_and_season_list),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.suggested')), self._search_cancel_and_suggested),
                     # CMS: خروج از جستجو و نمایش CMS
-                    MessageHandler(filters.Regex('^📰 محتوا$'), self.search_handler.search_cancel_and_cms),
-                    MessageHandler(filters.Regex('^📰 Content$'), self.search_handler.search_cancel_and_cms),
-                    MessageHandler(filters.Regex('^⚙️ تنظیمات کالاف$'), self.search_handler.search_cancel_and_game_settings),
-                    MessageHandler(filters.Regex('^⚙️ Game Settings$'), self.search_handler.search_cancel_and_game_settings),
-                    MessageHandler(filters.Regex('^📖 راهنما$'), self.search_handler.search_cancel_and_help),
-                    MessageHandler(filters.Regex('^📖 Help$'), self.search_handler.search_cancel_and_help),
-                    MessageHandler(filters.Regex('^📞 تماس با ما$'), self.contact_handlers.search_cancel_and_contact),
-                    MessageHandler(filters.Regex('^📞 Contact Us$'), self.contact_handlers.search_cancel_and_contact),
-                    MessageHandler(filters.Regex('^🔔 تنظیمات اعلان‌ها$'), self.search_handler.search_cancel_and_notifications),
-                    MessageHandler(filters.Regex('^🔔 Notification Settings$'), self.search_handler.search_cancel_and_notifications),
-                    MessageHandler(filters.Regex('^👨‍💼 پنل ادمین$'), self.admin_handlers.search_cancel_and_admin),
-                    MessageHandler(filters.Regex('^👨‍💼 Admin Panel$'), self.admin_handlers.search_cancel_and_admin),
-                    MessageHandler(filters.Regex('^پنل ادمین$'), self.admin_handlers.search_cancel_and_admin),
-                    MessageHandler(filters.Regex('^Admin Panel$'), self.admin_handlers.search_cancel_and_admin),
-                    # سپس متن عادی را به عنوان جستجو پردازش می‌کنیم
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.search_handler.search_process)
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.cms')), self._search_cancel_and_cms),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.game_settings')), self._search_cancel_and_game_settings),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.help')), self._search_cancel_and_help),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.contact')), self.contact_handlers.search_cancel_and_contact),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.notify')), self._search_cancel_and_notifications),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.leaderboard')), self._search_cancel_and_leaderboard),
+                    MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), self.admin_handlers.search_cancel_and_admin),
+                    # سپس متن عادی را به عنوان جستجو پردازش می‌کنیم (به استثنای دکمه‌های منو)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(_MENU_EXCLUSION_PATTERN), self.search_handler.search_process),
+                    # فال‌بک نهایی برای ورودی‌های غیرمتنی
+                    MessageHandler(filters.ALL, self.search_handler.handle_invalid_input)
                 ]
             },
             fallbacks=[
@@ -205,6 +186,59 @@ class UserHandlerRegistry(BaseHandlerRegistry):
             ]
         )
         self.application.add_handler(search_conv)
+        
+    # ======= Search Cancellation Handlers =======
+    
+    async def _search_cancel_and_show_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.category_handler:
+            await self.category_handler.show_categories_msg(update, context)
+        return ConversationHandler.END
+    
+    async def _search_cancel_and_season_top(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.season_handler:
+            await self.season_handler.season_top_select_mode_msg(update, context)
+        return ConversationHandler.END
+    
+    async def _search_cancel_and_season_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.season_handler:
+            await self.season_handler.season_top_list_select_mode_msg(update, context)
+        return ConversationHandler.END
+    
+    async def _search_cancel_and_suggested(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.suggested_handler:
+            await self.suggested_handler.suggested_attachments_select_mode_msg(update, context)
+        return ConversationHandler.END
+    
+    async def _search_cancel_and_game_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.guides_handler:
+            await self.guides_handler.game_settings_menu(update, context)
+        return ConversationHandler.END
+    
+    async def _search_cancel_and_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.help_handler:
+            await self.help_handler.help_command_msg(update, context)
+        return ConversationHandler.END
+    
+    async def _search_cancel_and_notifications(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.notification_handler:
+            context.user_data['_notification_shown'] = True
+            await self.notification_handler.notification_settings(update, context)
+        return ConversationHandler.END
+
+    async def _search_cancel_and_show_mode_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.category_handler:
+            await self.category_handler.show_mode_selection_msg(update, context)
+        return ConversationHandler.END
+    
+    async def _search_cancel_and_cms(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.cms_user_handler:
+            await self.cms_user_handler.cms_home_msg(update, context)
+        return ConversationHandler.END
+
+    async def _search_cancel_and_leaderboard(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if self.leaderboard_handler:
+            await self.leaderboard_handler.show_leaderboard(update, context)
+        return ConversationHandler.END
     
     def _register_callback_handlers(self):
         """ثبت CallbackQuery handlers"""
@@ -242,10 +276,6 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         # اتچمنت با mode (فرمت: attm_{mode}_{code})
         # پیاده‌سازی صحیح در AllAttachmentsHandler.attachment_detail_with_mode قرار دارد.
         self.application.add_handler(CallbackQueryHandler(self.all_handler.attachment_detail_with_mode, pattern="^attm_"))
-        
-        # دریافت همه اتچمنت‌های یک mode
-        # NOTE: download_all_attachments method doesn't exist in AllAttachmentsHandler - commented out
-        # self.application.add_handler(CallbackQueryHandler(self.all_handler.download_all_attachments, pattern="^download_all_"))
         
         # اتچمنت عادی - فقط att_{code} نه top/season/like/dislike/fb/copy
         # Exclude copy_ تا دکمه «📋 کپی کد» به هندلر اختصاصی خودش برود
@@ -300,9 +330,8 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         self.application.add_handler(CallbackQueryHandler(self.suggested_handler.suggested_list_page_navigation, pattern="^sugglist_page_"))
         
         # handler برای دکمه "💡 اتچمنت‌های پیشنهادی"
-        self.application.add_handler(MessageHandler(filters.Regex('^💡 اتچمنت‌های پیشنهادی$'), self.suggested_handler.suggested_attachments_select_mode_msg))
-        # انگلیسی: "💡 Suggested Attachments"
-        self.application.add_handler(MessageHandler(filters.Regex('^💡 Suggested Attachments$'), self.suggested_handler.suggested_attachments_select_mode_msg))
+        sugg_regex = build_regex_for_key('menu.buttons.suggested')
+        self.application.add_handler(MessageHandler(filters.Regex(sugg_regex), self.suggested_handler.suggested_attachments_select_mode_msg))
     
     def _register_feedback_handlers(self):
         """ثبت handlers سیستم بازخورد اتچمنت‌ها"""
@@ -336,8 +365,9 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         # Handler عمومی برای دکمه keyboard - با group=10 تا بعد از ConversationHandler ها اجرا بشه
         # این فقط در حالت عادی (نه admin، نه search) trigger میشه
         # استفاده از wrapper که flag رو check می‌کنه
+        notif_regex = build_regex_for_key('menu.buttons.notify')
         self.application.add_handler(
-            MessageHandler(filters.Regex('^(🔔 تنظیمات اعلان‌ها|🔔 Notification Settings)$'), self.notification_handler.notification_settings_with_check),
+            MessageHandler(filters.Regex(notif_regex), self.notification_handler.notification_settings_with_check),
             group=10
         )
         
@@ -348,16 +378,19 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         self.application.add_handler(CallbackQueryHandler(self.notification_handler.notification_toggle_event, pattern="^user_notif_event_"))
         self.application.add_handler(CallbackQueryHandler(self.notification_handler.notification_settings, pattern="^user_notif_back$"))
     
-    def _register_language_settings_handlers(self):
-        """ثبت handlers تنظیمات زبان"""
-        self.application.add_handler(CallbackQueryHandler(self.language_handler.open_language_menu, pattern="^user_settings_language$"))
-        self.application.add_handler(CallbackQueryHandler(self.language_handler.set_language, pattern="^set_lang_(fa|en)$"))
-    
+    def _register_analytics_handlers(self):
+        """ثبت handlers مربوط به آنالیتیکس و لیدربورد"""
+        self.application.add_handler(CallbackQueryHandler(self.leaderboard_handler.show_leaderboard, pattern="^leaderboard$"))
+        # متن منوی اصلی برای لیدربورد - در صورت نیاز
+        # self.application.add_handler(MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.leaderboard')), self.leaderboard_handler.show_leaderboard))
+
     def _register_dynamic_handlers(self):
-        """ثبت dynamic handlers - کپی دقیق از main.py خط 836-841"""
-        # روتر داینامیک برای نام‌های سفارشی Basic/Sens/Hud (در انتها تا با دکمه‌های دیگه تداخل نداشته باشد)
-        # استثنا برای دکمه‌های منوی اصلی که باید توسط handlers خودشون گرفته بشن
+        """ثبت dynamic handler برای نام‌های سفارشی (Basic/Sens/Hud و غیره).
+        
+        از `_MENU_EXCLUSION_PATTERN` استفاده می‌کند تا دکمه‌های منوی ثابت handler دیگری داشته باشند.
+        برای افزودن دکمه جدید، تنها کافی است `MENU_BUTTONS` را به‌روز کنید.
+        """
         self.application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND & ~filters.Regex('^(🔫 دریافت اتچمنت|🔫 Get Attachments|🔍 جستجوی اتچمنت|🔍 Search Attachments|⭐ برترهای فصل|⭐ Season Top|📋 لیست برترها|📋 Top List|💡 اتچمنت‌های پیشنهادی|💡 Suggested Attachments|⚙️ تنظیمات کالاف|⚙️ تنظیمات بازی|⚙️ Game Settings|🔔 تنظیمات اعلان‌ها|🔔 Notification Settings|📞 تماس با ما|📞 Contact Us|📖 راهنما|📖 Help|👨‍💼 پنل ادمین|👨‍💼 Admin Panel|پنل ادمین|Admin Panel|⚙️ تنظیمات ربات|⚙️ Bot Settings|📰 محتوا|📰 Content)$'),
+            filters.TEXT & ~filters.COMMAND & ~filters.Regex(_MENU_EXCLUSION_PATTERN),
             self.guides_handler.guide_dynamic_msg
-        ))
+        ), group=10)

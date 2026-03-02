@@ -1,3 +1,4 @@
+from core.context import CustomContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from handlers.user.base_user_handler import BaseUserHandler
@@ -14,13 +15,13 @@ class LanguageHandler(BaseUserHandler):
     """مدیریت تنظیمات زبان کاربر"""
 
     @require_channel_membership
-    async def open_user_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def open_user_settings(self, update: Update, context: CustomContext):
         """نمایش منوی تنظیمات کاربر (ربات)"""
         query = update.callback_query
         if query:
             await query.answer()
 
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
 
         keyboard = [
             [InlineKeyboardButton(t("settings.user.language", lang), callback_data="user_settings_language")],
@@ -39,13 +40,13 @@ class LanguageHandler(BaseUserHandler):
             await update.message.reply_text(text, reply_markup=reply_markup)
 
     @require_channel_membership
-    async def open_language_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def open_language_menu(self, update: Update, context: CustomContext):
         """نمایش منوی انتخاب زبان"""
         query = update.callback_query
         if query:
             await query.answer()
 
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         # نام زبان فعلی بر اساس i18n (نمایش در زبان کاربر)
         current_lang_name = t("lang.fa", lang) if lang == 'fa' else t("lang.en", lang)
 
@@ -66,7 +67,7 @@ class LanguageHandler(BaseUserHandler):
         except Exception:
             await query.message.reply_text(text, reply_markup=reply_markup)
 
-    async def set_language(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def set_language(self, update: Update, context: CustomContext):
         """ذخیره زبان انتخابی کاربر"""
         query = update.callback_query
         await query.answer()
@@ -76,7 +77,7 @@ class LanguageHandler(BaseUserHandler):
         if new_lang not in ("fa", "en"):
             return
 
-        ok = set_user_lang(update, context, self.db, new_lang)
+        ok = await set_user_lang(update, context, self.db, new_lang)
         lang_name = t("lang.fa", new_lang) if new_lang == 'fa' else t("lang.en", new_lang)
 
         if ok:
@@ -103,7 +104,7 @@ class LanguageHandler(BaseUserHandler):
                 ]
                 
                 # Check UA system
-                ua_system_enabled = self.db.get_ua_setting('system_enabled') or '1'
+                ua_system_enabled = await self.db.get_ua_setting('system_enabled') or '1'
                 if ua_system_enabled in ('1', 'true', 'True'):
                     keyboard.append([kb("menu.buttons.ua", new_lang), kb("menu.buttons.suggested", new_lang)])
                 else:
@@ -117,7 +118,7 @@ class LanguageHandler(BaseUserHandler):
                 
                 # Check CMS
                 try:
-                    cms_enabled = str(self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+                    cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
                 except Exception:
                     cms_enabled = False
                 if cms_enabled:
@@ -131,7 +132,7 @@ class LanguageHandler(BaseUserHandler):
                 keyboard.append([kb("menu.buttons.user_settings", new_lang)])
                 
                 # Check admin
-                if self.db.is_admin(user_id):
+                if await self.db.is_admin(user_id):
                     keyboard.append([kb("menu.buttons.admin", new_lang)])
                 
                 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

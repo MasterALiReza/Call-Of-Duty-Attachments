@@ -25,8 +25,8 @@ class BackupScheduler:
         """
         try:
             # Load settings
-            enabled = self.db.get_setting("auto_backup_enabled", "0") == "1"
-            interval = self.db.get_setting("auto_backup_interval", "24h")
+            enabled = (await self.db.get_setting("auto_backup_enabled", "0")) == "1"
+            interval = await self.db.get_setting("auto_backup_interval", "24h")
             
             if enabled:
                 await self.schedule_job(application, interval)
@@ -85,8 +85,8 @@ class BackupScheduler:
         Updates the schedule based on new settings (called from Admin UI).
         """
         # Save to DB
-        self.db.set_setting("auto_backup_enabled", "1" if enabled else "0")
-        self.db.set_setting("auto_backup_interval", interval_str)
+        await self.db.set_setting("auto_backup_enabled", "1" if enabled else "0")
+        await self.db.set_setting("auto_backup_interval", interval_str)
         
         if enabled:
             await self.schedule_job(application, interval_str)
@@ -100,7 +100,7 @@ class BackupScheduler:
         logger.info("⏳ Starting automated backup job...")
         try:
             # Perform backup
-            backup_file = self.backup_manager.create_full_backup()
+            backup_file = await self.backup_manager.create_full_backup()
             
             if backup_file:
                 logger.info(f"✅ Auto-backup completed: {backup_file}")
@@ -110,7 +110,7 @@ class BackupScheduler:
                 
                 # Update last backup timestamp in DB (optional, mainly for UI)
                 from datetime import datetime
-                self.db.set_setting("last_backup_timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
+                await self.db.set_setting("last_backup_timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
                 
                 # Optional: Notify admins? (Maybe too noisy, leaving out for now unless requested)
             else:

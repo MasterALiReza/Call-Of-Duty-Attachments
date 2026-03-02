@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 Banned Users Handler - مدیریت کاربران محروم
 """
@@ -19,50 +20,50 @@ role_manager = RoleManager(db)
 # Conversation state for ban reason
 UA_ADMIN_BAN_REASON = 1
 
-def has_ua_perm(user_id: int) -> bool:
+async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
     try:
-        if role_manager.is_super_admin(user_id):
+        if await role_manager.is_super_admin(user_id):
             return True
-        return role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
+        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
     except Exception:
-        return db.is_admin(user_id)
+        return await db.is_admin(user_id)
 
 
-async def show_banned_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_banned_users(update: Update, context: CustomContext):
     """نمایش لیست کاربران محروم"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            SELECT 
-                uss.user_id,
-                u.username,
-                u.first_name,
-                uss.banned_reason,
-                uss.banned_at,
-                uss.total_submissions,
-                uss.approved_submissions,
-                uss.rejected_submissions,
-                uss.strike_count
-            FROM user_submission_stats uss
-            JOIN users u ON uss.user_id = u.user_id
-            WHERE uss.is_banned = TRUE
-            ORDER BY uss.banned_at DESC
-        """)
-            banned_users = cursor.fetchall()
+        async with db.get_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute("""
+                SELECT 
+                    uss.user_id,
+                    u.username,
+                    u.first_name,
+                    uss.banned_reason,
+                    uss.banned_at,
+                    uss.total_submissions,
+                    uss.approved_submissions,
+                    uss.rejected_submissions,
+                    uss.strike_count
+                FROM user_submission_stats uss
+                JOIN users u ON uss.user_id = u.user_id
+                WHERE uss.is_banned = TRUE
+                ORDER BY uss.banned_at DESC
+            """)
+                banned_users = await cursor.fetchall()
     except Exception as e:
-        logger.error(f"Error fetching banned users: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
         return
     
     if not banned_users:
@@ -98,38 +99,38 @@ async def show_banned_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def show_banned_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_banned_detail(update: Update, context: CustomContext):
     """نمایش جزئیات کاربر محروم"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     banned_user_id = int(query.data.replace('ua_admin_banned_detail_', ''))
     
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            SELECT 
-                uss.user_id,
-                u.username,
-                u.first_name,
-                uss.banned_reason,
-                uss.banned_at,
-                uss.total_submissions,
-                uss.approved_submissions,
-                uss.rejected_submissions,
-                uss.strike_count
-            FROM user_submission_stats uss
-            JOIN users u ON uss.user_id = u.user_id
-            WHERE uss.user_id = %s AND uss.is_banned = TRUE
-        """, (banned_user_id,))
-            user_info = cursor.fetchone()
+        async with db.get_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute("""
+                SELECT 
+                    uss.user_id,
+                    u.username,
+                    u.first_name,
+                    uss.banned_reason,
+                    uss.banned_at,
+                    uss.total_submissions,
+                    uss.approved_submissions,
+                    uss.rejected_submissions,
+                    uss.strike_count
+                FROM user_submission_stats uss
+                JOIN users u ON uss.user_id = u.user_id
+                WHERE uss.user_id = %s AND uss.is_banned = TRUE
+            """, (banned_user_id,))
+                user_info = await cursor.fetchone()
         
         if not user_info:
             await query.answer(t('admin.ua.banned.not_found', lang), show_alert=True)
@@ -138,8 +139,8 @@ async def show_banned_detail(update: Update, context: ContextTypes.DEFAULT_TYPE)
         (uid, username, first_name, reason, banned_at, total, approved, rejected, strikes) = user_info
         
     except Exception as e:
-        logger.error(f"Error fetching banned user detail: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
         return
     
     display_name = f"@{username}" if username else (first_name or t('user.anonymous', lang))
@@ -179,13 +180,13 @@ async def show_banned_detail(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
-async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def unban_user(update: Update, context: CustomContext):
     """رفع محرومیت کاربر"""
     query = update.callback_query
     
     admin_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(admin_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(admin_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -193,11 +194,11 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # رفع محرومیت
-        success = db.unban_user_from_attachments(banned_user_id)
+        success = await db.unban_user_from_attachments(banned_user_id)
         
         if success:
             # دریافت اطلاعات کاربر برای notification
-            user_info = db.get_user(banned_user_id)
+            user_info = await db.get_user(banned_user_id)
             
             # Notification به کاربر
             try:
@@ -218,18 +219,18 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer(t('admin.ua.banned.unban.error', lang), show_alert=True)
             
     except Exception as e:
-        logger.error(f"Error unbanning user: {e}")
-        await query.answer(t('error.generic', lang), show_alert=True)
+        from utils.error_handler import error_handler
+        await error_handler.handle_telegram_error(update, context, e)
 
 
-async def ban_user_from_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ban_user_from_review(update: Update, context: CustomContext):
     """محروم کردن کاربر از صفحه review"""
     query = update.callback_query
     await query.answer()
     
     admin_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(admin_id):
+    lang = await get_user_lang(update, context, db) or 'fa'
+    if not await has_ua_perm(admin_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -259,9 +260,9 @@ async def ban_user_from_review(update: Update, context: ContextTypes.DEFAULT_TYP
     return UA_ADMIN_BAN_REASON
 
 
-async def receive_ban_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def receive_ban_reason(update: Update, context: CustomContext):
     reason = update.message.text.strip()
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if len(reason) > 200:
         await update.message.reply_text(t('admin.ua.banned.ban_request.too_long', lang))
         return UA_ADMIN_BAN_REASON
@@ -272,7 +273,7 @@ async def receive_ban_reason(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(t('error.generic', lang))
         return ConversationHandler.END
     
-    success = db.ban_user_from_submissions(target_user_id, reason, banned_by=admin_id)
+    success = await db.ban_user_from_submissions(target_user_id, reason, banned_by=admin_id)
     if success:
         try:
             notif_text = t('user.ua.banned', lang, reason=reason)
@@ -294,8 +295,8 @@ async def receive_ban_reason(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 
-async def cancel_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lang = get_user_lang(update, context, db) or 'fa'
+async def cancel_ban(update: Update, context: CustomContext):
+    lang = await get_user_lang(update, context, db) or 'fa'
     await update.message.reply_text(
         t('common.cancelled', lang),
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_banned")]])

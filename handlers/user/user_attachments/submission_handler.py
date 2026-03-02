@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 User Attachment Submission Handler
 فرآیند ارسال اتچمنت توسط کاربران
@@ -17,6 +18,7 @@ from utils.language import get_user_lang
 from utils.i18n import t
 from core.security.rate_limiter import SimpleRateLimiter
 from utils.telegram_safety import safe_edit_message_text
+from core.events import event_bus, EventTypes
 
 logger = get_logger('user_attachments', 'user.log')
 
@@ -30,7 +32,17 @@ submission_rate_limiter = SimpleRateLimiter(max_requests=5, window=600)
 db = get_database_adapter()
 validator = get_validator(db)
 
-async def show_user_attachments_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def _clear_submission_data(context: CustomContext):
+    """پاک کردن فقط داده‌های مربوط به پروسه ثبت اتچمنت بدون دست زدن به تنظیمات کاربر"""
+    submission_keys = [
+        'mode', 'category', 'weapon_id', 'weapon_name', 'attachment_name',
+        'image_file_id', 'code', 'description', 'submission_user_id'
+    ]
+    for key in submission_keys:
+        if key in context.user_data:
+            del context.user_data[key]
+
+async def show_user_attachments_menu(update: Update, context: CustomContext):
     """نمایش منوی اصلی اتچمنت کاربران"""
     # پشتیبانی از هم callback و هم message
     if update.callback_query:
@@ -42,10 +54,10 @@ async def show_user_attachments_menu(update: Update, context: ContextTypes.DEFAU
         query = None
     
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     # بررسی فعال بودن سیستم
-    system_enabled = db.get_ua_setting('system_enabled') or '1'
+    system_enabled = await db.get_ua_setting('system_enabled') or '1'
     if system_enabled not in ('1', 'true', 'True'):
         text = t("error.generic", lang)
         if query:
@@ -68,7 +80,7 @@ async def show_user_attachments_menu(update: Update, context: ContextTypes.DEFAU
         return
     
     # Track user
-    db.upsert_user(
+    await db.upsert_user(
         user_id=user_id,
         username=update.effective_user.username,
         first_name=update.effective_user.first_name
@@ -85,7 +97,11 @@ async def show_user_attachments_menu(update: Update, context: ContextTypes.DEFAU
         ]
     ]
     
-    text = t("ua.title", lang) + "\n\n" + t("ua.description", lang)
+    text = (
+        f"{t('ua.title', lang)}\n"
+        "━━━━━━━━━━━━━━\n"
+        f"{t('ua.description', lang)}"
+    )
     
     if query:
         # چک کردن آیا پیام photo هست
@@ -115,15 +131,20 @@ async def show_user_attachments_menu(update: Update, context: ContextTypes.DEFAU
         )
 
 
-async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_submission(update: Update, context: CustomContext):
     """شروع فرآیند ارسال اتچمنت"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
+    lang = await get_user_lang(update, context, db) or 'fa'
+    
+    # Check if user is an admin
+    user_role = await db.get_user_role(user_id)
+    is_admin = user_role in ['owner', 'admin']
     
     # بررسی Rate Limit
-    if not submission_rate_limiter.is_allowed(user_id):
+    if not submission_rate_limiter.is_allowed(user_id, is_admin=is_admin):
         await safe_edit_message_text(
             query,
             t("ua.rate_limit", lang),
@@ -135,7 +156,7 @@ async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     # بررسی وضعیت Ban
-    stats = db.get_user_submission_stats(user_id)
+    stats = await db.get_user_submission_stats(user_id)
     if stats and stats['is_banned']:
         await safe_edit_message_text(
             query,
@@ -148,7 +169,7 @@ async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     # بررسی محدودیت روزانه
-    daily_limit = int(db.get_ua_setting('daily_limit') or 5)
+    daily_limit = int(await db.get_ua_setting('daily_limit') or 5)
     if stats and stats['daily_submissions'] >= daily_limit:
         await safe_edit_message_text(
             query,
@@ -167,12 +188,12 @@ async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if browse_category == 'all':
         browse_category = None
     
-    # پاک کردن داده‌های قبلی
-    context.user_data.clear()
+    # پاک کردن داده‌های قبلی به‌صورت ایمن
+    _clear_submission_data(context)
     context.user_data['submission_user_id'] = user_id
     
     # اطمینان از وجود کاربر در دیتابیس
-    db.upsert_user(
+    await db.upsert_user(
         user_id=user_id,
         username=update.effective_user.username,
         first_name=update.effective_user.first_name,
@@ -184,12 +205,12 @@ async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['mode'] = browse_mode
         context.user_data['category'] = browse_category
         
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         mode_name = t(f"mode.{browse_mode}_btn", lang)
-        category_name = t(f"category.{browse_category}", lang)
+        category_name = t(f"category.{browse_category}", 'en')
         
         # دریافت لیست سلاح‌های این دسته
-        weapons = db.get_weapons_in_category(browse_category)
+        weapons = await db.get_weapons_in_category(browse_category)
         
         if not weapons:
             await safe_edit_message_text(
@@ -221,23 +242,23 @@ async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif browse_mode:
         context.user_data['mode'] = browse_mode
         
-        lang = get_user_lang(update, context, db) or 'fa'
+        lang = await get_user_lang(update, context, db) or 'fa'
         mode_name = t(f"mode.{browse_mode}_btn", lang)
         
         # نمایش دسته‌بندی‌ها
-        keyboard = build_category_keyboard(
-            WEAPON_CATEGORIES,
+        keyboard = await build_category_keyboard(
             callback_prefix="ua_cat_",
             show_count=False,
             db=None,
-            lang=lang
+            lang=lang,
+            active_ids=list(WEAPON_CATEGORIES.keys())
         )
         keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="ua_menu")])
         keyboard.append([InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="ua_cancel")])
         
         await safe_edit_message_text(
             query,
-            f"{mode_name}\n" + t("category.choose", lang),
+            f"{mode_name}\n" + t("category.choose", 'en'),
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -246,20 +267,18 @@ async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # نمایش انتخاب مود
     # دریافت مودهای فعال
-    enabled_modes_str = db.get_ua_setting('enabled_modes') or '["mp","br"]'
+    enabled_modes_str = await db.get_ua_setting('enabled_modes') or '["mp","br"]'
     enabled_modes = json.loads(enabled_modes_str)
     
     keyboard = []
-    mode_buttons = []
-    
-    # ترتیب: BR راست، MP چپ
-    lang = get_user_lang(update, context, db) or 'fa'
+    # ترتیب: BR بالا، MP پایین (عمودی)
+    lang = await get_user_lang(update, context, db) or 'fa'
     if 'br' in enabled_modes:
-        mode_buttons.append(InlineKeyboardButton(t("mode.br_btn", lang), callback_data="ua_mode_br"))
+        keyboard.append([InlineKeyboardButton(t("mode.br_btn", lang), callback_data="ua_mode_br")])
     if 'mp' in enabled_modes:
-        mode_buttons.append(InlineKeyboardButton(t("mode.mp_btn", lang), callback_data="ua_mode_mp"))
+        keyboard.append([InlineKeyboardButton(t("mode.mp_btn", lang), callback_data="ua_mode_mp")])
     
-    if not mode_buttons:
+    if not keyboard:
         await safe_edit_message_text(
             query,
             t("ua.error.no_active_modes", lang),
@@ -270,11 +289,6 @@ async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
     
-    if len(mode_buttons) == 2:
-        keyboard.append(mode_buttons)
-    else:
-        for btn in mode_buttons:
-            keyboard.append([btn])
     
     keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="ua_menu")])
     keyboard.append([InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="ua_cancel")])
@@ -289,7 +303,7 @@ async def start_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_MODE
 
 
-async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def mode_selected(update: Update, context: CustomContext):
     """انتخاب مود بازی"""
     query = update.callback_query
     await query.answer()
@@ -297,12 +311,16 @@ async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = query.data.replace('ua_mode_', '')
     context.user_data['mode'] = mode
     
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     mode_name = t(f"mode.{mode}_btn", lang)
     
     # فیلتر کردن دسته‌های فعال برای mode انتخاب شده
     from config.config import is_category_enabled
-    active_categories = {k: v for k, v in WEAPON_CATEGORIES.items() if is_category_enabled(k, mode)}
+    active_categories = {}
+    db_instance = context.bot_data.get('db')
+    for k, v in WEAPON_CATEGORIES.items():
+        if await is_category_enabled(k, mode, db_instance):
+            active_categories[k] = v
     
     if not active_categories:
         await safe_edit_message_text(
@@ -316,19 +334,19 @@ async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     # نمایش دسته‌بندی‌ها
-    keyboard = build_category_keyboard(
-        active_categories,
+    keyboard = await build_category_keyboard(
         callback_prefix="ua_cat_",
         show_count=False,
         db=None,
-        lang=lang
+        lang=lang,
+        active_ids=list(active_categories.keys())
     )
     keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="ua_menu")])
     keyboard.append([InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="ua_cancel")])
     
     await safe_edit_message_text(
         query,
-        f"{mode_name}\n" + t("category.choose", lang),
+        f"{mode_name}\n" + t("category.choose", 'en'),
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -336,7 +354,7 @@ async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_CATEGORY
 
 
-async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def category_selected(update: Update, context: CustomContext):
     """انتخاب دسته"""
     query = update.callback_query
     await query.answer()
@@ -344,12 +362,12 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     category = query.data.replace('ua_cat_', '')
     context.user_data['category'] = category
     
-    lang = get_user_lang(update, context, db) or 'fa'
-    category_name = t(f"category.{category}", lang)
+    lang = await get_user_lang(update, context, db) or 'fa'
+    category_name = t(f"category.{category}", 'en')
     mode_name = t(f"mode.{context.user_data['mode']}_btn", lang)
     
     # دریافت لیست سلاح‌های موجود در این دسته
-    weapons = db.get_weapons_in_category(category)
+    weapons = await db.get_weapons_in_category(category)
     
     if not weapons:
         await safe_edit_message_text(
@@ -378,7 +396,7 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_WEAPON_SELECT
 
 
-async def weapon_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def weapon_selected(update: Update, context: CustomContext):
     """انتخاب سلاح از لیست"""
     query = update.callback_query
     await query.answer()
@@ -386,10 +404,10 @@ async def weapon_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # callback_data format: ua_weapon_AK-47
     weapon_name = query.data.replace('ua_weapon_', '')
     category = context.user_data.get('category')
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     # دریافت weapon_id از دیتابیس
-    weapon = db.get_weapon_by_name(category, weapon_name)
+    weapon = await db.get_weapon_by_name(category, weapon_name)
     if not weapon:
         await safe_edit_message_text(
             query,
@@ -403,9 +421,9 @@ async def weapon_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['weapon_id'] = weapon['id']
     context.user_data['weapon_name'] = weapon_name
     
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     mode_name = t(f"mode.{context.user_data['mode']}_btn", lang)
-    category_name = t(f"category.{context.user_data['category']}", lang)
+    category_name = t(f"category.{context.user_data['category']}", 'en')
     
     # درخواست نام اتچمنت
     await safe_edit_message_text(
@@ -417,14 +435,14 @@ async def weapon_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_ATTACHMENT_NAME
 
 
-async def name_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def name_entered(update: Update, context: CustomContext):
     """دریافت نام اتچمنت"""
     text = update.message.text.strip()
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     # Validation
-    max_length = int(db.get_ua_setting('max_name_length') or 100)
+    max_length = int(await db.get_ua_setting('max_name_length') or 100)
     valid, reason, violation = validator.validate_text(text, max_length, check_spam=True)
     
     if not valid:
@@ -447,10 +465,10 @@ async def name_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             # بررسی Strike Count
-            stats = db.get_user_submission_stats(user_id)
+            stats = await db.get_user_submission_stats(user_id)
             if stats['strike_count'] >= 3.0:
                 # Ban دائم
-                db.ban_user_from_submissions(
+                await db.ban_user_from_submissions(
                     user_id=user_id,
                     reason=f"استفاده {stats['violation_count']} بار از کلمات نامناسب"
                 )
@@ -487,9 +505,9 @@ async def name_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['attachment_name'] = text
     
     # درخواست عکس اتچمنت
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     mode_name = t(f"mode.{context.user_data['mode']}_btn", lang)
-    category_name = t(f"category.{context.user_data['category']}", lang)
+    category_name = t(f"category.{context.user_data['category']}", 'en')
     weapon_name = context.user_data['weapon_name']
     
     await update.message.reply_text(
@@ -500,9 +518,9 @@ async def name_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_IMAGE
 
 
-async def image_uploaded(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def image_uploaded(update: Update, context: CustomContext):
     """دریافت تصویر"""
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     if not update.message.photo:
         await update.message.reply_text(
@@ -514,13 +532,17 @@ async def image_uploaded(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1]
     file_id = photo.file_id
     
-    # بررسی حجم (اختیاری - تلگرام خودش محدودیت داره)
-    max_size = int(db.get_ua_setting('max_image_size') or 5242880)  # 5 MB
+    # بررسی حجم
+    max_size = int(await db.get_ua_setting('max_image_size') or 5242880)  # default 5 MB
+    if getattr(photo, 'file_size', 0) > max_size:
+        max_mb = max_size // (1024 * 1024)
+        await update.message.reply_text(t('validation.image.too_large', lang, max_mb=max_mb))
+        return UA_IMAGE
     
     context.user_data['image_file_id'] = file_id
     
     # درخواست کد اتچمنت
-    max_code_length = int(db.get_ua_setting('max_description_length') or 500)
+    max_code_length = int(await db.get_ua_setting('max_description_length') or 500)
     
     await update.message.reply_text(
         t('ua.prompt.code', lang, max=max_code_length),
@@ -530,11 +552,11 @@ async def image_uploaded(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_CODE
 
 
-async def code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def code_entered(update: Update, context: CustomContext):
     """دریافت کد اتچمنت"""
     text = update.message.text.strip()
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     # اگر skip بود
     if text == '/skip':
@@ -551,7 +573,7 @@ async def code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['code'] = text
     
     # درخواست توضیحات
-    max_desc_length = int(db.get_ua_setting('max_description_length') or 200)
+    max_desc_length = int(await db.get_ua_setting('max_description_length') or 200)
     
     await update.message.reply_text(
         t('ua.prompt.description', lang, max=max_desc_length),
@@ -561,18 +583,18 @@ async def code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_DESCRIPTION
 
 
-async def description_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def description_entered(update: Update, context: CustomContext):
     """دریافت توضیحات"""
     text = update.message.text.strip()
     user_id = update.effective_user.id
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     # اگر skip بود
     if text == '/skip':
         context.user_data['description'] = None
     else:
         # Validation
-        max_length = int(db.get_ua_setting('max_description_length') or 200)
+        max_length = int(await db.get_ua_setting('max_description_length') or 200)
         valid, reason, violation = validator.validate_text(text, max_length, check_spam=True)
         
         if not valid:
@@ -581,17 +603,17 @@ async def description_entered(update: Update, context: ContextTypes.DEFAULT_TYPE
                 severity = violation['severity']
                 strike_add = 2.0 if severity == 3 else (1.0 if severity == 2 else 0.5)
                 
-                db.update_submission_stats(
+                await db.update_submission_stats(
                     user_id=user_id,
                     add_violation=1,
                     add_strike=strike_add
                 )
                 
-                stats = db.get_user_submission_stats(user_id)
+                stats = await db.get_user_submission_stats(user_id)
                 if stats['strike_count'] >= 3.0:
-                    db.ban_user_from_submissions(user_id, "تخلفات مکرر")
+                    await db.ban_user_from_submissions(user_id, "تخلفات مکرر")
                     await update.message.reply_text(
-                        "❌ شما از ارسال اتچمنت محروم شدید.",
+                        t('ua.banned_simple', lang),
                         parse_mode='Markdown'
                     )
                     return ConversationHandler.END
@@ -603,7 +625,8 @@ async def description_entered(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return UA_DESCRIPTION
             
             await update.message.reply_text(
-                f"❌ {reason}\n\n" + t('ua.try_again_or_skip', lang)
+                f"{reason}\n" + t('ua.try_again_or_skip', lang),
+                parse_mode='Markdown'
             )
             return UA_DESCRIPTION
         
@@ -614,28 +637,34 @@ async def description_entered(update: Update, context: ContextTypes.DEFAULT_TYPE
     return UA_CONFIRM
 
 
-async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_confirmation(update: Update, context: CustomContext):
     """نمایش صفحه تایید نهایی"""
     data = context.user_data
     
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     mode_name = t(f"mode.{data['mode']}_btn", lang)
-    category_name = t(f"category.{data['category']}", lang)
+    category_name = t(f"category.{data['category']}", 'en')
     weapon_name = data.get('weapon_name') or t('common.unknown', lang)
     attachment_name = data['attachment_name']
     code = data.get('code') or t('common.none', lang)
     description = data.get('description') or t('common.no_description', lang)
+    
+    # Escape متن‌های وارد شده توسط کاربر برای جلوگیری از خطای Markdown
+    def _esc(text: str) -> str:
+        for ch in ['_', '*', '`', '[']:
+            text = text.replace(ch, f'\\{ch}')
+        return text
     
     message = (
         f"{t('ua.confirm.title', lang)}\n\n"
         f"{t('ua.confirm.details_header', lang)}\n\n"
         f"🎮 {t('mode.label', lang)}: {mode_name}\n"
         f"📂 {t('category.label', lang)}: {category_name}\n"
-        f"🔫 {t('weapon.label', lang)}: {weapon_name}\n"
-        f"📝 {t('attachment.name', lang)}: {attachment_name}\n"
+        f"🔫 {t('weapon.label', lang)}: {_esc(weapon_name)}\n"
+        f"📝 {t('attachment.name', lang)}: {_esc(attachment_name)}\n"
         f"🖼 {t('image.label', lang)}: ✓\n"
-        f"📝 {t('attachment.code', lang)}: {code}\n"
-        f"💬 {t('description.label', lang)}: {description}\n\n"
+        f"📝 {t('attachment.code', lang)}: {_esc(code)}\n"
+        f"💬 {t('description.label', lang)}: {_esc(description)}\n\n"
         f"{t('ua.pending_after_submit', lang)}"
     )
     
@@ -645,22 +674,41 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     # ارسال تصویر با caption
-    await update.message.reply_photo(
-        photo=data['image_file_id'],
-        caption=message,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await update.message.reply_photo(
+            photo=data['image_file_id'],
+            caption=message,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception:
+        # fallback: بدون parse_mode برای جلوگیری از crash
+        plain_message = (
+            f"{t('ua.confirm.title', lang)}\n\n"
+            f"{t('ua.confirm.details_header', lang)}\n\n"
+            f"Mode: {mode_name}\n"
+            f"Category: {category_name}\n"
+            f"Weapon: {weapon_name}\n"
+            f"Name: {attachment_name}\n"
+            f"Code: {code}\n"
+            f"Description: {description}\n\n"
+            f"{t('ua.pending_after_submit', lang)}"
+        )
+        await update.message.reply_photo(
+            photo=data['image_file_id'],
+            caption=plain_message,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 
-async def final_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def final_confirm(update: Update, context: CustomContext):
     """تایید نهایی و ثبت"""
     query = update.callback_query
     await query.answer()
     
     data = context.user_data
     user_id = data['submission_user_id']
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     
     try:
         # ترکیب کد و توضیحات برای ذخیره در description
@@ -677,7 +725,7 @@ async def final_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             combined_desc = None
         
         # ثبت در دیتابیس
-        attachment_id = db.add_user_attachment(
+        attachment_id = await db.add_user_attachment(
             user_id=user_id,
             weapon_id=data.get('weapon_id'),
             mode=data['mode'],
@@ -690,7 +738,7 @@ async def final_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if attachment_id:
             # به‌روزرسانی آمار
-            db.update_submission_stats(
+            await db.update_submission_stats(
                 user_id=user_id,
                 increment_total=True,
                 increment_daily=True
@@ -710,6 +758,17 @@ async def final_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([[ 
                     InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_menu")
                 ]])
+            )
+            
+            # Emit Event for notification/analytics
+            await event_bus.emit(
+                EventTypes.ATTACHMENT_SUBMITTED,
+                context=context,
+                user_id=user_id,
+                attachment_id=attachment_id,
+                weapon=data.get('weapon_name'),
+                mode=data['mode'],
+                category=data['category']
             )
             
             logger.info(f"User attachment submitted: ID={attachment_id}, user={user_id}")
@@ -734,31 +793,31 @@ async def final_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]])
         )
     
-    # پاک کردن داده‌های موقت
-    context.user_data.clear()
+    # پاک کردن داده‌های موقت به‌صورت ایمن
+    _clear_submission_data(context)
     return ConversationHandler.END
 
 
-async def back_to_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def back_to_mode(update: Update, context: CustomContext):
     """بازگشت به انتخاب مود"""
     query = update.callback_query
     await query.answer()
     
-    # نگه داشتن user_id
+    # بازنشانی داده‌های سابمیشن و نگه داشتن شناسایی کاربر
     user_id = context.user_data.get('submission_user_id')
-    context.user_data.clear()
+    _clear_submission_data(context)
     context.user_data['submission_user_id'] = user_id
     
     # نمایش انتخاب مود
     # دریافت مودهای فعال
-    enabled_modes_str = db.get_ua_setting('enabled_modes') or '["mp","br"]'
+    enabled_modes_str = await db.get_ua_setting('enabled_modes') or '["mp","br"]'
     enabled_modes = json.loads(enabled_modes_str)
     
     keyboard = []
     mode_buttons = []
     
     # ترتیب: BR راست، MP چپ
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     if 'br' in enabled_modes:
         mode_buttons.append(InlineKeyboardButton(t('mode.br_btn', lang), callback_data="ua_mode_br"))
     if 'mp' in enabled_modes:
@@ -795,7 +854,7 @@ async def back_to_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_MODE
 
 
-async def back_to_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def back_to_category(update: Update, context: CustomContext):
     """بازگشت به انتخاب دسته"""
     query = update.callback_query
     await query.answer()
@@ -804,12 +863,16 @@ async def back_to_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not mode:
         return await back_to_mode(update, context)
     
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     mode_name = t(f"mode.{mode}_btn", lang)
     
     # فیلتر کردن دسته‌های فعال برای mode انتخاب شده
     from config.config import is_category_enabled
-    active_categories = {k: v for k, v in WEAPON_CATEGORIES.items() if is_category_enabled(k, mode)}
+    active_categories = {}
+    db_instance = context.bot_data.get('db')
+    for k, v in WEAPON_CATEGORIES.items():
+        if await is_category_enabled(k, mode, db_instance):
+            active_categories[k] = v
     
     if not active_categories:
         await safe_edit_message_text(
@@ -823,12 +886,12 @@ async def back_to_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     # نمایش دسته‌بندی‌ها
-    keyboard = build_category_keyboard(
-        active_categories,
+    keyboard = await build_category_keyboard(
         callback_prefix="ua_cat_",
         show_count=False,
         db=None,
-        lang=lang
+        lang=lang,
+        active_ids=list(WEAPON_CATEGORIES.keys())
     )
     keyboard.append([InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_back_to_mode")])
     keyboard.append([InlineKeyboardButton(t('menu.buttons.cancel', lang), callback_data="ua_cancel")])
@@ -843,13 +906,13 @@ async def back_to_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return UA_CATEGORY
 
 
-async def cancel_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancel_submission(update: Update, context: CustomContext):
     """لغو فرآیند"""
     query = update.callback_query
-    lang = get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or 'fa'
     await query.answer(t('ua.cancelled', lang))
     
-    context.user_data.clear()
+    _clear_submission_data(context)
     
     await safe_edit_message_text(
         query,
@@ -902,6 +965,6 @@ user_attachment_conv_handler = ConversationHandler(
     ],
     name="user_attachment_submission",
     persistent=False,
-    per_message=False,
+    per_message=True,
     allow_reentry=True
 )

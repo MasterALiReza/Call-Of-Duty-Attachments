@@ -1,3 +1,4 @@
+from core.context import CustomContext
 """
 ماژول مدیریت اعلان‌ها (Notifications)
 مسئول: ارسال پیام به کاربران و مدیریت تنظیمات اعلان
@@ -10,14 +11,15 @@ import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import Forbidden, BadRequest
-from config.config import NOTIFICATION_SETTINGS
+from config.config import get_notification_settings, set_notification_settings
 from handlers.admin.modules.base_handler import BaseAdminHandler
-from handlers.admin.admin_states import NOTIF_COMPOSE, NOTIF_CONFIRM, ADMIN_MENU
+from handlers.admin.admin_states import NOTIFY_COMPOSE, NOTIFY_CONFIRM, ADMIN_MENU
 from utils.subscribers_pg import SubscribersPostgres as Subscribers
 from utils.logger import log_admin_action, get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+from core.models.admin_models import AdminNotificationRequest
 
 logger = get_logger('notification', 'admin.log')
 
@@ -26,29 +28,29 @@ class NotificationHandler(BaseAdminHandler):
     """Handler برای مدیریت اعلان‌ها و پیام‌های عمومی"""
     
     @log_admin_action("notify_start")
-    async def notify_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_start(self, update: Update, context: CustomContext):
         """ورود به بخش اعلان‌ها: منوی اصلی اعلان با دو گزینه"""
         query = update.callback_query
         await query.answer()
         
         # بررسی دسترسی
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         
         # نمایش منوی اصلی اعلان
         return await self.notify_home_menu(update, context)
 
     @log_admin_action("notify_home")
-    async def notify_home_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_home_menu(self, update: Update, context: CustomContext):
         """منوی اصلی اعلان‌ها: ارسال اعلان | پیام‌های زمان‌بندی‌شده | بازگشت"""
         query = update.callback_query
         await query.answer()
 
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
 
-        if Permission.SEND_NOTIFICATIONS not in user_permissions and not self.role_manager.is_super_admin(query.from_user.id):
+        if Permission.SEND_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
             await query.answer(t("admin.notify.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -57,7 +59,7 @@ class NotificationHandler(BaseAdminHandler):
         text = t("admin.notify.home.text", lang)
 
         keyboard = [[InlineKeyboardButton(t("admin.notify.buttons.compose", lang), callback_data="notify_compose")]]
-        if (Permission.MANAGE_SCHEDULED_NOTIFICATIONS in user_permissions) or self.role_manager.is_super_admin(query.from_user.id):
+        if (Permission.MANAGE_SCHEDULED_NOTIFICATIONS in user_permissions) or await self.role_manager.is_super_admin(query.from_user.id):
             keyboard.append([InlineKeyboardButton(t("admin.notify.buttons.scheduled", lang), callback_data="admin_sched_notifications")])
         keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_menu_return")])
 
@@ -67,15 +69,15 @@ class NotificationHandler(BaseAdminHandler):
         return ADMIN_MENU
 
     @log_admin_action("schedule_edit_open")
-    async def schedule_edit_open(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_edit_open(self, update: Update, context: CustomContext):
         """نمایش جزئیات یک زمان‌بندی و گزینه ویرایش متن"""
         query = update.callback_query
         await query.answer()
 
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not self.role_manager.is_super_admin(query.from_user.id):
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
             await query.answer(t("common.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -85,7 +87,7 @@ class NotificationHandler(BaseAdminHandler):
         except Exception:
             return await self.schedules_menu(update, context)
 
-        row = self.db.get_scheduled_notification_by_id(sid)
+        row = await self.db.get_scheduled_notification_by_id(sid)
         if not row:
             await query.answer(t("common.not_found", lang), show_alert=True)
             return await self.schedules_menu(update, context)
@@ -132,15 +134,15 @@ class NotificationHandler(BaseAdminHandler):
         return ADMIN_MENU
 
     @log_admin_action("schedule_edit_text_start")
-    async def schedule_edit_text_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_edit_text_start(self, update: Update, context: CustomContext):
         """شروع ویرایش متن/کپشن زمان‌بندی"""
         query = update.callback_query
         await query.answer()
 
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not self.role_manager.is_super_admin(query.from_user.id):
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
             await query.answer(t("common.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -155,17 +157,17 @@ class NotificationHandler(BaseAdminHandler):
         kb = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_sched_notifications")]]
         await safe_edit_message_text(query, msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
 
-        from handlers.admin.admin_states import SCHED_EDIT_TEXT
-        return SCHED_EDIT_TEXT
+        from handlers.admin.admin_states import EDIT_SCHEDULE_TEXT
+        return EDIT_SCHEDULE_TEXT
 
     @log_admin_action("schedule_edit_text_received")
-    async def schedule_edit_text_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_edit_text_received(self, update: Update, context: CustomContext):
         """دریافت متن جدید و ذخیره در زمان‌بندی"""
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if not update.message or not update.message.text:
             await update.message.reply_text(t("admin.notify.schedule.edit_text.only_text", lang))
-            from handlers.admin.admin_states import SCHED_EDIT_TEXT
-            return SCHED_EDIT_TEXT
+            from handlers.admin.admin_states import EDIT_SCHEDULE_TEXT
+            return EDIT_SCHEDULE_TEXT
 
         sid = context.user_data.get('sched_edit_id')
         if not sid:
@@ -174,7 +176,7 @@ class NotificationHandler(BaseAdminHandler):
             return ADMIN_MENU
 
         new_text = update.message.text
-        ok = self.db.update_scheduled_notification(
+        ok = await self.db.update_scheduled_notification(
             schedule_id=int(sid),
             message_type='text',
             message_text=new_text,
@@ -194,22 +196,22 @@ class NotificationHandler(BaseAdminHandler):
         return ADMIN_MENU
 
     @log_admin_action("notify_compose_start")
-    async def notify_compose_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_compose_start(self, update: Update, context: CustomContext):
         """شروع فرآیند نوشتن اعلان (نمایش راهنما و ورود به حالت نوشتن)"""
         query = update.callback_query
         await query.answer()
 
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if Permission.SEND_NOTIFICATIONS not in user_permissions and not self.role_manager.is_super_admin(query.from_user.id):
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if Permission.SEND_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
             await query.answer(t("admin.notify.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
 
         # تعداد مخاطبین
-        subs = Subscribers()
-        count = subs.count()
+        subs = Subscribers(db_adapter=self.db)
+        count = await subs.count()
 
         if count == 0:
             await safe_edit_message_text(
@@ -231,25 +233,25 @@ class NotificationHandler(BaseAdminHandler):
             parse_mode='Markdown'
         )
 
-        from handlers.admin.admin_states import NOTIF_COMPOSE
-        return NOTIF_COMPOSE
+        from handlers.admin.admin_states import NOTIFY_COMPOSE
+        return NOTIFY_COMPOSE
     
     @log_admin_action("schedules_menu")
-    async def schedules_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedules_menu(self, update: Update, context: CustomContext):
         """لیست زمان‌بندی‌های اعلان با امکان فعال/غیرفعال و حذف"""
         query = update.callback_query
         await query.answer()
 
         # Permission check
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not self.role_manager.is_super_admin(query.from_user.id):
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
             await query.answer(t("admin.notify.schedule.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
 
-        items = self.db.list_scheduled_notifications() or []
+        items = await self.db.list_scheduled_notifications() or []
 
         def fmt_bool(b):
             return "✅" if b else "❌"
@@ -329,64 +331,65 @@ class NotificationHandler(BaseAdminHandler):
         return ADMIN_MENU
 
     @log_admin_action("schedule_toggle")
-    async def schedule_toggle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_toggle(self, update: Update, context: CustomContext):
         query = update.callback_query
         await query.answer()
 
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not self.role_manager.is_super_admin(query.from_user.id):
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
             await query.answer(t("common.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
 
         sid = int(query.data.replace("sched_toggle_", ""))
-        row = self.db.get_scheduled_notification_by_id(sid)
+        row = await self.db.get_scheduled_notification_by_id(sid)
         if not row:
             await query.answer(t("common.not_found", lang), show_alert=True)
             return await self.schedules_menu(update, context)
-        self.db.set_schedule_enabled(sid, not row['enabled'])
+        await self.db.set_schedule_enabled(sid, not row['enabled'])
         return await self.schedules_menu(update, context)
 
     @log_admin_action("schedule_delete")
-    async def schedule_delete(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def schedule_delete(self, update: Update, context: CustomContext):
         query = update.callback_query
         await query.answer()
 
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not self.role_manager.is_super_admin(query.from_user.id):
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
             await query.answer(t("common.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
 
         sid = int(query.data.replace("sched_delete_", ""))
-        self.db.delete_scheduled_notification(sid)
+        await self.db.delete_scheduled_notification(sid)
         await query.answer(t("common.deleted", lang))
         return await self.schedules_menu(update, context)
         
     
     @log_admin_action("notify_compose_received")
-    async def notify_compose_received(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_compose_received(self, update: Update, context: CustomContext):
         """دریافت متن یا عکس اعلان و نمایش پیش‌نمایش"""
         # اگر در حالت ویرایش قالب هستیم
         if context.user_data.get('tmpl_key'):
-            lang = get_user_lang(update, context, self.db) or 'fa'
+            lang = await get_user_lang(update, context, self.db) or 'fa'
             if not update.message.text:
                 await update.message.reply_text(t("admin.notify.templates.only_text", lang))
-                return NOTIF_COMPOSE
+                return NOTIFY_COMPOSE
             
             key = context.user_data['tmpl_key']
-            NOTIFICATION_SETTINGS['templates'][key] = update.message.text
-            self._persist_notification_settings()
+            settings = await get_notification_settings(self.db)
+            settings['templates'][key] = update.message.text
+            await set_notification_settings(settings, self.db)
             context.user_data.pop('tmpl_key', None)
             await update.message.reply_text(t("admin.notify.templates.saved", lang))
             return await self.notify_home_menu(update, context)
         
-        subs = Subscribers()
-        count = subs.count()
+        subs = Subscribers(db_adapter=self.db)
+        count = await subs.count()
         
         # پاکسازی داده‌های قبلی
         context.user_data['notif_type'] = None
@@ -394,15 +397,23 @@ class NotificationHandler(BaseAdminHandler):
         context.user_data['notif_photo'] = None
         
         # بررسی نوع پیام
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if update.message.photo:
+            photo = update.message.photo[-1]
+            from utils.validators_enhanced import AttachmentValidator
+            result = AttachmentValidator.validate_image(file_size=getattr(photo, 'file_size', 0))
+            if not result.is_valid:
+                error_msg = t(result.error_key, lang, **(result.error_details or {}))
+                await update.message.reply_text(error_msg)
+                return NOTIFY_SCHEDULE_TIME
+                
             context.user_data['notif_type'] = 'photo'
-            context.user_data['notif_photo'] = update.message.photo[-1].file_id
+            context.user_data['notif_photo'] = photo.file_id
             context.user_data['notif_text'] = update.message.caption or ''
             
             preview_caption = (context.user_data['notif_text'] or '') + "\n\n" + t("admin.notify.preview.footer", lang, count=count)
             keyboard = [
-                [InlineKeyboardButton(t("admin.notify.buttons.confirm_send", lang), callback_data="notify_confirm")],
+                [InlineKeyboardButton(t("admin.notify.buttons.confirm_send", lang), callback_data="nconf_send")],
                 [InlineKeyboardButton(t("admin.notify.buttons.schedule_next", lang), callback_data="notify_schedule")],
                 [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="notify_home")]
             ]
@@ -421,7 +432,7 @@ class NotificationHandler(BaseAdminHandler):
                     caption=preview_caption + "\n\n" + t("admin.notify.markdown_error", lang),
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            return NOTIF_CONFIRM
+            return NOTIFY_CONFIRM
         
         elif update.message.text:
             context.user_data['notif_type'] = 'text'
@@ -429,7 +440,7 @@ class NotificationHandler(BaseAdminHandler):
         
             preview_text = update.message.text + "\n\n" + t("admin.notify.preview.footer", lang, count=count)
             keyboard = [
-                [InlineKeyboardButton(t("admin.notify.buttons.confirm_send", lang), callback_data="notify_confirm")],
+                [InlineKeyboardButton(t("admin.notify.buttons.confirm_send", lang), callback_data="nconf_send")],
                 [InlineKeyboardButton(t("admin.notify.buttons.schedule_next", lang), callback_data="notify_schedule")],
                 [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="notify_home")]
             ]
@@ -446,22 +457,22 @@ class NotificationHandler(BaseAdminHandler):
                     preview_text + "\n\n" + t("admin.notify.markdown_error", lang),
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            return NOTIF_CONFIRM
+            return NOTIFY_CONFIRM
         
         await update.message.reply_text(t("admin.notify.compose.only_text_or_photo", lang))
-        return NOTIF_COMPOSE
+        return NOTIFY_COMPOSE
     
     @log_admin_action("notify_confirm")
-    async def notify_confirm_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_confirm_selected(self, update: Update, context: CustomContext):
         """ارسال پیام به همه کاربران ثبت‌شده با گزارش پیشرفت"""
         query = update.callback_query
         await query.answer()
         
-        if query.data != 'notify_confirm':
+        if not query.data.startswith('nconf_') and query.data != 'notify_confirm':
             return await self.notify_home_menu(update, context)
         
-        subs = Subscribers()
-        ids = subs.all()
+        subs = Subscribers(db_adapter=self.db)
+        ids = await subs.all()
         
         # یکتا سازی و حذف مقادیر نامعتبر
         ids = [int(i) for i in set(ids) if isinstance(i, int) or (isinstance(i, str) and i.isdigit())]
@@ -472,18 +483,35 @@ class NotificationHandler(BaseAdminHandler):
         removed = 0
         
         notif_type = context.user_data.get('notif_type')
-        text = context.user_data.get('notif_text') or ''
+        notif_text = context.user_data.get('notif_text')
         photo = context.user_data.get('notif_photo')
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        # ✅ Pydantic Validation before broadcast
+        try:
+            from core.models.admin_models import AdminNotificationRequest
+            AdminNotificationRequest(
+                message_type=notif_type,
+                message_text=notif_text,
+                photo_file_id=photo,
+                target_group="all"
+            )
+        except Exception as e:
+            logger.error(f"Validation failed: {e}")
+            await query.message.reply_text(f"❌ Validation Error: {str(e)}")
+            return await self.notify_home_menu(update, context)
+
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         # پیام وضعیت
-        await query.message.edit_text(t("admin.notify.send.start", lang))
+        await query.message.edit_text(t("admin.notify.send.start", lang, count=total))
         initial_bar = "▱" * 10
         status_msg = await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=t("admin.notify.send.progress", lang, bar=initial_bar + " 0%", percent=0, current=0, total=total, sent=0, failed=0)
         )
         
+        # Import rate limiter
+        from core.security.rate_limiter import rate_limiter
+
         for idx, uid in enumerate(ids, 1):
             try:
                 if notif_type == 'photo' and photo:
@@ -491,45 +519,39 @@ class NotificationHandler(BaseAdminHandler):
                         await context.bot.send_photo(
                             chat_id=uid,
                             photo=photo,
-                            caption=text or None,
+                            caption=notif_text or None,
                             parse_mode='Markdown'
                         )
                     except Exception:
-                        # اگر Markdown خطا داد، بدون parse_mode ارسال کن
                         await context.bot.send_photo(
                             chat_id=uid,
                             photo=photo,
-                            caption=text or None
+                            caption=notif_text or None
                         )
                 else:
                     try:
                         await context.bot.send_message(
                             chat_id=uid,
-                            text=text,
+                            text=notif_text,
                             parse_mode='Markdown'
                         )
                     except Exception:
-                        # اگر Markdown خطا داد، بدون parse_mode ارسال کن
                         await context.bot.send_message(
                             chat_id=uid,
-                            text=text
+                            text=notif_text
                         )
                 sent += 1
             except Forbidden:
-                # کاربر ربات را بلاک کرده؛ از لیست حذف شود
                 if subs.remove(uid):
                     removed += 1
                 failed += 1
             except Exception:
                 failed += 1
             
-            # به‌روزرسانی وضعیت هر 10 ارسال یا در پایان
             if idx % 10 == 0 or idx == total:
                 try:
                     progress = int((idx / total) * 10)
-                    bar = "▰" * progress + "▱" * (10 - progress)
                     percent = int((idx / total) * 100)
-                    
                     bar_str = ("▰" * progress) + ("▱" * (10 - progress))
                     await status_msg.edit_text(
                         t("admin.notify.send.progress", lang, bar=f"{bar_str} {percent}%", percent=percent, current=sent + failed, total=total, sent=sent, failed=failed)
@@ -537,12 +559,24 @@ class NotificationHandler(BaseAdminHandler):
                 except Exception:
                     pass
             
-            # محدودیت نرخ
-            await asyncio.sleep(0.03)
+            await rate_limiter.wait_if_needed('broadcast')
         
-        # نتیجه نهایی
         success_rate = int((sent / total) * 100) if total > 0 else 0
         keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="notify_home")]]
+        await self.audit.log_action(
+            admin_id=update.effective_user.id,
+            action="SEND_BROADCAST",
+            target_id="broadcast",
+            details={
+                "target_type": "system",
+                "type": notif_type,
+                "total": total,
+                "sent": sent,
+                "failed": failed,
+                "text_length": len(notif_text) if notif_text else 0
+            }
+        )
+
         try:
             await status_msg.edit_text(
                 t("admin.notify.send.summary", lang, total=total, sent=sent, success_rate=success_rate, failed=failed, removed=removed, avg=0.03),
@@ -559,7 +593,7 @@ class NotificationHandler(BaseAdminHandler):
         return await self.notify_home_menu(update, context)
     
     @log_admin_action("notify_schedule_menu")
-    async def notify_schedule_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_schedule_menu(self, update: Update, context: CustomContext):
         """نمایش گزینه‌های زمان‌بندی برای پیام آماده شده"""
         query = update.callback_query
         await query.answer()
@@ -567,7 +601,7 @@ class NotificationHandler(BaseAdminHandler):
         # اطمینان از اینکه پیام آماده وجود دارد
         notif_type = context.user_data.get('notif_type')
         notif_text = context.user_data.get('notif_text')
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if not notif_type or (notif_type == 'text' and not notif_text):
             await query.answer(t("admin.notify.compose.only_text_or_photo", lang), show_alert=True)
             return await self.admin_menu_return(update, context)
@@ -594,11 +628,11 @@ class NotificationHandler(BaseAdminHandler):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-        from handlers.admin.admin_states import NOTIF_CONFIRM
-        return NOTIF_CONFIRM
+        from handlers.admin.admin_states import NOTIFY_CONFIRM
+        return NOTIFY_CONFIRM
 
     @log_admin_action("notify_schedule_preset")
-    async def notify_schedule_preset_selected(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_schedule_preset_selected(self, update: Update, context: CustomContext):
         """ایجاد رکورد زمان‌بندی با یکی از پریست‌ها"""
         query = update.callback_query
         await query.answer()
@@ -624,7 +658,7 @@ class NotificationHandler(BaseAdminHandler):
         next_run_at = now_utc + timedelta(hours=interval_hours)
 
         try:
-            new_id = self.db.create_scheduled_notification(
+            new_id = await self.db.create_scheduled_notification(
                 message_type='photo' if (notif_type == 'photo' and notif_photo) else 'text',
                 message_text=notif_text if notif_type == 'text' else notif_text,
                 photo_file_id=notif_photo if notif_type == 'photo' else None,
@@ -654,24 +688,25 @@ class NotificationHandler(BaseAdminHandler):
             return ADMIN_MENU
     
     @log_admin_action("notify_settings_menu")
-    async def notify_settings_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_settings_menu(self, update: Update, context: CustomContext):
         """منوی تنظیمات اعلان‌ها"""
         query = update.callback_query
         await query.answer()
         
         # بررسی دسترسی
         from core.security.role_manager import Permission
-        user_permissions = self.role_manager.get_user_permissions(query.from_user.id)
+        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.MANAGE_NOTIFICATION_SETTINGS not in user_permissions:
             await query.answer(t("admin.notify.schedule.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
         
         # دریافت تنظیمات فعلی
-        enabled = NOTIFICATION_SETTINGS.get('enabled', True)
-        auto_notify = NOTIFICATION_SETTINGS.get('auto_notify', True)
+        settings = await get_notification_settings(self.db)
+        enabled = settings.get('enabled', True)
+        auto_notify = settings.get('auto_notify', True)
         
         text = (
             t("admin.notify.settings.title", lang) + "\n\n" +
@@ -704,69 +739,78 @@ class NotificationHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("notify_toggle")
-    async def notify_toggle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_toggle(self, update: Update, context: CustomContext):
         """فعال/غیرفعال کردن سیستم اعلان"""
         query = update.callback_query
         await query.answer()
         
-        NOTIFICATION_SETTINGS['enabled'] = not NOTIFICATION_SETTINGS.get('enabled', True)
-        self._persist_notification_settings()
+        settings = await get_notification_settings(self.db)
+        settings['enabled'] = not settings.get('enabled', True)
+        await set_notification_settings(settings, self.db)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        status_msg = t("admin.notify.settings.toggled.enabled", lang) if NOTIFICATION_SETTINGS['enabled'] else t("admin.notify.settings.toggled.disabled", lang)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        status_msg = t("admin.notify.settings.toggled.enabled", lang) if settings['enabled'] else t("admin.notify.settings.toggled.disabled", lang)
         await query.answer(status_msg, show_alert=True)
         
         return await self.notify_settings_menu(update, context)
     
     @log_admin_action("notify_auto_toggle")
-    async def notify_auto_toggle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notify_auto_toggle(self, update: Update, context: CustomContext):
         """فعال/غیرفعال کردن اعلان خودکار"""
         query = update.callback_query
         await query.answer()
         
-        NOTIFICATION_SETTINGS['auto_notify'] = not NOTIFICATION_SETTINGS.get('auto_notify', True)
-        self._persist_notification_settings()
+        settings = await get_notification_settings(self.db)
+        settings['auto_notify'] = not settings.get('auto_notify', True)
+        await set_notification_settings(settings, self.db)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        status_msg = t("admin.notify.settings.auto.toggled.enabled", lang) if NOTIFICATION_SETTINGS['auto_notify'] else t("admin.notify.settings.auto.toggled.disabled", lang)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        status_msg = t("admin.notify.settings.auto.toggled.enabled", lang) if settings['auto_notify'] else t("admin.notify.settings.auto.toggled.disabled", lang)
         await query.answer(status_msg, show_alert=True)
         
         return await self.notify_settings_menu(update, context)
     
     @log_admin_action("notif_toggle_global")
-    async def notif_toggle_global(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notif_toggle_global(self, update: Update, context: CustomContext):
         """فعال/غیرفعال کردن کل سیستم اعلان‌ها"""
         query = update.callback_query
         await query.answer()
         
-        NOTIFICATION_SETTINGS['enabled'] = not NOTIFICATION_SETTINGS.get('enabled', True)
-        self._persist_notification_settings()
+        settings = await get_notification_settings(self.db)
+        settings['enabled'] = not settings.get('enabled', True)
+        await set_notification_settings(settings, self.db)
         
         return await self.notify_settings_menu(update, context)
     
     @log_admin_action("notif_toggle_event")
-    async def notif_toggle_event(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notif_toggle_event(self, update: Update, context: CustomContext):
         """فعال/غیرفعال کردن اعلان برای یک رویداد خاص"""
         query = update.callback_query
         await query.answer()
         
-        ev = query.data.replace("notifset_toggle_event_", "")
-        cur = NOTIFICATION_SETTINGS.get('events', {}).get(ev, False)
-        NOTIFICATION_SETTINGS['events'][ev] = not cur
+        ev = query.data.replace("notif_event_", "")
+        settings = await get_notification_settings(self.db)
         
-        self._persist_notification_settings()
-        return await self.notify_settings_menu(update, context)
+        if 'events' not in settings:
+            settings['events'] = {}
+            
+        cur = settings.get('events', {}).get(ev, False)
+        settings['events'][ev] = not cur
+        
+        await set_notification_settings(settings, self.db)
+        return await self.template_list_menu(update, context)
     
     @log_admin_action("template_list_menu")
-    async def template_list_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def template_list_menu(self, update: Update, context: CustomContext):
         """منوی انتخاب رویدادها برای ارسال اعلان"""
         query = update.callback_query
         await query.answer()
         
         # دریافت تنظیمات فعلی
-        events = NOTIFICATION_SETTINGS.get('events', {})
+        settings = await get_notification_settings(self.db)
+        events = settings.get('events', {})
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         text = t("notification.events.title", lang) + "\n\n" + t("notification.events.desc", lang) + "\n\n"
         
         # نام رویدادها از locale
@@ -783,24 +827,21 @@ class NotificationHandler(BaseAdminHandler):
         
         keyboard = []
         
-        # دکمه‌های رویدادها - 2 ستونی
-        row = []
+        # دکمه‌های رویدادها - نمایش وضعیت و دکمه ویرایش
         for event_key, event_name in event_names.items():
             is_enabled = events.get(event_key, False)
             status = "✅" if is_enabled else "❌"
-            btn = InlineKeyboardButton(
-                f"{status} {event_name}",
-                callback_data=f"notif_event_{event_key}"
-            )
-            row.append(btn)
             
-            if len(row) == 1:  # یک ستونی برای خوانایی بهتر
-                keyboard.append(row)
-                row = []
-        
-        # اگر ردیف ناقص بود، اضافه کن
-        if row:
-            keyboard.append(row)
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{status} {event_name}",
+                    callback_data=f"notif_event_{event_key}"
+                ),
+                InlineKeyboardButton(
+                    "✏️",
+                    callback_data=f"tmpl_edit_{event_key}"
+                )
+            ])
         
         # دکمه بازگشت
         keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_notify_settings")])
@@ -816,7 +857,7 @@ class NotificationHandler(BaseAdminHandler):
         return ADMIN_MENU
     
     @log_admin_action("notif_event_toggle")
-    async def notif_event_toggle(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def notif_event_toggle(self, update: Update, context: CustomContext):
         """فعال/غیرفعال کردن یک رویداد خاص"""
         query = update.callback_query
         await query.answer()
@@ -824,32 +865,34 @@ class NotificationHandler(BaseAdminHandler):
         event = query.data.replace("notif_event_", "")
         
         # Toggle event
-        if 'events' not in NOTIFICATION_SETTINGS:
-            NOTIFICATION_SETTINGS['events'] = {}
+        settings = await get_notification_settings(self.db)
+        if 'events' not in settings:
+            settings['events'] = {}
         
-        current = NOTIFICATION_SETTINGS['events'].get(event, False)
-        NOTIFICATION_SETTINGS['events'][event] = not current
+        current = settings['events'].get(event, False)
+        settings['events'][event] = not current
         
         # ذخیره تنظیمات
-        self._persist_notification_settings()
+        await set_notification_settings(settings, self.db)
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
-        status = t("common.status.enabled", lang) if NOTIFICATION_SETTINGS['events'][event] else t("common.status.disabled", lang)
-        await query.answer(t("admin.notify.events.toggled", lang, status=status), show_alert=False)
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+        status_text = t("common.status.enabled", lang) if settings['events'][event] else t("common.status.disabled", lang)
+        await query.answer(t("admin.notify.events.toggled", lang, status=status_text), show_alert=False)
         
         # بازگشت به منوی رویدادها
         return await self.template_list_menu(update, context)
     
-    async def template_edit_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def template_edit_start(self, update: Update, context: CustomContext):
         """شروع ویرایش قالب پیام"""
         query = update.callback_query
         await query.answer()
         
-        lang = get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or 'fa'
         key = query.data.replace("tmpl_edit_", "")
         context.user_data['tmpl_key'] = key
         
-        cur = NOTIFICATION_SETTINGS.get('templates', {}).get(key, '')
+        settings = await get_notification_settings(self.db)
+        cur = settings.get('templates', {}).get(key, '')
         placeholders = "{category} {category_name} {weapon} {code} {name} {old_name} {new_name} {old_code} {new_code}"
         text = (
             t("admin.notify.templates.edit.title", lang, key=key) + "\n\n" +
@@ -864,53 +907,8 @@ class NotificationHandler(BaseAdminHandler):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
-        return NOTIF_COMPOSE
+        return NOTIFY_COMPOSE
     
     def _persist_notification_settings(self) -> bool:
-        """ذخیره NOTIFICATION_SETTINGS در config.py"""
-        try:
-            import os
-            config_path = os.path.join('config', 'config.py')
-            
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # استفاده از json برای حفظ کاراکترهای فارسی
-            rendered = json.dumps(NOTIFICATION_SETTINGS, ensure_ascii=False, indent=4)
-            # تبدیل JSON syntax به Python syntax
-            rendered = rendered.replace('true', 'True').replace('false', 'False').replace('null', 'None')
-            
-            # پیدا کردن NOTIFICATION_SETTINGS با balanced braces
-            start_match = re.search(r'NOTIFICATION_SETTINGS\s*=\s*\{', content)
-            if not start_match:
-                logger.error("Could not find NOTIFICATION_SETTINGS in config.py")
-                return False
-            
-            start_idx = start_match.start()
-            brace_count = 0
-            end_idx = start_match.end() - 1  # شروع از {
-            
-            # پیدا کردن } متناظر
-            for i in range(start_match.end() - 1, len(content)):
-                if content[i] == '{':
-                    brace_count += 1
-                elif content[i] == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        end_idx = i + 1
-                        break
-            
-            # جایگزینی
-            content_new = content[:start_idx] + f"NOTIFICATION_SETTINGS = {rendered}" + content[end_idx:]
-            
-            if content_new != content:
-                with open(config_path, 'w', encoding='utf-8') as f:
-                    f.write(content_new)
-                logger.info("Notification settings persisted to config.py")
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"خطا در ذخیره تنظیمات اعلان‌ها: {e}")
-            return False
+        """منقضی شده - دیگر نیازی به این متد نیست زیرا تنظیمات در دیتابیس ذخیره می‌شوند"""
+        return True
