@@ -21,8 +21,8 @@ Advanced Telegram Bot for managing and sharing Call of Duty: Mobile loadouts. Bu
 To install on a Linux server (Ubuntu/Debian recommended):
 
 ```bash
-git clone https://github.com/MasterALiReza/CoDM-Attach.git
-cd CoDM-Attach
+git clone https://github.com/MasterALiReza/Call-Of-Duty-Attachments.git
+cd Call-Of-Duty-Attachments
 sudo bash deploy.sh
 ```
 
