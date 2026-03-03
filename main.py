@@ -407,7 +407,15 @@ class CODMAttachmentsBot:
         logger.info(f"🤖 Bot mode: {BOT_MODE.upper()}")
         
         if BOT_MODE == "webhook":
-            self._run_webhook()
+            try:
+                self._run_webhook()
+            except Exception as e:
+                logger.error(f"🔄 Webhook failed, falling back to POLLING: {e}")
+                # Reset application state to allow running again
+                if self.application.running:
+                    loop = asyncio.get_event_loop()
+                    loop.run_until_complete(self.application.stop())
+                self._run_polling()
         else:
             self._run_polling()
 
@@ -439,9 +447,7 @@ class CODMAttachmentsBot:
 
         if not webhook_url:
             logger.error("❌ WEBHOOK_URL is required for webhook mode!")
-            logger.info("⬅️  Falling back to polling mode...")
-            self._run_polling()
-            return
+            raise ValueError("WEBHOOK_URL is required for webhook mode")
 
         # اطمینان از شروع webhook_path با /
         if not webhook_path.startswith("/"):
