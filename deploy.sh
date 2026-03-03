@@ -365,24 +365,26 @@ setup_bot_config() {
     if [ "$mode_choice" == "2" ]; then
         BOT_MODE="webhook"
         while true; do
-            echo -e -n "${YELLOW}Webhook URL (e.g. https://domain.com): ${NC}"
-            read WEBHOOK_URL
+            echo -e -n "${YELLOW}Webhook Domain (e.g. bot.example.com): ${NC}"
+            read -r WEBHOOK_INPUT
             
-            if [ -z "$WEBHOOK_URL" ]; then
-                print_error "URL cannot be empty"
-            elif [[ "$WEBHOOK_URL" =~ ^http:// ]]; then
-                print_error "Webhook URL MUST use HTTPS (e.g. https://domain.com)"
-            elif [[ ! "$WEBHOOK_URL" =~ ^https://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,} ]]; then
-                print_error "Invalid domain format. Correct example: https://bot.vipvirtualnet.eu"
+            if [ -z "$WEBHOOK_INPUT" ]; then
+                print_error "Domain cannot be empty"
             else
-                # Remove trailing slash if present
-                WEBHOOK_URL="${WEBHOOK_URL%/}"
-                break
+                # Strip http:// or https:// if provided
+                CLEAN_DOMAIN=$(echo "$WEBHOOK_INPUT" | sed -e 's|^https\?://||' -e 's|/$||')
+                
+                if [[ ! "$CLEAN_DOMAIN" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,} ]]; then
+                    print_error "Invalid domain format. Example: bot.vipvirtualnet.eu"
+                else
+                    WEBHOOK_URL="https://$CLEAN_DOMAIN"
+                    break
+                fi
             fi
         done
         
         echo -e -n "${YELLOW}Webhook Port [8443]: ${NC}"
-        read WEBHOOK_PORT
+        read -r WEBHOOK_PORT
         WEBHOOK_PORT=${WEBHOOK_PORT:-8443}
     else
         BOT_MODE="polling"
