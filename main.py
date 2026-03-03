@@ -116,7 +116,7 @@ class CODMAttachmentsBot:
         تمام handler registrations به app/registry/ منتقل شده‌اند
         منطق دقیقاً یکسان است - فقط ساختار بهتر شده
         
-        قبل: 730+ خط handler registration در این تابع
+        قبل: 730+ خط handler registration in این تابع
         بعد: 5 خط - استفاده از Factory و Registries
         """
         from app.factory import BotApplicationFactory
@@ -412,10 +412,14 @@ class CODMAttachmentsBot:
                 self._run_webhook()
             except Exception as e:
                 logger.error(f"🔄 Webhook failed, falling back to POLLING: {e}")
-                # Reset application state to allow running again
-                if self.application.running:
-                    loop = asyncio.get_event_loop()
-                    loop.run_until_complete(self.application.stop())
+                # Reset application state to allow running again safely
+                if self.application and self.application.running:
+                    try:
+                        # Use a new temporary loop to stop the app if the main one is flaky
+                        loop = asyncio.get_event_loop()
+                        loop.run_until_complete(self.application.stop())
+                    except Exception:
+                        pass
                 self._run_polling()
         else:
             self._run_polling()
@@ -485,9 +489,15 @@ class CODMAttachmentsBot:
             logger.info("   SSL Note: If you don't provide cert/key, you MUST terminate HTTPS via a reverse proxy (e.g., Nginx) in front of this port.")
             logger.info("             Telegram does not deliver webhooks over plain HTTP.")
 
+        # Check for privileged port binding issues on Linux
+        if sys.platform != 'win32' and webhook_port < 1024 and os.getuid() != 0:
+            logger.critical(f"❌ CRITICAL: Attempting to bind to privileged port {webhook_port} without root privileges.")
+            logger.critical("   On Linux, only root can bind to ports below 1024. Use a port like 8443 or run behind Nginx.")
+            raise PermissionError(f"Permission denied for port {webhook_port} (non-root user)")
+
         try:
             webhook_kwargs = {
-                "listen": "0.0.0.0",
+                "listen": "0.0.0.0", # Explicitly bind to IPv4 to avoid dual-stack permission issues
                 "port": webhook_port,
                 "url_path": webhook_path.lstrip("/"),
                 "webhook_url": full_webhook_url,
@@ -508,8 +518,7 @@ class CODMAttachmentsBot:
 
         except Exception as e:
             logger.error(f"❌ Webhook failed: {e}")
-            logger.info("⬅️  Falling back to polling mode...")
-            self._run_polling()
+            raise # Re-raise to prevent recursive call and loop closure issues
 
 def main():
     """تابع اصلی"""
