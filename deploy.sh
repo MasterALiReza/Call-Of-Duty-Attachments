@@ -107,9 +107,18 @@ auto_https_setup_if_enabled() {
     print_step "Writing Nginx HTTP challenge site for ${domain}..."
     write_nginx_webroot_challenge_site "$domain" "$challenge_conf"
     enable_nginx_site_if_needed "$challenge_conf"
-    reload_nginx_checked || return 1
+    
+    if ! reload_nginx_checked; then
+        print_warning "Nginx reload failed. Skipping HTTPS setup."
+        print_info "You may need to manually configure Nginx and SSL."
+        return 0
+    fi
 
-    obtain_letsencrypt_cert_webroot "$domain" || return 1
+    if ! obtain_letsencrypt_cert_webroot "$domain"; then
+        print_warning "Certificate obtainment failed. Skipping HTTPS setup."
+        print_info "Check DNS (A record), port 80 reachability, and Cloudflare proxy setting."
+        return 0
+    fi
     setup_certbot_renew_hook
 
     print_step "Writing Nginx HTTPS webhook proxy site for ${domain}..."
@@ -126,7 +135,9 @@ server {
 }
 EOF
 
-    reload_nginx_checked || return 1
+    if ! reload_nginx_checked; then
+        print_warning "Final Nginx reload failed. Manual intervention may be required."
+    fi
     systemctl enable certbot.timer >/dev/null 2>&1 || true
     systemctl start certbot.timer >/dev/null 2>&1 || true
 
@@ -386,12 +397,18 @@ enable_nginx_site_if_needed() {
 }
 
 reload_nginx_checked() {
-    nginx -t >/dev/null 2>&1
-    if [ $? -ne 0 ]; then
+    if ! nginx -t >/dev/null 2>&1; then
         print_error "Nginx config test failed. Aborting to avoid breaking web server."
+        print_warning "Check Nginx config with: nginx -t"
         return 1
     fi
-    systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1
+    if ! systemctl reload nginx >/dev/null 2>&1; then
+        if ! systemctl restart nginx >/dev/null 2>&1; then
+            print_warning "Could not reload/restart Nginx"
+            return 1
+        fi
+    fi
+    return 0
 }
 
 setup_certbot_renew_hook() {
