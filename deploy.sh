@@ -324,6 +324,25 @@ setup_bot_config() {
     
     print_success "Bot token saved"
     
+    # Super Admin ID
+    echo ""
+    echo -e "${WHITE}Super Admin ID:${NC}"
+    echo -e "${CYAN}💡 Get your numerical ID from @userinfobot (e.g. 123456789)${NC}"
+    echo ""
+    
+    while true; do
+        echo -e -n "${YELLOW}Your Telegram ID: ${NC}"
+        read SUPER_ADMIN_ID
+        
+        if [ -z "$SUPER_ADMIN_ID" ]; then
+            print_error "Admin ID cannot be empty"
+        elif [[ ! "$SUPER_ADMIN_ID" =~ ^[0-9]+$ ]]; then
+            print_error "Invalid ID format. Must be numbers only."
+        else
+            break
+        fi
+    done
+    
     print_success "Super Admin set"
 
     # Bot Mode
@@ -336,8 +355,23 @@ setup_bot_config() {
     read mode_choice
     if [ "$mode_choice" == "2" ]; then
         BOT_MODE="webhook"
-        echo -e -n "${YELLOW}Webhook URL (e.g. https://domain.com): ${NC}"
-        read WEBHOOK_URL
+        while true; do
+            echo -e -n "${YELLOW}Webhook URL (e.g. https://domain.com): ${NC}"
+            read WEBHOOK_URL
+            
+            if [ -z "$WEBHOOK_URL" ]; then
+                print_error "URL cannot be empty"
+            elif [[ "$WEBHOOK_URL" =~ ^http:// ]]; then
+                print_error "Webhook URL MUST use HTTPS (e.g. https://domain.com)"
+            elif [[ ! "$WEBHOOK_URL" =~ ^https://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,} ]]; then
+                print_error "Invalid domain format. Correct example: https://bot.vipvirtualnet.eu"
+            else
+                # Remove trailing slash if present
+                WEBHOOK_URL="${WEBHOOK_URL%/}"
+                break
+            fi
+        done
+        
         echo -e -n "${YELLOW}Webhook Port [8443]: ${NC}"
         read WEBHOOK_PORT
         WEBHOOK_PORT=${WEBHOOK_PORT:-8443}
