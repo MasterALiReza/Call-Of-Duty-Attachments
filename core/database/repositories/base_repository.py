@@ -13,7 +13,7 @@ class BaseRepository:
     """
     Base Repository class providing consistent database access.
     """
-    def __init__(self, db: DatabasePostgres):
+    def __init__(self, db: 'DatabasePostgres'):
         self._db = db
 
     async def execute_query(self, query: str, params: tuple = None, fetch_one: bool = False, 
