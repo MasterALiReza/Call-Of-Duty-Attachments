@@ -1,6 +1,6 @@
-"""
+﻿"""
 PostgreSQL Database Wrapper
-این wrapper تمام عملیات DatabaseSQL را با PostgreSQL پیاده\u200cسازی می\u200cکند
+Ø§ÛŒÙ† wrapper ØªÙ…Ø§Ù… Ø¹Ù…Ù„ÛŒØ§Øª DatabaseSQL Ø±Ø§ Ø¨Ø§ PostgreSQL Ù¾ÛŒØ§Ø¯Ù‡\u200cØ³Ø§Ø²ÛŒ Ù…ÛŒ\u200cÚ©Ù†Ø¯
 """
 import os
 import psycopg
@@ -18,7 +18,7 @@ logger = get_logger('database.postgres', 'database.log')
 class DatabasePostgres:
     """
     PostgreSQL Database Handler
-    Compatible با DatabaseSQL interface - تمام متدها را دارد
+    Compatible Ø¨Ø§ DatabaseSQL interface - ØªÙ…Ø§Ù… Ù…ØªØ¯Ù‡Ø§ Ø±Ø§ Ø¯Ø§Ø±Ø¯
     """
 
     def __init__(self, database_url: str=None):
@@ -70,15 +70,15 @@ class DatabasePostgres:
         logger.info(f'PostgreSQL connection pool initialized (ready for open): {pool_size} connections')
         
     async def is_postgres(self) -> bool:
-        """برگرداندن True برای تمام موارد در این کلاس"""
+        """Ø¨Ø±Ú¯Ø±Ø¯Ø§Ù†Ø¯Ù† True Ø¨Ø±Ø§ÛŒ ØªÙ…Ø§Ù… Ù…ÙˆØ§Ø±Ø¯ Ø¯Ø± Ø§ÛŒÙ† Ú©Ù„Ø§Ø³"""
         return True
         
     def is_postgres_sync(self) -> bool:
-        """نسخه سنکرون"""
+        """Ù†Ø³Ø®Ù‡ Ø³Ù†Ú©Ø±ÙˆÙ†"""
         return True
 
     async def initialize(self):
-        """راه‌اندازی نامتقارن (Async) اتصال‌ها با retry logic"""
+        """Ø±Ø§Ù‡â€ŒØ§Ù†Ø¯Ø§Ø²ÛŒ Ù†Ø§Ù…ØªÙ‚Ø§Ø±Ù† (Async) Ø§ØªØµØ§Ù„â€ŒÙ‡Ø§ Ø¨Ø§ retry logic"""
         await self._connect_with_retry()
         
         await self._init_fuzzy_engine()
@@ -114,7 +114,7 @@ class DatabasePostgres:
 
     @asynccontextmanager
     async def get_connection(self):
-        """Context manager برای دریافت connection از pool"""
+        """Context manager Ø¨Ø±Ø§ÛŒ Ø¯Ø±ÛŒØ§ÙØª connection Ø§Ø² pool"""
         async with self._pool.connection() as conn:
             try:
                 yield conn
@@ -130,8 +130,8 @@ class DatabasePostgres:
     @asynccontextmanager
     async def transaction(self):
         """
-        Context manager برای transaction
-        Compatible با DatabaseSQL.transaction()
+        Context manager Ø¨Ø±Ø§ÛŒ transaction
+        Compatible Ø¨Ø§ DatabaseSQL.transaction()
         """
         async with self.get_connection() as conn:
             try:
@@ -150,7 +150,7 @@ class DatabasePostgres:
 
     async def execute_query(self, query: str, params: tuple=None, fetch_one: bool=False, fetch_all: bool=False, as_dict: bool=True) -> Any:
         """
-        اجرای query با تبدیل خودکار placeholders و tracking performance
+        Ø§Ø¬Ø±Ø§ÛŒ query Ø¨Ø§ ØªØ¨Ø¯ÛŒÙ„ Ø®ÙˆØ¯Ú©Ø§Ø± placeholders Ùˆ tracking performance
         """
         async with self.get_connection() as conn:
             async with conn.cursor() as cursor:
@@ -179,7 +179,7 @@ class DatabasePostgres:
                     raise
 
     async def _init_fuzzy_engine(self):
-        """راه\u200cاندازی fuzzy search (compatible با DatabaseSQL)"""
+        """Ø±Ø§Ù‡\u200cØ§Ù†Ø¯Ø§Ø²ÛŒ fuzzy search (compatible Ø¨Ø§ DatabaseSQL)"""
         try:
             from utils.search_fuzzy import FuzzySearchEngine
             self.fuzzy_engine = FuzzySearchEngine(self)
@@ -254,13 +254,8 @@ class DatabasePostgres:
                     "\n                    CREATE TABLE IF NOT EXISTS cms_content (\n                        content_id SERIAL PRIMARY KEY,\n                        content_type TEXT NOT NULL,\n                        title TEXT NOT NULL,\n                        body TEXT NOT NULL,\n                        tags JSONB NOT NULL DEFAULT '[]'::jsonb,\n                        author_id BIGINT,\n                        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','published','archived')),\n                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n                        published_at TIMESTAMPTZ\n                    )\n                    ",
                     "\n                    CREATE TABLE IF NOT EXISTS analytics_users (\n                        user_id BIGINT PRIMARY KEY,\n                        first_seen TIMESTAMP NOT NULL DEFAULT NOW(),\n                        registration_source TEXT,\n                        join_attempts INTEGER NOT NULL DEFAULT 0,\n                        successful_joins INTEGER NOT NULL DEFAULT 0,\n                        completed BOOLEAN NOT NULL DEFAULT FALSE,\n                        channels_joined JSONB\n                    )\n                    ",
                     "\n                    CREATE TABLE IF NOT EXISTS analytics_channels (\n                        channel_id TEXT PRIMARY KEY,\n                        title TEXT,\n                        url TEXT,\n                        added_at TIMESTAMP NOT NULL DEFAULT NOW(),\n                        removed_at TIMESTAMP,\n                        status TEXT NOT NULL DEFAULT 'active',\n                        total_joins INTEGER NOT NULL DEFAULT 0,\n                        total_join_attempts INTEGER NOT NULL DEFAULT 0,\n                        conversion_rate NUMERIC NOT NULL DEFAULT 0,\n                        changes JSONB\n                    )\n                    ",
-                    "\n                    CREATE TABLE IF NOT EXISTS analytics_daily_stats (\n                        date DATE PRIMARY KEY,\n                        new_users INTEGER NOT NULL DEFAULT 0,\n                        successful_joins INTEGER NOT NULL DEFAULT 0,\n                        failed_joins INTEGER NOT NULL DEFAULT 0,\n                        total_attempts INTEGER NOT NULL DEFAULT 0,\n                        conversion_rate NUMERIC NOT NULL DEFAULT 0\n                    )\n                    ""
-                    CREATE TABLE IF NOT EXISTS subscribers (
-                        user_id BIGINT PRIMARY KEY,
-                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                        subscribed_at TIMESTAMP NOT NULL DEFAULT NOW()
-                    )
-                    "
+                    "\n                    CREATE TABLE IF NOT EXISTS analytics_daily_stats (\n                        date DATE PRIMARY KEY,\n                        new_users INTEGER NOT NULL DEFAULT 0,\n                        successful_joins INTEGER NOT NULL DEFAULT 0,\n                        failed_joins INTEGER NOT NULL DEFAULT 0,\n                        total_attempts INTEGER NOT NULL DEFAULT 0,\n                        conversion_rate NUMERIC NOT NULL DEFAULT 0\n                    )\n                    ",
+                    "\n                    CREATE TABLE IF NOT EXISTS subscribers (\n                        user_id BIGINT PRIMARY KEY,\n                        is_active BOOLEAN NOT NULL DEFAULT TRUE,\n                        subscribed_at TIMESTAMP NOT NULL DEFAULT NOW()\n                    )\n                    "
                 ]
                 for sql in tables_sql:
                     try:
@@ -304,7 +299,7 @@ class DatabasePostgres:
     # get_users_for_notification has been moved to UserRepository
 
     async def close(self):
-        """بستن connection pool"""
+        """Ø¨Ø³ØªÙ† connection pool"""
         if hasattr(self, '_pool'):
             try:
                 try:
@@ -353,14 +348,14 @@ class DatabasePostgres:
                         pass
 
     async def get_all_blacklisted_words(self) -> List[Dict]:
-        """دریافت تمام کلمات ممنوعه برای ContentValidator"""
+        """Ø¯Ø±ÛŒØ§ÙØª ØªÙ…Ø§Ù… Ú©Ù„Ù…Ø§Øª Ù…Ù…Ù†ÙˆØ¹Ù‡ Ø¨Ø±Ø§ÛŒ ContentValidator"""
         query = "SELECT word, category, severity FROM blacklisted_words"
         return await self.execute_query(query, fetch_all=True)
 
     # ========== Settings & Scheduler Methods ==========
 
     async def get_setting(self, key: str, default: str = None) -> str:
-        """دریافت تنظیمات"""
+        """Ø¯Ø±ÛŒØ§ÙØª ØªÙ†Ø¸ÛŒÙ…Ø§Øª"""
         try:
             query = "SELECT value FROM settings WHERE key = %s"
             result = await self.execute_query(query, (key,), fetch_one=True)
@@ -370,7 +365,7 @@ class DatabasePostgres:
             return default
 
     async def set_setting(self, key: str, value: str, description: str = None, category: str = 'general') -> bool:
-        """تنظیم/به‌روزرسانی تنظیمات"""
+        """ØªÙ†Ø¸ÛŒÙ…/Ø¨Ù‡â€ŒØ±ÙˆØ²Ø±Ø³Ø§Ù†ÛŒ ØªÙ†Ø¸ÛŒÙ…Ø§Øª"""
         try:
             query = """
                 INSERT INTO settings (key, value, description, category, updated_at)
@@ -388,7 +383,7 @@ class DatabasePostgres:
             return False
 
     async def get_due_scheduled_notifications(self, now_ts) -> List[Dict]:
-        """دریافت اعلان‌های سررسید شده"""
+        """Ø¯Ø±ÛŒØ§ÙØª Ø§Ø¹Ù„Ø§Ù†â€ŒÙ‡Ø§ÛŒ Ø³Ø±Ø±Ø³ÛŒØ¯ Ø´Ø¯Ù‡"""
         try:
             query = """
                 SELECT * FROM scheduled_notifications
@@ -401,7 +396,7 @@ class DatabasePostgres:
             return []
 
     async def mark_schedule_sent(self, schedule_id: int, last_sent_at, next_run_at) -> bool:
-        """به‌روزرسانی زمان ارسال برای یک اعلان زمان‌بندی شده"""
+        """Ø¨Ù‡â€ŒØ±ÙˆØ²Ø±Ø³Ø§Ù†ÛŒ Ø²Ù…Ø§Ù† Ø§Ø±Ø³Ø§Ù„ Ø¨Ø±Ø§ÛŒ ÛŒÚ© Ø§Ø¹Ù„Ø§Ù† Ø²Ù…Ø§Ù†â€ŒØ¨Ù†Ø¯ÛŒ Ø´Ø¯Ù‡"""
         try:
             query = """
                 UPDATE scheduled_notifications
@@ -532,7 +527,7 @@ class DatabasePostgres:
 _instance = None
 
 def get_postgres_instance(database_url: str=None) -> DatabasePostgres:
-    """دریافت instance singleton"""
+    """Ø¯Ø±ÛŒØ§ÙØª instance singleton"""
     global _instance
     if _instance is None:
         _instance = DatabasePostgres(database_url)
