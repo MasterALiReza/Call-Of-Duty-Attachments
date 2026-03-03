@@ -65,6 +65,84 @@ print_banner() {
     echo -e "${NC}"
 }
 
+# ============================================================================
+# Smart Port Detection for SSL
+# ============================================================================
+
+get_port_80_process() {
+    # Returns process name using port 80
+    local proc
+    if command_exists ss; then
+        proc=$(ss -tlnp 2>/dev/null | grep -E ':(80)\s' | head -1 | sed -n 's/.*users:*(\("[^"]*"\).*/\1/p' | head -1)
+        if [ -n "$proc" ]; then
+            # Extract process name
+            echo "$proc" | sed 's/.*"\([^"]*\)".*/\1/' | head -1
+            return 0
+        fi
+    fi
+    if command_exists netstat; then
+        proc=$(netstat -tlnp 2>/dev/null | grep -E ':80\s' | head -1 | awk '{print $7}' | cut -d'/' -f2)
+        if [ -n "$proc" ]; then
+            echo "$proc"
+            return 0
+        fi
+    fi
+    echo "unknown"
+    return 1
+}
+
+is_port_80_free() {
+    if command_exists ss; then
+        ss -tlnp 2>/dev/null | grep -qE ':(80)\s' && return 1
+        return 0
+    fi
+    if command_exists netstat; then
+        netstat -tlnp 2>/dev/null | grep -qE ':80\s' && return 1
+        return 0
+    fi
+    return 0
+}
+
+stop_docker_port_80() {
+    # Find and stop Docker containers using port 80
+    print_step "Attempting to stop Docker containers using port 80..."
+    
+    if ! command_exists docker; then
+        print_warning "Docker not found"
+        return 1
+    fi
+    
+    # Find containers using port 80
+    local containers
+    containers=$(docker ps --format '{{.Names}}' 2>/dev/null | while read name; do
+        if docker port "$name" 2>/dev/null | grep -q '80/tcp'; then
+            echo "$name"
+        fi
+    done)
+    
+    if [ -z "$containers" ]; then
+        print_warning "No Docker containers found using port 80 directly"
+        # Try to find docker-proxy processes
+        local pids
+        pids=$(ss -tlnp 2>/dev/null | grep ':80' | grep 'docker-proxy' | sed -n 's/.*pid=\([0-9]*\).*/\1/p')
+        if [ -n "$pids" ]; then
+            print_info "Found docker-proxy processes on port 80: PIDs $pids"
+            print_info "Stopping all Docker containers temporarily..."
+            docker stop $(docker ps -q) 2>/dev/null || true
+            return 0
+        fi
+        return 1
+    fi
+    
+    print_info "Found containers using port 80: $containers"
+    for c in $containers; do
+        print_step "Stopping container: $c"
+        docker stop "$c" >/dev/null 2>&1 || true
+    done
+    
+    return 0
+}
+
 auto_https_setup_if_enabled() {
     if [ "${BOT_MODE:-}" != "webhook" ]; then
         return 0
@@ -86,6 +164,74 @@ auto_https_setup_if_enabled() {
 
     domain_resolves_to_server "$domain"
     open_firewall_http_https
+
+    # ===== SMART PORT 80 DETECTION =====
+    print_step "Checking port 80 availability..."
+    
+    local port_80_process
+    local docker_was_stopped=false
+    
+    if ! is_port_80_free; then
+        port_80_process=$(get_port_80_process)
+        print_warning "Port 80 is occupied by: ${port_80_process}"
+        echo ""
+        echo -e "${WHITE}Let's Encrypt requires port 80 for HTTP-01 challenge.${NC}"
+        echo -e "${WHITE}Options:${NC}"
+        echo ""
+        echo -e "  ${GREEN}1.${NC} Stop ${port_80_process} temporarily (Recommended)"
+        echo -e "     ${CYAN}← Will restart after SSL certificate obtained${NC}"
+        echo -e "  ${GREEN}2.${NC} Skip HTTPS setup for now"
+        echo -e "     ${CYAN}← Configure manually later${NC}"
+        echo -e "  ${GREEN}3.${NC} Use DNS-01 challenge instead"
+        echo -e "     ${CYAN}← Requires DNS API credentials${NC}"
+        echo ""
+        echo -e -n "${YELLOW}Your choice [1/2/3]: ${NC}"
+        read -r port_choice
+        port_choice=${port_choice:-1}
+        
+        case $port_choice in
+            1)
+                if [ "$port_80_process" = "docker-proxy" ] || [ "$port_80_process" = "docker" ]; then
+                    if stop_docker_port_80; then
+                        docker_was_stopped=true
+                        print_success "Docker containers stopped temporarily"
+                    else
+                        print_error "Could not stop Docker containers"
+                        print_info "You may need to stop them manually: docker stop \$(docker ps -q)"
+                        return 0
+                    fi
+                else
+                    # Try to stop the service
+                    print_step "Attempting to stop $port_80_process..."
+                    systemctl stop "$port_80_process" 2>/dev/null || true
+                    sleep 2
+                    if is_port_80_free; then
+                        print_success "$port_80_process stopped"
+                    else
+                        print_error "Could not free port 80"
+                        print_info "Stop the service manually: systemctl stop $port_80_process"
+                        return 0
+                    fi
+                fi
+                ;;
+            2)
+                print_info "Skipping HTTPS setup. Configure manually when ready."
+                return 0
+                ;;
+            3)
+                print_info "DNS-01 challenge selected."
+                setup_dns_challenge "$domain" || return 0
+                return 0
+                ;;
+            *)
+                print_info "Skipping HTTPS setup."
+                return 0
+                ;;
+        esac
+    else
+        print_success "Port 80 is available"
+    fi
+
     install_nginx_certbot
 
     # Use an isolated site config
@@ -109,14 +255,17 @@ auto_https_setup_if_enabled() {
     enable_nginx_site_if_needed "$challenge_conf"
     
     if ! reload_nginx_checked; then
-        print_warning "Nginx reload failed. Skipping HTTPS setup."
-        print_info "You may need to manually configure Nginx and SSL."
+        print_warning "Nginx reload failed."
+        # Restore Docker if was stopped
+        [ "$docker_was_stopped" = "true" ] && restore_docker_containers
         return 0
     fi
 
     if ! obtain_letsencrypt_cert_webroot "$domain"; then
-        print_warning "Certificate obtainment failed. Skipping HTTPS setup."
+        print_warning "Certificate obtainment failed."
         print_info "Check DNS (A record), port 80 reachability, and Cloudflare proxy setting."
+        # Restore Docker if was stopped
+        [ "$docker_was_stopped" = "true" ] && restore_docker_containers
         return 0
     fi
     setup_certbot_renew_hook
@@ -142,6 +291,76 @@ EOF
     systemctl start certbot.timer >/dev/null 2>&1 || true
 
     print_success "Auto HTTPS setup completed for ${domain}"
+    
+    # Restore Docker containers if they were stopped
+    if [ "$docker_was_stopped" = "true" ]; then
+        restore_docker_containers
+    fi
+}
+
+restore_docker_containers() {
+    print_step "Restoring Docker containers..."
+    docker start $(docker ps -aq) 2>/dev/null || true
+    print_success "Docker containers restored"
+}
+
+setup_dns_challenge() {
+    local domain="$1"
+    
+    print_header "DNS-01 Challenge Setup"
+    echo ""
+    echo -e "${WHITE}DNS-01 challenge requires API credentials for your DNS provider.${NC}"
+    echo ""
+    echo -e "Supported providers: ${CYAN}Cloudflare, DigitalOcean, Route53, Google, Azure${NC}"
+    echo ""
+    echo -e -n "${YELLOW}Select provider [1=Cloudflare, 2=Skip]: ${NC}"
+    read -r dns_choice
+    
+    case $dns_choice in
+        1)
+            print_info "Installing certbot-dns-cloudflare..."
+            apt install -y python3-certbot-dns-cloudflare >/dev/null 2>&1 || true
+            
+            echo ""
+            echo -e "${WHITE}Enter your Cloudflare API Token:${NC}"
+            echo -e "${CYAN}(Create at: https://dash.cloudflare.com/profile/api-tokens)${NC}"
+            echo -e -n "${YELLOW}API Token: ${NC}"
+            read -r cf_token
+            
+            if [ -z "$cf_token" ]; then
+                print_error "API Token is required"
+                return 1
+            fi
+            
+            # Create Cloudflare credentials file
+            mkdir -p /root/.secrets
+            cat > /root/.secrets/certbot-cloudflare.ini <<EOF
+dns_cloudflare_api_token = ${cf_token}
+EOF
+            chmod 600 /root/.secrets/certbot-cloudflare.ini
+            
+            print_step "Requesting certificate via DNS-01 challenge..."
+            certbot certonly \
+                --dns-cloudflare \
+                --dns-cloudflare-credentials /root/.secrets/certbot-cloudflare.ini \
+                -d "$domain" \
+                --non-interactive --agree-tos --register-unsafely-without-email \
+                >/dev/null 2>&1
+            
+            if [ $? -eq 0 ]; then
+                print_success "Certificate obtained for ${domain}"
+                setup_certbot_renew_hook
+                return 0
+            else
+                print_error "DNS-01 challenge failed. Check your API token."
+                return 1
+            fi
+            ;;
+        *)
+            print_info "Skipping DNS challenge setup."
+            return 1
+            ;;
+    esac
 }
 
 print_header() {
