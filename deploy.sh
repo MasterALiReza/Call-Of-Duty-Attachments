@@ -324,26 +324,27 @@ setup_bot_config() {
     
     print_success "Bot token saved"
     
-    # Super Admin ID
+    # Super Admin ID Step
     echo ""
-    echo -e "${WHITE}Super Admin ID:${NC}"
-    echo -e "${CYAN}💡 Get your numerical ID from @userinfobot (e.g. 123456789)${NC}"
+    print_header "Super Admin Configuration"
+    echo -e "${CYAN}💡 This ID will have full control over the bot.${NC}"
+    echo -e "${CYAN}💡 You can get it from @userinfobot or @MissRose_bot (/id)${NC}"
     echo ""
     
     while true; do
-        echo -e -n "${YELLOW}Your Telegram ID: ${NC}"
-        read SUPER_ADMIN_ID
+        echo -e -n "${YELLOW}Enter your Telegram User ID (Numbers only): ${NC}"
+        read -r SUPER_ADMIN_ID
         
         if [ -z "$SUPER_ADMIN_ID" ]; then
             print_error "Admin ID cannot be empty"
         elif [[ ! "$SUPER_ADMIN_ID" =~ ^[0-9]+$ ]]; then
-            print_error "Invalid ID format. Must be numbers only."
+            print_error "Invalid ID format: '$SUPER_ADMIN_ID'. Must be numbers only."
         else
             break
         fi
     done
     
-    print_success "Super Admin set"
+    print_success "Super Admin ID set to: $SUPER_ADMIN_ID"
 
     # Bot Mode
     echo ""
