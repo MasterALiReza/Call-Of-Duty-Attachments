@@ -823,9 +823,24 @@ update_bot() {
             migrations=$(ls "$INSTALL_DIR/scripts/migrations"/*.sql 2>/dev/null | sort)
             
             if [ -n "$migrations" ]; then
+                # Ensure migrations table exists
+                PGPASSWORD="$POSTGRES_PASSWORD" psql -h "${POSTGRES_HOST:-localhost}" \
+                    -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+                    -c "CREATE TABLE IF NOT EXISTS _migrations (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, applied_at TIMESTAMP DEFAULT NOW());" >/dev/null 2>&1
+
                 for migration in $migrations; do
                     if [ -f "$migration" ]; then
                         migration_name=$(basename "$migration")
+                        
+                        # Check if already applied
+                        is_applied=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h "${POSTGRES_HOST:-localhost}" \
+                            -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A \
+                            -c "SELECT 1 FROM _migrations WHERE name = '$migration_name';")
+                        
+                        if [ "$is_applied" = "1" ]; then
+                            continue
+                        fi
+
                         print_info "Applying: $migration_name"
                         
                         # Run migration and capture output
@@ -833,12 +848,16 @@ update_bot() {
                             -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
                             -v ON_ERROR_STOP=1 \
                             -f "$migration" > /tmp/db_migration.log 2>&1; then
+                            
+                            # Record migration
+                            PGPASSWORD="$POSTGRES_PASSWORD" psql -h "${POSTGRES_HOST:-localhost}" \
+                                -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+                                -c "INSERT INTO _migrations (name) VALUES ('$migration_name');" >/dev/null 2>&1
+                            
                             print_success "Done: $migration_name"
                         else
                             # Ignore errors if it's just "relation already exists" etc, but warn user
-                            # We don't stop the update process for migration errors to avoid breaking the flow
                             print_warning "Warning in $migration_name (Details in /tmp/db_migration.log)"
-                            # cat /tmp/db_migration.log # Uncomment to debug
                         fi
                     fi
                 done

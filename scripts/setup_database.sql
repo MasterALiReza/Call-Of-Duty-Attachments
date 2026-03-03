@@ -22,6 +22,13 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
+-- Migration tracking
+CREATE TABLE IF NOT EXISTS _migrations (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    applied_at TIMESTAMP DEFAULT NOW()
+);
+
 -- ============================================================================
 -- STEP 3: Core Weapon & Attachment Tables
 -- ============================================================================
