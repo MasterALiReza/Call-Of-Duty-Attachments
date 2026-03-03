@@ -96,7 +96,7 @@ print_info() {
 
 # Generate secure random password
 generate_password() {
-    openssl rand -base64 32 | tr -dc 'a-zA-Z0-9!@#$%^&*' | head -c 24
+    openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 24
 }
 
 # Check if command exists
@@ -377,7 +377,7 @@ setup_bot_config() {
                 if [[ ! "$CLEAN_DOMAIN" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,} ]]; then
                     print_error "Invalid domain format. Example: bot.vipvirtualnet.eu"
                 else
-                    WEBHOOK_URL="https://$CLEAN_DOMAIN"
+                    WEBHOOK_URL="$CLEAN_DOMAIN"
                     break
                 fi
             fi

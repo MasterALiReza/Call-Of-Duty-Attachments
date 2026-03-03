@@ -427,6 +427,8 @@ class CODMAttachmentsBot:
         import secrets
 
         webhook_url = WEBHOOK_URL
+        if webhook_url and not webhook_url.startswith("http"):
+            webhook_url = f"https://{webhook_url}"
         webhook_port = WEBHOOK_PORT
         webhook_path = WEBHOOK_PATH
         webhook_secret = WEBHOOK_SECRET_TOKEN or secrets.token_urlsafe(32)
