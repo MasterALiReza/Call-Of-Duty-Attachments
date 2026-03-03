@@ -522,12 +522,14 @@ def get_admin_conversation_states(admin_handlers):
         GUIDE_PHOTO: [
             MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), admin_handlers.admin_menu_return),
             MessageHandler(filters.PHOTO & ~filters.COMMAND, admin_handlers.guide_photo_received),
+            CallbackQueryHandler(admin_handlers.guide_op_router, pattern="^gop_"),
             CallbackQueryHandler(admin_handlers.handle_navigation_back, pattern="^nav_back$"),
             MessageHandler(filters.ALL & ~filters.COMMAND, admin_handlers.handle_invalid_input)
         ],
         GUIDE_VIDEO: [
             MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), admin_handlers.admin_menu_return),
             MessageHandler(filters.VIDEO & ~filters.COMMAND, admin_handlers.guide_video_received),
+            CallbackQueryHandler(admin_handlers.guide_op_router, pattern="^gop_"),
             CallbackQueryHandler(admin_handlers.handle_navigation_back, pattern="^nav_back$"),
             MessageHandler(filters.ALL & ~filters.COMMAND, admin_handlers.handle_invalid_input)
         ],
