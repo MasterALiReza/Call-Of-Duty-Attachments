@@ -383,6 +383,8 @@ setup_bot_config() {
             fi
         done
         
+        echo -e "${CYAN}💡 Telegram ONLY supports ports: 443, 80, 88, 8443${NC}"
+        echo -e "${CYAN}💡 If using a Reverse Proxy (Nginx), you can use any port (like 8585).${NC}"
         echo -e -n "${YELLOW}Webhook Port [8443]: ${NC}"
         read -r WEBHOOK_PORT
         WEBHOOK_PORT=${WEBHOOK_PORT:-8443}
@@ -408,7 +410,7 @@ BOT_MODE=${BOT_MODE:-polling}
 # Webhook (if mode=webhook)
 WEBHOOK_URL=$WEBHOOK_URL
 WEBHOOK_PORT=${WEBHOOK_PORT:-8443}
-WEBHOOK_PATH=bot/$BOT_TOKEN
+WEBHOOK_PATH=/webhook
 
 # Network/Proxy (Optional)
 # BOT_PROXY_URL=http://user:pass@host:port
