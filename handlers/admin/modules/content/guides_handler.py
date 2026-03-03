@@ -68,7 +68,10 @@ class GuidesHandler(BaseAdminHandler):
         
         # دریافت مودهای مجاز
         if self.role_manager:
-            allowed_modes = await self.role_manager.get_guide_mode_permissions(user_id)
+            if hasattr(self.role_manager, 'get_guide_mode_permissions'):
+                allowed_modes = await self.role_manager.get_guide_mode_permissions(user_id)
+            else:
+                allowed_modes = await self.role_manager.get_mode_permissions(user_id)
         else:
             allowed_modes = ['br', 'mp']  # پیش‌فرض
         
