@@ -144,6 +144,14 @@ check_root() {
     fi
 }
 
+# Check if running with bash
+if [ -z "$BASH_VERSION" ]; then
+    echo -e "\033[0;31m❌ This script must be run with bash\033[0m"
+    echo -e "\033[1;33mPlease run the command as follows:\033[0m"
+    echo -e "\033[1;37msudo bash deploy.sh\033[0m"
+    exit 1
+fi
+
 # ============================================================================
 # Installation Functions
 # ============================================================================
@@ -736,6 +744,43 @@ update_bot() {
     if [ -f "$INSTALL_DIR/.env" ]; then
         cp "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.backup.$(date +%Y%m%d_%H%M%S)"
         print_success ".env file backed up"
+        
+        # Check for missing crucial config in existing .env
+        source "$INSTALL_DIR/.env"
+        updated_env=""
+        
+        if [ -z "$SUPER_ADMIN_ID" ]; then
+            echo ""
+            print_header "Super Admin Configuration Update"
+            echo -e "${CYAN}💡 We noticed you haven't configured a Super Admin ID yet.${NC}"
+            
+            while true; do
+                echo -e -n "${YELLOW}Enter your Telegram User ID (Numbers only): ${NC}"
+                read -r NEW_SUPER_ADMIN_ID
+                
+                if [ -z "$NEW_SUPER_ADMIN_ID" ]; then
+                    print_error "Admin ID cannot be empty"
+                elif [[ ! "$NEW_SUPER_ADMIN_ID" =~ ^[0-9]+$ ]]; then
+                    print_error "Invalid ID format. Must be numbers only."
+                else
+                    echo "" >> "$INSTALL_DIR/.env"
+                    echo "SUPER_ADMIN_ID=$NEW_SUPER_ADMIN_ID" >> "$INSTALL_DIR/.env"
+                    export SUPER_ADMIN_ID="$NEW_SUPER_ADMIN_ID"
+                    print_success "Super Admin ID added to configuration"
+                    updated_env="true"
+                    break
+                fi
+            done
+        fi
+        
+        # Since setup_super_admin relies on DB connection strings, make sure they are set
+        if [ "$updated_env" = "true" ] && [ -n "$POSTGRES_USER" ] && [ -n "$POSTGRES_DB" ]; then
+            DB_PASS="$POSTGRES_PASSWORD"
+            DB_HOST="${POSTGRES_HOST:-localhost}"
+            DB_USER="$POSTGRES_USER"
+            DB_NAME="$POSTGRES_DB"
+            setup_super_admin
+        fi
     fi
     
     # Stop service
