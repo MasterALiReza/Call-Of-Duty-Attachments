@@ -3,6 +3,7 @@ Database mixin for Category, Weapon, and Attachment operations.
 """
 import logging
 from .base_repository import BaseRepository
+from .validators import validate_mode, validate_limit_offset, safe_sort_column
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 from core.cache.cache_manager import cached, invalidate_cache_on_write
@@ -20,9 +21,26 @@ class AttachmentRepository(BaseRepository):
     async def get_weapons_in_category(self, category: str, include_inactive: bool=False) -> List[str]:
         """دریافت لیست سلاح‌های یک دسته"""
         try:
-            active_filter = '' if include_inactive else 'AND w.is_active = TRUE'
-            query = f'\n                SELECT w.name\n                FROM weapons w\n                JOIN weapon_categories c ON w.category_id = c.id\n                WHERE c.name = %s {active_filter}\n                ORDER BY w.name\n            '
-            results = await self.execute_query(query, (category,), fetch_all=True)
+            # استفاده از پارامتر به جای f-string برای امنیت
+            if include_inactive:
+                query = """
+                    SELECT w.name
+                    FROM weapons w
+                    JOIN weapon_categories c ON w.category_id = c.id
+                    WHERE c.name = %s
+                    ORDER BY w.name
+                """
+                params = (category,)
+            else:
+                query = """
+                    SELECT w.name
+                    FROM weapons w
+                    JOIN weapon_categories c ON w.category_id = c.id
+                    WHERE c.name = %s AND w.is_active = TRUE
+                    ORDER BY w.name
+                """
+                params = (category,)
+            results = await self.execute_query(query, params, fetch_all=True)
             return [row['name'] for row in results]
         except Exception as e:
             log_exception(logger, e, f'get_weapons_in_category({category})')
@@ -64,16 +82,14 @@ class AttachmentRepository(BaseRepository):
     async def get_weapon_attachments(self, category: str, weapon_name: str, mode: str, limit: int = None, offset: int = None) -> List[Dict]:
         """دریافت اتچمنت‌های یک سلاح برای یک mode خاص با پشتیبانی از صفحه‌بندی"""
         try:
-            params = [category, weapon_name, mode]
-            limit_offset_sql = ""
-            if limit is not None:
-                limit_offset_sql += " LIMIT %s"
-                params.append(limit)
-            if offset is not None:
-                limit_offset_sql += " OFFSET %s"
-                params.append(offset)
-
-            query = f"""
+            # اعتبارسنجی mode
+            mode = validate_mode(mode)
+            
+            # اعتبارسنجی limit و offset
+            limit, offset = validate_limit_offset(limit, offset)
+            
+            # ساخت query با پارامترهای امن
+            query = """
                 SELECT 
                     a.id, a.code, a.name, a.mode,
                     a.image_file_id as image,
@@ -84,9 +100,10 @@ class AttachmentRepository(BaseRepository):
                 JOIN weapon_categories c ON w.category_id = c.id
                 WHERE c.name = %s AND w.name = %s AND a.mode = %s
                 ORDER BY a.is_top DESC, a.is_season_top DESC, a.order_index NULLS LAST, a.id
-                {limit_offset_sql}
+                LIMIT %s OFFSET %s
             """
-            results = await self.execute_query(query, tuple(params), fetch_all=True)
+            params = (category, weapon_name, mode, limit, offset)
+            results = await self.execute_query(query, params, fetch_all=True)
             if not results:
                 logger.debug(f'No attachments found for {weapon_name} ({mode})')
             return results

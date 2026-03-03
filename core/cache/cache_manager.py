@@ -172,23 +172,64 @@ class RedisCacheManager:
             if key in self._cache:
                 del self._cache[key]
 
-    async def invalidate_pattern(self, pattern: str):
+    async def invalidate_pattern(self, pattern: str) -> int:
+        """
+        Invalidate all cache keys matching a pattern.
+        
+        Args:
+            pattern: Pattern to match (substring match)
+            
+        Returns:
+            Number of keys invalidated
+        """
+        count = 0
+        
+        # Redis invalidation
         if self.use_redis and self.redis_client:
             try:
+                keys_to_delete = []
                 async for key in self.redis_client.scan_iter(f'*{pattern}*'):
-                    await self.redis_client.delete(key)
-            except Exception:
-                pass
+                    keys_to_delete.append(key)
+                
+                if keys_to_delete:
+                    count = await self.redis_client.delete(*keys_to_delete)
+                    logger.info(f'Redis invalidated {count} keys matching: {pattern}')
+            except Exception as e:
+                logger.warning(f'Redis pattern invalidation error: {e}')
+        
+        # In-memory invalidation
         with self._lock:
             keys_to_delete = [k for k in self._cache.keys() if pattern in k]
             for key in keys_to_delete:
                 del self._cache[key]
+                count += 1
+        
+        if count > 0:
+            logger.info(f'Cache invalidated {count} keys matching: {pattern}')
+        
+        return count
 
-    def invalidate_pattern_sync(self, pattern: str):
+    def invalidate_pattern_sync(self, pattern: str) -> int:
+        """
+        Synchronous pattern invalidation.
+        
+        Args:
+            pattern: Pattern to match
+            
+        Returns:
+            Number of keys invalidated
+        """
+        count = 0
         with self._lock:
             keys_to_delete = [k for k in self._cache.keys() if pattern in k]
             for key in keys_to_delete:
                 del self._cache[key]
+                count += 1
+        
+        if count > 0:
+            logger.debug(f'Sync invalidated {count} keys matching: {pattern}')
+        
+        return count
 
     def clear(self):
         with self._lock:
@@ -217,6 +258,49 @@ _cache = RedisCacheManager()
 
 def get_cache() -> RedisCacheManager:
     return _cache
+
+async def warm_cache(data_loader: Callable, keys: list, ttl: int = DEFAULT_CACHE_TTL) -> int:
+    """
+    Pre-populate cache with frequently accessed data.
+    
+    Args:
+        data_loader: Async function to load data for a key
+        keys: List of cache keys to warm
+        ttl: TTL for cached entries
+        
+    Returns:
+        Number of entries successfully cached
+    """
+    cache = get_cache()
+    count = 0
+    
+    for key in keys:
+        try:
+            data = await data_loader(key)
+            if data:
+                await cache.set(key, data, ttl)
+                count += 1
+        except Exception as e:
+            logger.warning(f'Cache warming failed for {key}: {e}')
+    
+    logger.info(f'Cache warmed {count}/{len(keys)} entries')
+    return count
+
+def get_cache_stats() -> Dict[str, Any]:
+    """
+    Get cache statistics.
+    
+    Returns:
+        Dict with cache stats (size, hit rate, etc.)
+    """
+    cache = get_cache()
+    with cache._lock:
+        return {
+            'size': len(cache._cache),
+            'max_size': cache.max_size,
+            'use_redis': cache.use_redis,
+            'utilization': len(cache._cache) / cache.max_size if cache.max_size > 0 else 0
+        }
 
 def cached(ttl_or_key=300, key_func: Optional[Callable]=None, ttl: Optional[int]=None):
     """

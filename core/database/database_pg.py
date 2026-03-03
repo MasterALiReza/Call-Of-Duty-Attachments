@@ -511,7 +511,13 @@ class DatabasePostgres:
         """
         Dynamically route missing method calls to the appropriate repository.
         Fallback for backward compatibility with handlers calling db.method().
+        
+        DEPRECATED: Direct db.method() calls are deprecated.
+        Use db.{repo_name}.{method}() instead for better code clarity.
         """
+        import os
+        import warnings
+        
         # Prevent recursion if repositories themselves are missing or queried
         repo_names = ('users', 'attachments', 'settings', 'analytics', 'cms', 'support')
         if name in repo_names:
@@ -520,6 +526,21 @@ class DatabasePostgres:
         for repo_name in repo_names:
             repo = self.__dict__.get(repo_name)
             if repo and hasattr(repo, name):
+                # Log deprecation warning in development mode
+                if os.getenv('ENV', 'production') == 'development':
+                    warnings.warn(
+                        f"Direct call to db.{name}() is deprecated. "
+                        f"Use db.{repo_name}.{name}() instead.",
+                        DeprecationWarning,
+                        stacklevel=3
+                    )
+                    # Also log to help developers find the source
+                    import logging
+                    logger = logging.getLogger('database.deprecated')
+                    logger.debug(
+                        f"Deprecated call: db.{name}() -> db.{repo_name}.{name}(). "
+                        f"Consider updating the call site."
+                    )
                 return getattr(repo, name)
                 
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")

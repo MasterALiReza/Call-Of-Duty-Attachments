@@ -316,30 +316,36 @@ class UserRepository(BaseRepository):
             return []
 
     async def get_all_roles(self) -> List[Dict]:
-        """دریافت تمام نقش‌ها با permissions"""
+        """دریافت تمام نقش‌ها با permissions - بهینه‌شده با JOIN"""
         try:
-            query_roles = """
-                SELECT id, name, display_name, description, icon
-                FROM roles
-                ORDER BY name
+            # استفاده از json_agg برای دریافت همه permissions در یک query
+            query = """
+                SELECT 
+                    r.id, r.name, r.display_name, r.description, r.icon,
+                    COALESCE(
+                        json_agg(rp.permission) FILTER (WHERE rp.permission IS NOT NULL),
+                        '[]'::json
+                    ) as permissions
+                FROM roles r
+                LEFT JOIN role_permissions rp ON r.id = rp.role_id
+                GROUP BY r.id, r.name, r.display_name, r.description, r.icon
+                ORDER BY r.name
             """
-            roles = await self.execute_query(query_roles, fetch_all=True)
+            results = await self.execute_query(query, fetch_all=True)
             
+            # تبدیل permissions از JSON به لیست
             result = []
-            for role in roles:
-                query_perms = """
-                    SELECT permission
-                    FROM role_permissions
-                    WHERE role_id = %s
-                """
-                permissions = await self.execute_query(query_perms, (role['id'],), fetch_all=True)
-                
+            for row in results:
+                perms = row.get('permissions', [])
+                if isinstance(perms, str):
+                    import json
+                    perms = json.loads(perms)
                 result.append({
-                    'name': role['name'],
-                    'display_name': role['display_name'],
-                    'description': role['description'],
-                    'icon': role['icon'],
-                    'permissions': [p['permission'] for p in permissions]
+                    'name': row['name'],
+                    'display_name': row['display_name'],
+                    'description': row['description'],
+                    'icon': row['icon'],
+                    'permissions': perms
                 })
             
             return result
@@ -349,31 +355,36 @@ class UserRepository(BaseRepository):
             return []
     
     async def get_role(self, role_name: str) -> Optional[Dict]:
-        """دریافت اطلاعات یک نقش"""
+        """دریافت اطلاعات یک نقش - بهینه‌شده با JOIN"""
         try:
-            query_role = """
-                SELECT id, name, display_name, description, icon
-                FROM roles
-                WHERE name = %s
+            query = """
+                SELECT 
+                    r.id, r.name, r.display_name, r.description, r.icon,
+                    COALESCE(
+                        json_agg(rp.permission) FILTER (WHERE rp.permission IS NOT NULL),
+                        '[]'::json
+                    ) as permissions
+                FROM roles r
+                LEFT JOIN role_permissions rp ON r.id = rp.role_id
+                WHERE r.name = %s
+                GROUP BY r.id, r.name, r.display_name, r.description, r.icon
             """
-            role = await self.execute_query(query_role, (role_name,), fetch_one=True)
+            row = await self.execute_query(query, (role_name,), fetch_one=True)
             
-            if not role:
+            if not row:
                 return None
             
-            query_perms = """
-                SELECT permission
-                FROM role_permissions
-                WHERE role_id = %s
-            """
-            permissions = await self.execute_query(query_perms, (role['id'],), fetch_all=True)
+            perms = row.get('permissions', [])
+            if isinstance(perms, str):
+                import json
+                perms = json.loads(perms)
             
             return {
-                'name': role['name'],
-                'display_name': role['display_name'],
-                'description': role['description'],
-                'icon': role['icon'],
-                'permissions': [p['permission'] for p in permissions]
+                'name': row['name'],
+                'display_name': row['display_name'],
+                'description': row['description'],
+                'icon': row['icon'],
+                'permissions': perms
             }
             
         except Exception as e:
