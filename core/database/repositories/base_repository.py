@@ -1,9 +1,8 @@
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional
 import os
 from contextlib import asynccontextmanager
 
-if TYPE_CHECKING:
-    from core.database.database_pg import DatabasePostgres
+from core.database.database_pg import DatabasePostgres
 from utils.logger import get_logger, log_exception
 
 logger = get_logger('database.repository', 'database.log')
