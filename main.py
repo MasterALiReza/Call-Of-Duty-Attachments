@@ -116,7 +116,7 @@ class CODMAttachmentsBot:
         تمام handler registrations به app/registry/ منتقل شده‌اند
         منطق دقیقاً یکسان است - فقط ساختار بهتر شده
         
-        قبل: 730+ خط handler registration در این تابع
+        قبل: 730+ خط handler registration in این تابع
         بعد: 5 خط - استفاده از Factory و Registries
         """
         from app.factory import BotApplicationFactory
