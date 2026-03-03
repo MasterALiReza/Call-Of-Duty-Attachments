@@ -10,6 +10,7 @@ import sys
 import asyncio
 import selectors
 import os
+import pathlib
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -439,7 +440,28 @@ class CODMAttachmentsBot:
             webhook_url = f"https://{webhook_url}"
         webhook_port = WEBHOOK_PORT
         webhook_path = WEBHOOK_PATH
-        webhook_secret = WEBHOOK_SECRET_TOKEN or secrets.token_urlsafe(32)
+        # NOTE: Telegram will send back the secret token in header
+        # `X-Telegram-Bot-Api-Secret-Token`.
+        # If we generate a new token on every restart, debugging gets harder and
+        # some setups may appear flaky. Persist a generated token locally.
+        webhook_secret = WEBHOOK_SECRET_TOKEN
+        if not webhook_secret:
+            try:
+                secret_file = pathlib.Path(os.getenv("WEBHOOK_SECRET_FILE", ".webhook_secret_token")).expanduser()
+                if secret_file.exists():
+                    webhook_secret = secret_file.read_text(encoding="utf-8").strip()
+                if not webhook_secret:
+                    webhook_secret = secrets.token_urlsafe(32)
+                    secret_file.write_text(webhook_secret, encoding="utf-8")
+                    # Best-effort permission hardening on Linux
+                    try:
+                        os.chmod(secret_file, 0o600)
+                    except Exception:
+                        pass
+                logger.info(f"🔐 Webhook secret token loaded from: {secret_file}")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not persist webhook secret token, generating a temporary one. Error: {e}")
+                webhook_secret = secrets.token_urlsafe(32)
 
         # SSL Certificate (optional - for self-signed certificates)
         cert_path = WEBHOOK_CERT_PATH or None
@@ -459,6 +481,9 @@ class CODMAttachmentsBot:
         logger.info(f"   URL: {full_webhook_url}")
         logger.info(f"   Port: {webhook_port}")
         logger.info(f"   SSL: {'Custom cert' if cert_path else 'Reverse proxy / built-in'}")
+        if not cert_path and not key_path:
+            logger.info("   SSL Note: If you don't provide cert/key, you MUST terminate HTTPS via a reverse proxy (e.g., Nginx) in front of this port.")
+            logger.info("             Telegram does not deliver webhooks over plain HTTP.")
 
         try:
             webhook_kwargs = {
