@@ -145,7 +145,7 @@ class CODMAttachmentsBot:
         user = update.effective_user
         try:
             if hasattr(self.db, 'upsert_user'):
-                await self.db.upsert_user(user.id, user.username, user.first_name)
+                await self.db.users.upsert_user(user.id, user.username, user.first_name)
         except Exception as e:
             logger.debug(f"Failed to track user interaction: {e}")
         finally:
@@ -154,10 +154,11 @@ class CODMAttachmentsBot:
     async def post_init(self, application):
         """اجرا بعد از راه‌اندازی ربات"""
         logger.info("CODM Attachments Bot started successfully!")
+        database = self.db
         
         # Start async database pool
         try:
-            await self.db.initialize()
+            await database.initialize()
             # Ensure audit logs table is constructed
             from core.audit import AuditLogger
             await AuditLogger().create_table_if_not_exists()
@@ -279,8 +280,9 @@ class CODMAttachmentsBot:
             # 3. Close database connections
             if hasattr(self, 'db') and self.db:
                 try:
-                    if hasattr(self.db, 'close'):
-                        await self.db.close()
+                    database = self.db
+                    if hasattr(database, 'close'):
+                        await database.close()
                         logger.info("✅ Database pool closed")
                 except Exception as e:
                     logger.error(f"❌ Error closing database: {e}")

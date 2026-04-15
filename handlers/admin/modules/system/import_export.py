@@ -1,4 +1,3 @@
-from core.context import CustomContext
 """
 ماژول Import/Export داده
 مسئول: ورود و خروج داده از دیتابیس
@@ -6,11 +5,12 @@ from core.context import CustomContext
 
 import os
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
-from handlers.admin.modules.base_handler import BaseAdminHandler
+
+from core.context import CustomContext
 from handlers.admin.admin_states import IMPORT_FILE, IMPORT_MODE, EXPORT_START
-from utils.logger import log_admin_action, log_exception, get_logger
+from handlers.admin.modules.base_handler import BaseAdminHandler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from utils.logger import get_logger, log_admin_action, log_exception
 from utils.telegram_safety import safe_edit_message_text
 
 logger = get_logger('import_export', 'admin.log')
@@ -30,6 +30,12 @@ class ImportExportHandler(BaseAdminHandler):
         user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         
         if Permission.IMPORT_EXPORT not in user_permissions:
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_import_start",
+                permission=Permission.IMPORT_EXPORT,
+                source="import_start",
+            )
             await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -55,6 +61,12 @@ class ImportExportHandler(BaseAdminHandler):
         # بررسی دسترسی
         from core.security.role_manager import Permission
         if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+            await self.audit_permission_denied(
+                user_id,
+                route="admin_import_file_received",
+                permission=Permission.IMPORT_EXPORT,
+                source="import_file_received",
+            )
             await update.message.reply_text("❌ شما دسترسی Import/Export ندارید.")
             return await self.admin_menu_return(update, context)
 
@@ -136,6 +148,12 @@ class ImportExportHandler(BaseAdminHandler):
         user_id = update.effective_user.id
         from core.security.role_manager import Permission
         if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+            await self.audit_permission_denied(
+                user_id,
+                route="admin_import_mode_selected",
+                permission=Permission.IMPORT_EXPORT,
+                source="import_mode_selected",
+            )
             await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
             return await self.admin_menu_return(update, context)
 
@@ -189,6 +207,12 @@ class ImportExportHandler(BaseAdminHandler):
         user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         
         if Permission.IMPORT_EXPORT not in user_permissions:
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_export_start",
+                permission=Permission.IMPORT_EXPORT,
+                source="export_start",
+            )
             await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -222,6 +246,12 @@ class ImportExportHandler(BaseAdminHandler):
         user_id = update.effective_user.id
         from core.security.role_manager import Permission
         if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+            await self.audit_permission_denied(
+                user_id,
+                route="admin_export_type_selected",
+                permission=Permission.IMPORT_EXPORT,
+                source="export_type_selected",
+            )
             await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
             return await self.admin_menu_return(update, context)
 
@@ -270,11 +300,11 @@ class ImportExportHandler(BaseAdminHandler):
                     )
                 
                 # Get file size
-                file_size = os.path.getsize(export_file) / 1024  # KB
-                if file_size > 1024:
-                    file_size = f"{file_size/1024:.2f} MB"
+                file_size_kb = os.path.getsize(export_file) / 1024  # KB
+                if file_size_kb > 1024:
+                    file_size = f"{file_size_kb/1024:.2f} MB"
                 else:
-                    file_size = f"{file_size:.2f} KB"
+                    file_size = f"{file_size_kb:.2f} KB"
                 
                 await safe_edit_message_text(
                     query,

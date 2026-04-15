@@ -1692,6 +1692,7 @@
   "admin.health.restore.start.cancel": "To cancel: /cancel",
   "admin.health.restore.file_required": "⚠️ Please send a file.",
   "admin.health.restore.invalid_format": "⚠️ Invalid file format. Only .zip, .dump, or .sql files are accepted.",
+  "admin.health.restore.partial_success": "⚠️ Restore finished with non-fatal conflicts. Existing objects were kept where possible.",
   "admin.health.restore.success.title": "✅ **Backup restored**",
   "admin.health.restore.success.safety_backup": "📦 Safety backup before restore: `{file}`",
   "admin.health.restore.success.restart": "▶️ To fully apply, restart the bot:\n`{cmd}`",

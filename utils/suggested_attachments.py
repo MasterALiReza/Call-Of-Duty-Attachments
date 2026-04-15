@@ -36,7 +36,7 @@ class SuggestedAttachmentsManager:
             if not 1 <= priority <= MAX_PRIORITY:
                 logger.warning(f'Invalid priority {priority}, using default {DEFAULT_PRIORITY}')
                 priority = DEFAULT_PRIORITY
-            success = await self.db.add_suggested_attachment(attachment_id=attachment_id, mode=mode, priority=priority, reason=reason, added_by=admin_id)
+            success = await self.db.attachments.add_suggested_attachment(attachment_id=attachment_id, mode=mode, priority=priority, reason=reason, added_by=admin_id)
             if success:
                 logger.info(f'Attachment {attachment_id} added to suggested list for {mode} by admin {admin_id}')
             else:
@@ -55,7 +55,7 @@ class SuggestedAttachmentsManager:
             mode: 'br' یا 'mp'
         """
         try:
-            success = await self.db.remove_suggested_attachment(attachment_id, mode)
+            success = await self.db.attachments.remove_suggested_attachment(attachment_id, mode)
             if success:
                 logger.info(f'Attachment {attachment_id} removed from suggested list for {mode}')
             else:
@@ -73,8 +73,8 @@ class SuggestedAttachmentsManager:
             mode: 'br', 'mp' یا None برای پاک کردن همه
         """
         try:
-            count_before = await self.db.get_suggested_count(mode)
-            success = await self.db.clear_suggested_attachments(mode)
+            count_before = await self.db.attachments.get_suggested_count(mode)
+            success = await self.db.attachments.clear_suggested_attachments(mode)
             if success:
                 logger.info(f"Cleared {count_before} suggested attachments for mode: {mode or 'all'}")
             return success
@@ -85,7 +85,7 @@ class SuggestedAttachmentsManager:
     async def is_suggested(self, attachment_id: int, mode: str) -> bool:
         """بررسی اینکه آیا اتچمنت در لیست پیشنهادی هست"""
         try:
-            return await self.db.is_attachment_suggested(attachment_id, mode)
+            return await self.db.attachments.is_attachment_suggested(attachment_id, mode)
         except Exception as e:
             logger.error(f'Error checking if attachment is suggested: {e}')
             return False
@@ -93,7 +93,7 @@ class SuggestedAttachmentsManager:
     async def get_suggested_count(self, mode: str=None) -> int:
         """دریافت تعداد اتچمنت\u200cهای پیشنهادی"""
         try:
-            return await self.db.get_suggested_count(mode)
+            return await self.db.attachments.get_suggested_count(mode)
         except Exception as e:
             logger.error(f'Error getting suggested count: {e}')
             return 0
@@ -109,7 +109,7 @@ class SuggestedAttachmentsManager:
             لیست تاپل\u200cها: (category, weapon_name, mode, attachment_dict)
         """
         try:
-            items = await self.db.get_suggested_attachments(mode)
+            items = await self.db.attachments.get_suggested_attachments(mode)
             logger.info(f'Retrieved {len(items)} suggested attachments for mode {mode}')
             return items
         except Exception as e:

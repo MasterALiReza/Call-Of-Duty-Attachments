@@ -1,36 +1,151 @@
-from core.context import CustomContext
 """
-Reports Handler - مدیریت گزارش‌های کاربران
+Reports Handler - ???????????? ??????????????????? ??????????????
 """
 
-from datetime import datetime, date
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler
-from config.config import GAME_MODES
-from core.database.database_adapter import get_database_adapter
-from core.security.role_manager import RoleManager, Permission
-from utils.logger import get_logger
+from datetime import date, datetime
+
 from psycopg.rows import dict_row
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler
 from telegram.helpers import escape_markdown
+
+from core.audit import AuditLogger
 from core.cache.ua_cache_manager import get_ua_cache
+from core.context import CustomContext
+from core.database.database_adapter import get_database_adapter
+from core.errors import ValidationError
+from core.security.role_manager import RoleManager
 from utils.i18n import t
 from utils.language import get_user_lang
+from utils.logger import get_logger, log_exception
+
+from .permissions import has_manage_user_attachments_permission
 
 logger = get_logger('ua_reports', 'admin.log')
 db = get_database_adapter()
 cache = get_ua_cache(db, ttl_seconds=300)
+audit_logger = AuditLogger()
 
 # RBAC helper
 role_manager = RoleManager(db)
 
 async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
+    return await has_manage_user_attachments_permission(
+        user_id,
+        db=db,
+        role_manager=role_manager,
+        audit_logger=audit_logger,
+        route="ua_admin_reports",
+        source="reports_handler",
+    )
+
+
+def _parse_report_action_ids(data: str, prefix: str, expected_parts: int) -> tuple[int, ...]:
+    payload = data.replace(prefix, "", 1).split("_")
+    if len(payload) != expected_parts:
+        raise ValidationError("Invalid report action payload.")
+
     try:
-        if await role_manager.is_super_admin(user_id):
-            return True
-        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
-    except Exception:
-        return await db.is_admin(user_id)
+        return tuple(int(part) for part in payload)
+    except ValueError as exc:
+        raise ValidationError("Invalid report action payload.") from exc
+
+
+async def _invalidate_reports_cache() -> None:
+    for key in ("stats", "count_"):
+        try:
+            await cache.invalidate(key)
+        except Exception as exc:
+            logger.warning("Failed to invalidate UA reports cache %s: %s", key, exc)
+
+
+async def _send_report_owner_notification(
+    *,
+    context: CustomContext,
+    owner_id: int,
+    lang: str,
+    template_key: str,
+    attachment_name: str,
+    strike_value: float,
+    strike_count: float,
+    ban_message: str,
+) -> None:
+    try:
+        safe_att_name = escape_markdown(attachment_name or "", version=2)
+        s_strike_value = escape_markdown(f"{strike_value:.1f}", version=2)
+        s_strike_count = escape_markdown(f"{strike_count:.1f}", version=2)
+        s_limit = escape_markdown("3.0", version=2)
+        notif_text = t(
+            template_key,
+            lang,
+            name=safe_att_name,
+            strike_value=s_strike_value,
+            strike_count=s_strike_count,
+            limit=s_limit,
+        )
+        if ban_message:
+            notif_text += escape_markdown(ban_message, version=2)
+        await context.bot.send_message(
+            chat_id=owner_id,
+            text=notif_text,
+            parse_mode="MarkdownV2",
+        )
+    except Exception as exc:
+        logger.warning("Failed to send UA report notification to %s: %s", owner_id, exc)
+
+
+async def _apply_report_penalty(cursor, owner_id: int, admin_id: int, lang: str) -> tuple[dict, str, float]:
+    """Apply strike/ban updates inside the active transaction."""
+    strike_value = 0.5
+    await cursor.execute(
+        """
+        INSERT INTO user_submission_stats (
+            user_id,
+            violation_count,
+            strike_count,
+            last_submission_at
+        ) VALUES (%s, %s, %s, NOW())
+        ON CONFLICT (user_id) DO UPDATE SET
+            violation_count = user_submission_stats.violation_count + %s,
+            strike_count = user_submission_stats.strike_count + %s,
+            last_submission_at = NOW(),
+            updated_at = NOW()
+        """,
+        (owner_id, 1, strike_value, 1, strike_value),
+    )
+    await cursor.execute(
+        """
+        SELECT strike_count, is_banned
+        FROM user_submission_stats
+        WHERE user_id = %s
+        """,
+        (owner_id,),
+    )
+    stats = dict(await cursor.fetchone() or {})
+    strike_count = float(stats.get("strike_count") or 0.0)
+    is_banned = bool(stats.get("is_banned"))
+    ban_message = ""
+
+    if strike_count >= 3.0 and not is_banned:
+        await cursor.execute(
+            """
+            UPDATE user_submission_stats
+            SET is_banned = TRUE,
+                banned_at = NOW(),
+                banned_reason = %s
+            WHERE user_id = %s
+            """,
+            (
+                t('admin.ua.reports.auto_ban.reason', lang, count=f"{strike_count:.1f}"),
+                owner_id,
+            ),
+        )
+        stats["is_banned"] = True
+        ban_message = "\n\n" + t('admin.ua.reports.auto_ban.note', lang)
+
+    stats["strike_count"] = strike_count
+    return stats, ban_message, strike_value
 
 
 async def show_reports_list(update: Update, context: CustomContext):
@@ -40,7 +155,7 @@ async def show_reports_list(update: Update, context: CustomContext):
     
     user_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -52,8 +167,7 @@ async def show_reports_list(update: Update, context: CustomContext):
     ITEMS_PER_PAGE = 10
     
     try:
-        from psycopg import sql  # optional
-        async with await db.get_connection() as conn:
+        async with db.get_connection() as conn:
             cursor = conn.cursor(row_factory=dict_row)
             # تلاش برای اسکیما جدید (reporter_id/reported_at) و در صورت خطا fallback به اسکیما قدیمی (user_id/created_at)
             try:
@@ -146,17 +260,11 @@ async def show_reports_list(update: Update, context: CustomContext):
     keyboard = []
     for report in reports:
         report_id = report.get('id')
-        att_id = report.get('attachment_id')
-        reporter_id = report.get('reporter_id')
         reason = report.get('reason')
-        reported_at = report.get('reported_at')
         att_name = report.get('attachment_name')
         mode = report.get('mode')
-        reporter_username = report.get('reporter_username')
-        owner_username = report.get('owner_username')
         
         mode_icon = "🎮" if mode == 'mp' else "🪂"
-        reporter_name = f"@{reporter_username}" if reporter_username else t('user.anonymous', lang)
         reason_short = (reason[:20] + "...") if len(reason) > 20 else reason
         
         keyboard.append([
@@ -203,14 +311,14 @@ async def show_report_detail(update: Update, context: CustomContext):
     
     user_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     report_id = int(query.data.replace('ua_admin_report_', ''))
     
     try:
-        async with await db.get_connection() as conn:
+        async with db.get_connection() as conn:
             cursor = conn.cursor(row_factory=dict_row)
             try:
                 await cursor.execute(
@@ -378,7 +486,7 @@ async def show_report_detail(update: Update, context: CustomContext):
 
 
 async def delete_reported_attachment(update: Update, context: CustomContext):
-    """حذف اتچمنت گزارش شده"""
+    """?????? ???????????? ?????????? ??????"""
     query = update.callback_query
     lang = await get_user_lang(update, context, db) or 'fa'
     
@@ -387,14 +495,13 @@ async def delete_reported_attachment(update: Update, context: CustomContext):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
-    parts = query.data.replace('ua_admin_report_delete_', '').split('_')
-    att_id = int(parts[0])
-    report_id = int(parts[1])
-    
     try:
-        async with await db.transaction() as conn:
+        att_id, report_id = _parse_report_action_ids(query.data, 'ua_admin_report_delete_', 2)
+        stats: dict = {}
+        ban_message = ""
+        strike_value = 0.5
+        async with db.transaction() as conn:
             cursor = conn.cursor(row_factory=dict_row)
-            # دریافت اطلاعات اتچمنت و گزارش
             await cursor.execute(
                 """
                 SELECT ua.user_id, ua.attachment_name, u.username, u.first_name
@@ -412,93 +519,61 @@ async def delete_reported_attachment(update: Update, context: CustomContext):
 
             owner_id = att_info.get('user_id')
             att_name = att_info.get('attachment_name')
-            username = att_info.get('username')
-            first_name = att_info.get('first_name')
 
-            # حذف اتچمنت
             await cursor.execute("DELETE FROM user_attachments WHERE id = %s", (att_id,))
-
-            # به‌روزرسانی وضعیت گزارش (PostgreSQL timestamp)
             await cursor.execute(
                 """
-                UPDATE user_attachment_reports 
+                UPDATE user_attachment_reports
                 SET status = 'resolved', resolved_by = %s, resolved_at = NOW()
                 WHERE id = %s
                 """,
                 (admin_id, report_id),
             )
-            await cursor.close()
-        
-        # invalidate stats cache to refresh counts in admin menu
-        try:
-            await cache.invalidate('stats')
-            await cache.invalidate('count_')
-        except Exception:
-            pass
-
-        # اخطار به صاحب اتچمنت
-        strike_value = 0.5
-        await db.update_submission_stats(owner_id, add_violation=1, add_strike=strike_value)
-        
-        # بررسی ban
-        stats = await db.get_user_submission_stats(owner_id)
-        if stats['strike_count'] >= 3.0 and not stats['is_banned']:
-            await db.ban_user_from_submissions(
+            stats, ban_message, strike_value = await _apply_report_penalty(
+                cursor,
                 owner_id,
-                t('admin.ua.reports.auto_ban.reason', lang, count=f"{stats['strike_count']:.1f}"),
-                banned_by=admin_id
+                admin_id,
+                lang,
             )
-            ban_message = "\n\n" + t('admin.ua.reports.auto_ban.note', lang)
-        else:
-            ban_message = ""
-        
-        try:
-            safe_att_name = escape_markdown(att_name or "", version=2)
-            s_strike_value = escape_markdown(f"{strike_value:.1f}", version=2)
-            s_strike_count = escape_markdown(f"{stats['strike_count']:.1f}", version=2)
-            s_limit = escape_markdown("3.0", version=2)
-            notif_text = t('user.ua.report.deleted', lang, name=safe_att_name, strike_value=s_strike_value, strike_count=s_strike_count, limit=s_limit)
-            if ban_message:
-                notif_text += escape_markdown(ban_message, version=2)
-            await context.bot.send_message(
-                chat_id=owner_id,
-                text=notif_text,
-                parse_mode='MarkdownV2'
-            )
-        except Exception as e:
-            logger.error(f"Error sending deletion notification: {e}")
+            await cursor.close()
+
+        await _invalidate_reports_cache()
+        await _send_report_owner_notification(
+            context=context,
+            owner_id=owner_id,
+            lang=lang,
+            template_key='user.ua.report.deleted',
+            attachment_name=att_name,
+            strike_value=strike_value,
+            strike_count=float(stats['strike_count']),
+            ban_message=ban_message,
+        )
         
         await query.answer(t('admin.ua.reports.delete.success', lang, strike=f"{strike_value}"), show_alert=True)
-        
-        # بازگشت به لیست
         await show_reports_list(update, context)
-        
+    except ValidationError:
+        await query.answer(t('error.generic', lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+        log_exception(logger, e, "ua_reports.delete_reported_attachment")
         await error_handler.handle_telegram_error(update, context, e)
-
 
 async def warn_owner_about_report(update: Update, context: CustomContext):
     query = update.callback_query
     
     admin_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(admin_id):
+    if not await has_ua_perm(admin_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
-    parts = query.data.replace('ua_admin_report_warn_', '').split('_')
     try:
-        owner_id = int(parts[0])
-        report_id = int(parts[1])
-    except Exception:
-        await query.answer(t('error.generic', lang), show_alert=True)
-        return
-    
-    try:
-        async with await db.transaction() as conn:
+        owner_id, report_id = _parse_report_action_ids(query.data, 'ua_admin_report_warn_', 2)
+        stats: dict = {}
+        ban_message = ""
+        strike_value = 0.5
+        async with db.transaction() as conn:
             cursor = conn.cursor(row_factory=dict_row)
-            # دریافت اطلاعات لازم برای پیام
             await cursor.execute(
                 """
                 SELECT ua.attachment_name, u.username, u.first_name
@@ -511,65 +586,43 @@ async def warn_owner_about_report(update: Update, context: CustomContext):
             )
             row = await cursor.fetchone()
             att_name = (row or {}).get('attachment_name') or ""
-            username = (row or {}).get('username')
-            first_name = (row or {}).get('first_name')
-            
-            # بروزرسانی وضعیت گزارش
+
             await cursor.execute(
                 """
-                UPDATE user_attachment_reports 
+                UPDATE user_attachment_reports
                 SET status = 'resolved', resolved_by = %s, resolved_at = NOW()
                 WHERE id = %s
                 """,
                 (admin_id, report_id),
             )
-            await cursor.close()
-        
-        # invalidate stats cache to refresh counts immediately
-        try:
-            await cache.invalidate('stats')
-            await cache.invalidate('count_')
-        except Exception:
-            pass
-
-        # ثبت اخطار
-        strike_value = 0.5
-        await db.update_submission_stats(owner_id, add_violation=1, add_strike=strike_value)
-        stats = await db.get_user_submission_stats(owner_id)
-        if stats['strike_count'] >= 3.0 and not stats['is_banned']:
-            await db.ban_user_from_submissions(
+            stats, ban_message, strike_value = await _apply_report_penalty(
+                cursor,
                 owner_id,
-                t('admin.ua.reports.auto_ban.reason', lang, count=f"{stats['strike_count']:.1f}")
+                admin_id,
+                lang,
             )
-            ban_message = "\n\n" + t('admin.ua.reports.auto_ban.note', lang)
-        else:
-            ban_message = ""
-        
-        # ارسال پیام به صاحب
-        try:
-            safe_att_name = escape_markdown(att_name or "", version=2)
-            s_strike_value = escape_markdown(f"{strike_value:.1f}", version=2)
-            s_strike_count = escape_markdown(f"{stats['strike_count']:.1f}", version=2)
-            s_limit = escape_markdown("3.0", version=2)
-            notif_text = t('user.ua.report.warn', lang, name=safe_att_name, strike_value=s_strike_value, strike_count=s_strike_count, limit=s_limit)
-            if ban_message:
-                notif_text += escape_markdown(ban_message, version=2)
-            await context.bot.send_message(
-                chat_id=owner_id,
-                text=notif_text,
-                parse_mode='MarkdownV2'
-            )
-        except Exception as e:
-            logger.error(f"Error sending warn notification: {e}")
+            await cursor.close()
+
+        await _invalidate_reports_cache()
+        await _send_report_owner_notification(
+            context=context,
+            owner_id=owner_id,
+            lang=lang,
+            template_key='user.ua.report.warn',
+            attachment_name=att_name,
+            strike_value=strike_value,
+            strike_count=float(stats['strike_count']),
+            ban_message=ban_message,
+        )
         
         await query.answer(t('admin.ua.reports.warn.success', lang), show_alert=True)
-        # بازگشت به لیست
         await show_reports_list(update, context)
-    
+    except ValidationError:
+        await query.answer(t('error.generic', lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+        log_exception(logger, e, "ua_reports.warn_owner_about_report")
         await error_handler.handle_telegram_error(update, context, e)
-
 
 async def dismiss_report(update: Update, context: CustomContext):
     """رد کردن گزارش (بدون اقدام)"""
@@ -577,14 +630,13 @@ async def dismiss_report(update: Update, context: CustomContext):
     
     admin_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(admin_id):
+    if not await has_ua_perm(admin_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
-    report_id = int(query.data.replace('ua_admin_report_dismiss_', ''))
-    
     try:
-        async with await db.transaction() as conn:
+        (report_id,) = _parse_report_action_ids(query.data, 'ua_admin_report_dismiss_', 1)
+        async with db.transaction() as conn:
             cursor = conn.cursor(row_factory=dict_row)
             await cursor.execute(
                 """
@@ -597,19 +649,17 @@ async def dismiss_report(update: Update, context: CustomContext):
             await cursor.close()
         
         # invalidate stats cache so pending_reports count updates
-        try:
-            await cache.invalidate('stats')
-            await cache.invalidate('count_')
-        except Exception:
-            pass
+        await _invalidate_reports_cache()
 
         await query.answer(t('admin.ua.reports.dismiss.success', lang), show_alert=True)
         
         # بازگشت به لیست
         await show_reports_list(update, context)
-        
+    except ValidationError:
+        await query.answer(t('error.generic', lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+        log_exception(logger, e, "ua_reports.dismiss_report")
         await error_handler.handle_telegram_error(update, context, e)
 
 

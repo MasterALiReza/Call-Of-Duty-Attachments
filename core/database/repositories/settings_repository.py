@@ -4,7 +4,7 @@ Database mixin for Settings, Notifications, and Submission Statistics.
 import logging
 import json
 from .base_repository import BaseRepository
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, cast
 from utils.logger import log_exception
 logger = logging.getLogger('database.settings_mixin')
 
@@ -14,7 +14,7 @@ class SettingsRepository(BaseRepository):
     Requires self.execute_query and self.transaction to be provided by the base class.
     """
 
-    async def get_setting(self, key: str, default: str=None) -> str:
+    async def get_setting(self, key: str, default: str | None = None) -> str | None:
         """دریافت تنظیمات"""
         try:
             query = 'SELECT value FROM settings WHERE key = %s'
@@ -175,13 +175,13 @@ class SettingsRepository(BaseRepository):
             log_exception(logger, e, f'delete_setting({key})')
             return False
 
-    async def get_ua_setting(self, key: str, default: str=None) -> Optional[str]:
+    async def get_ua_setting(self, key: str, default: str | None = None) -> str | None:
         """دریافت یک تنظیم user_attachment از جدول واحد settings"""
         try:
             query = "\n                SELECT value as setting_value FROM settings \n                WHERE key = %s AND category = 'user_attachments'\n            "
             row = await self.execute_query(query, (key,), fetch_one=True)
             if row:
-                return row['setting_value']
+                return cast(str | None, row['setting_value'])
             if key == 'system_enabled':
                 return '1'
             return default
@@ -218,7 +218,7 @@ class SettingsRepository(BaseRepository):
         """Alias for update_ua_setting() - used by settings_handler"""
         return await self.update_ua_setting(key, value, admin_id)
 
-    async def backup_database(self, backup_dir: str='backups') -> str:
+    async def backup_database(self, backup_dir: str='backups') -> str | None:
         """ایجاد backup از دیتابیس PostgreSQL"""
         import subprocess
         from datetime import datetime
@@ -230,8 +230,9 @@ class SettingsRepository(BaseRepository):
             backup_file = os.path.join(backup_dir, f'postgres_backup_{timestamp}.sql')
             cmd = ['pg_dump', '-h', os.getenv('POSTGRES_HOST', 'localhost'), '-p', os.getenv('POSTGRES_PORT', '5432'), '-U', os.getenv('POSTGRES_USER', 'postgres'), '-d', os.getenv('POSTGRES_DB', 'codm_bot'), '-F', 'c', '-f', backup_file]
             env = os.environ.copy()
-            if os.getenv('POSTGRES_PASSWORD'):
-                env['PGPASSWORD'] = os.getenv('POSTGRES_PASSWORD')
+            postgres_password = os.getenv('POSTGRES_PASSWORD') or ''
+            if postgres_password:
+                env['PGPASSWORD'] = postgres_password
             result = subprocess.run(cmd, env=env, capture_output=True, text=True)
             if result.returncode == 0:
                 logger.info(f'✅ PostgreSQL backup created: {backup_file}')

@@ -16,6 +16,7 @@ services:
       # Database
       - DATABASE_BACKEND=postgres
       - DATABASE_URL=postgresql://codm_admin:${POSTGRES_PASSWORD}@postgres:5432/codm_bot
+      - DB_RUNTIME_SCHEMA_ENSURE=false
 
       # Logging
       - LOG_LEVEL=INFO
@@ -52,7 +53,7 @@ services:
       - bot-network
 
     healthcheck:
-      test: [ "CMD", "python", "-c", "import os, psycopg; url=os.getenv('DATABASE_URL',''); psycopg.connect(url).close()" ]
+      test: [ "CMD", "python", "scripts/health_check.py", "--mode", "readiness" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -82,7 +83,7 @@ services:
 
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./scripts/migrations:/docker-entrypoint-initdb.d:ro
 
     ports:
       - "127.0.0.1:5432:5432"

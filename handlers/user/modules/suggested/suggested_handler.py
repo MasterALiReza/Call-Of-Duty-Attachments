@@ -29,8 +29,8 @@ class SuggestedHandler(BaseUserHandler):
         lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # بررسی تعداد اتچمنت‌های پیشنهادی
-        br_count = await self.db.get_suggested_count('br')
-        mp_count = await self.db.get_suggested_count('mp')
+        br_count = await self.db.attachments.get_suggested_count('br')
+        mp_count = await self.db.attachments.get_suggested_count('mp')
         
         keyboard = []
         # دکمه‌ها به صورت دو ستونه - BR راست، MP چپ
@@ -79,8 +79,8 @@ class SuggestedHandler(BaseUserHandler):
         from datetime import datetime
         lang = await get_user_lang(update, context, self.db) or 'fa'
         # بررسی تعداد اتچمنت‌های پیشنهادی
-        br_count = await self.db.get_suggested_count('br')
-        mp_count = await self.db.get_suggested_count('mp')
+        br_count = await self.db.attachments.get_suggested_count('br')
+        mp_count = await self.db.attachments.get_suggested_count('mp')
         
         keyboard = []
         # دکمه‌ها به صورت دو ستونه - BR راست، MP چپ
@@ -121,7 +121,7 @@ class SuggestedHandler(BaseUserHandler):
         
         # دریافت اتچمنت‌های پیشنهادی
         lang = await get_user_lang(update, context, self.db) or 'fa'
-        items = await self.db.get_suggested_ranked(mode)
+        items = await self.db.attachments.get_suggested_ranked(mode)
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_btn', lang)}"
         
         if not items:
@@ -224,7 +224,7 @@ class SuggestedHandler(BaseUserHandler):
         cat_name = t(f"category.{category}", 'en')
         
         # دریافت اتچمنت‌های پیشنهادی با فیلتر
-        weapon_attachments = await self.db.get_suggested_ranked(mode, category=category, weapon=weapon)
+        weapon_attachments = await self.db.attachments.get_suggested_ranked(mode, category=category, weapon=weapon)
         
         if not weapon_attachments:
             await safe_edit_message_text(
@@ -300,7 +300,7 @@ class SuggestedHandler(BaseUserHandler):
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_btn', lang)}"
         
         # دریافت تمام اتچمنت‌های پیشنهادی
-        items = await self.db.get_suggested_ranked(mode)
+        items = await self.db.attachments.get_suggested_ranked(mode)
         
         # پیدا کردن اتچمنت مورد نظر
         target_attachment = None
@@ -337,12 +337,12 @@ class SuggestedHandler(BaseUserHandler):
             caption += f"\n💭 {reason}"
         
         # دریافت آمار بازخورد
-        stats = await self.db.get_attachment_stats(att_id, period='all')
+        stats = await self.db.analytics.get_attachment_stats(att_id, period='all')
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         
         # Track view
-        await self.db.track_attachment_view(query.from_user.id, att_id)
+        await self.db.analytics.track_attachment_view(query.from_user.id, att_id)
         
         # ساخت keyboard با دکمه‌های بازخورد
         from core.container import get_container
@@ -402,7 +402,7 @@ class SuggestedHandler(BaseUserHandler):
         
         # دریافت اتچمنت‌های پیشنهادی
         lang = await get_user_lang(update, context, self.db) or 'fa'
-        items = await self.db.get_suggested_ranked(mode)
+        items = await self.db.attachments.get_suggested_ranked(mode)
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_btn', lang)}"
         
         if not items:
@@ -501,7 +501,7 @@ class SuggestedHandler(BaseUserHandler):
         
         if not items:
             # اگر cache نبود، دوباره بگیر
-            items = await self.db.get_suggested_ranked(mode)
+            items = await self.db.attachments.get_suggested_ranked(mode)
             context.user_data['suggested_cache'] = items
         
         # استخراج شماره صفحه

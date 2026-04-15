@@ -3,15 +3,10 @@
 ارسال اعلان به ادمین(ها) هنگام رویدادهای مهم مانند start کاربر جدید
 """
 
-import asyncio
-from datetime import datetime
-from typing import Optional
-
 from telegram import User as TelegramUser, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from utils.logger import get_logger, log_exception
-from utils.i18n import t
 
 logger = get_logger('admin_notifier', 'admin.log')
 
@@ -25,7 +20,7 @@ class AdminNotifier:
     async def _is_enabled(self) -> bool:
         """بررسی فعال بودن نوتیفیکیشن start ادمین"""
         try:
-            val = await self.db.get_setting('admin_start_notif_enabled', 'true')
+            val = await self.db.settings.get_setting('admin_start_notif_enabled', 'true')
             return str(val).lower() in ('true', '1', 'yes')
         except Exception:
             return True  # فعال به صورت پیش‌فرض
@@ -33,7 +28,7 @@ class AdminNotifier:
     async def _is_new_only(self) -> bool:
         """آیا فقط برای کاربران جدید ارسال شود"""
         try:
-            val = await self.db.get_setting('admin_start_notif_new_only', 'true')
+            val = await self.db.settings.get_setting('admin_start_notif_new_only', 'true')
             return str(val).lower() in ('true', '1', 'yes')
         except Exception:
             return True
@@ -42,7 +37,10 @@ class AdminNotifier:
         """بررسی اینکه آیا کاربر قبلاً در دیتابیس وجود دارد"""
         try:
             query = "SELECT 1 FROM users WHERE user_id = %s LIMIT 1"
-            result = await self.db.execute_query(query, (user_id,), fetch_one=True)
+            async with self.db.get_connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(query, (user_id,))
+                    result = await cur.fetchone()
             return result is not None
         except Exception as e:
             logger.debug(f"Could not check user existence for {user_id}: {e}")
@@ -52,7 +50,10 @@ class AdminNotifier:
         """دریافت تعداد کل کاربران"""
         try:
             query = "SELECT COUNT(*) as cnt FROM users"
-            result = await self.db.execute_query(query, fetch_one=True)
+            async with self.db.get_connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(query)
+                    result = await cur.fetchone()
             return result['cnt'] if result else 0
         except Exception:
             return 0
@@ -64,7 +65,10 @@ class AdminNotifier:
                 SELECT COUNT(*) as cnt FROM users
                 WHERE created_at >= CURRENT_DATE
             """
-            result = await self.db.execute_query(query, fetch_one=True)
+            async with self.db.get_connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(query)
+                    result = await cur.fetchone()
             return result['cnt'] if result else 0
         except Exception:
             return 0
@@ -72,7 +76,7 @@ class AdminNotifier:
     async def _get_admin_ids(self) -> list:
         """دریافت لیست آیدی ادمین‌هایی که باید نوتیف بگیرند"""
         try:
-            admins = await self.db.get_all_admins()
+            admins = await self.db.users.get_all_admins()
             return [a['user_id'] for a in admins if a.get('user_id')]
         except Exception as e:
             logger.error(f"Error getting admin IDs for notification: {e}")

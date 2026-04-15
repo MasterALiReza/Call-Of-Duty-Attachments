@@ -4,15 +4,12 @@ CODM Attachments Bot - Database Setup Script
 ==============================================
 This script creates a clean PostgreSQL database for the CODM bot.
 
-Database: codm_attachments_db
-User: codm_bot_user
-Password: CoDM_Secure_2025!@#
-
 Usage:
-    python setup_database.py [--drop-existing]
+    python setup_database.py [--drop-existing] [--migrate-only]
 
 Options:
     --drop-existing    Drop and recreate the database if it exists
+    --migrate-only     Apply canonical migrations to an existing database only
 """
 
 import sys
@@ -22,11 +19,11 @@ from psycopg import sql
 from pathlib import Path
 
 # Configuration
-DB_NAME = "codm_attachments_db"
-DB_USER = "codm_bot_user"
-DB_PASSWORD = "CoDM_Secure_2025!@#" 
-DB_HOST = "localhost"
-DB_PORT = 5432
+DB_NAME = os.getenv("DB_NAME", os.getenv("POSTGRES_DB", "codm_bot"))
+DB_USER = os.getenv("DB_USER", os.getenv("POSTGRES_USER", "codm_admin"))
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_HOST = os.getenv("DB_HOST", os.getenv("POSTGRES_HOST", "localhost"))
+DB_PORT = int(os.getenv("DB_PORT", os.getenv("POSTGRES_PORT", "5432")))
 
 # PostgreSQL superuser credentials (for creating database)
 POSTGRES_USER = "postgres"
@@ -40,6 +37,15 @@ class Colors:
     BLUE = '\033[94m'
     ENDC = '\033[0m'
     BOLD = '\033[1m'
+
+
+def mask_secret(secret: str, visible: int = 2) -> str:
+    """Mask secret values for safe console output."""
+    if not secret:
+        return "(not set)"
+    if len(secret) <= visible:
+        return "*" * len(secret)
+    return ("*" * (len(secret) - visible)) + secret[-visible:]
 
 def print_success(msg):
     print(f"{Colors.GREEN}✓ {msg}{Colors.ENDC}")
@@ -73,6 +79,45 @@ def check_postgres_connection():
         return True
     except Exception as e:
         print_error(f"Cannot connect to PostgreSQL: {e}")
+        return False
+
+
+def ensure_database_user():
+    """Ensure the application database role exists and can own the database."""
+    if DB_USER == POSTGRES_USER:
+        print_info(f"Database role '{DB_USER}' already uses the PostgreSQL superuser account")
+        return True
+
+    print_info(f"Ensuring database role '{DB_USER}' exists...")
+    try:
+        conn = psycopg.connect(
+            f"host={DB_HOST} port={DB_PORT} user={POSTGRES_USER} "
+            + f"password={POSTGRES_PASSWORD} dbname=postgres",
+            autocommit=True
+        )
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (DB_USER,))
+        role_exists = cur.fetchone() is not None
+
+        if role_exists:
+            cur.execute(
+                sql.SQL("ALTER USER {} WITH PASSWORD %s").format(sql.Identifier(DB_USER)),
+                (DB_PASSWORD,),
+            )
+            print_success(f"Database role '{DB_USER}' updated")
+        else:
+            cur.execute(
+                sql.SQL("CREATE USER {} WITH PASSWORD %s").format(sql.Identifier(DB_USER)),
+                (DB_PASSWORD,),
+            )
+            print_success(f"Database role '{DB_USER}' created")
+
+        cur.execute(sql.SQL("ALTER USER {} WITH CREATEDB").format(sql.Identifier(DB_USER)))
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print_error(f"Error ensuring database role: {e}")
         return False
 
 
@@ -134,35 +179,72 @@ def create_database():
 
 
 def run_setup_script():
-    """Run the SQL setup script"""
-    print_info("Running setup script...")
-    
-    script_path = Path(__file__).parent / "setup_database.sql"
-    if not script_path.exists():
-        print_error(f"Setup script not found: {script_path}")
+    """Run schema setup with migration-first strategy."""
+    migrations_dir = Path(__file__).parent / "migrations"
+    if not migrations_dir.exists():
+        print_error(
+            "Migration files are required; scripts/setup_database.sql is deprecated and is not the schema source."
+        )
         return False
-    
+
+    migration_files = sorted(migrations_dir.glob("*.sql"))
+    if not migration_files:
+        print_error(
+            "Migration files are required; scripts/setup_database.sql is deprecated and is not the schema source."
+        )
+        return False
+
+    print_info(f"Running {len(migration_files)} migration(s)...")
+    conn = None
+    cur = None
     try:
-        with open(script_path, 'r', encoding='utf-8') as f:
-            sql_script = f.read()
-        
         conn = psycopg.connect(
-            f"host={DB_HOST} port={DB_PORT} user={POSTGRES_USER} " +
-            f"password={POSTGRES_PASSWORD} dbname={DB_NAME}"
+            f"host={DB_HOST} port={DB_PORT} user={DB_USER} "
+            + f"password={DB_PASSWORD} dbname={DB_NAME}"
         )
         cur = conn.cursor()
-        
-        # Execute the script
-        cur.execute(sql_script)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS _migrations (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                applied_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
         conn.commit()
-        
-        cur.close()
-        conn.close()
-        print_success("Setup script executed successfully")
+
+        for migration_path in migration_files:
+            migration_name = migration_path.name
+            cur.execute("SELECT 1 FROM _migrations WHERE name = %s", (migration_name,))
+            if cur.fetchone():
+                print_info(f"Skipping already applied migration: {migration_name}")
+                continue
+
+            print_info(f"Applying migration: {migration_name}")
+            with open(migration_path, "r", encoding="utf-8") as f:
+                sql_script = f.read()
+
+            cur.execute(sql_script)
+            cur.execute(
+                "INSERT INTO _migrations (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
+                (migration_name,),
+            )
+            conn.commit()
+            print_success(f"Applied migration: {migration_name}")
+
+        print_success("Migrations executed successfully")
         return True
     except Exception as e:
-        print_error(f"Error running setup script: {e}")
+        if conn:
+            conn.rollback()
+        print_error(f"Error running migrations: {e}")
         return False
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 
 def verify_setup():
@@ -252,6 +334,31 @@ def main():
     
     # Check arguments
     drop_existing = '--drop-existing' in sys.argv
+    migrate_only = '--migrate-only' in sys.argv
+
+    if not DB_PASSWORD:
+        print_error(
+            "DB_PASSWORD is not set. Export DB_PASSWORD (or add it to .env) and retry."
+        )
+        return 1
+
+    if migrate_only and drop_existing:
+        print_error("--migrate-only and --drop-existing cannot be used together")
+        return 1
+
+    if migrate_only:
+        print_header("Applying Canonical Migrations")
+        if not run_setup_script():
+            print_error("Migration-only setup aborted")
+            return 1
+
+        print_header("Verifying Setup")
+        if not verify_setup():
+            print_error("Setup verification failed")
+            return 1
+
+        print_success("Migration-only setup completed")
+        return 0
     
     # Step 1: Check PostgreSQL connection
     if not check_postgres_connection():
@@ -264,37 +371,43 @@ def main():
         if not drop_database_if_exists():
             print_error("Setup aborted")
             return 1
+
+    # Step 3: Ensure application role exists before creating the database
+    print_header("Ensuring Database User")
+    if not ensure_database_user():
+        print_error("Setup aborted")
+        return 1
     
-    # Step 3: Create database
+    # Step 4: Create database
     print_header("Creating Database")
     if not create_database():
         print_warning("Database might already exist, continuing...")
     
-    # Step 4: Run setup script
-    print_header("Setting Up Tables")
+    # Step 5: Run canonical migrations
+    print_header("Applying Canonical Migrations")
     if not run_setup_script():
         print_error("Setup aborted")
         return 1
     
-    # Step 5: Verify setup
+    # Step 6: Verify setup
     print_header("Verifying Setup")
     if not verify_setup():
         print_error("Setup verification failed")
         return 1
     
-    # Step 6: Update .env file
+    # Step 7: Update .env file
     print_header("Updating Configuration")
     update_env_file()
     
     # Success!
     print_header("Setup Complete!")
     print_success(f"Database '{DB_NAME}' is ready to use")
-    print_info(f"\nConnection Details:")
+    print_info("\nConnection Details:")
     print(f"  Host: {DB_HOST}")
     print(f"  Port: {DB_PORT}")
     print(f"  Database: {DB_NAME}")
     print(f"  User: {DB_USER}")
-    print(f"  Password: {DB_PASSWORD}")
+    print(f"  Password: {mask_secret(DB_PASSWORD)}")
     print(f"\n{Colors.BLUE}You can now run: python main.py{Colors.ENDC}\n")
     
     return 0

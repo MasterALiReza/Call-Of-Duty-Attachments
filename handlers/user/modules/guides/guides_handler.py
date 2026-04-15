@@ -21,7 +21,7 @@ class GuidesHandler(BaseUserHandler):
     async def _send_guide(self, update: Update, key: str, mode: str = "br", context: CustomContext = None):
         """ارسال محتوای یک بخش راهنما (basic/sens/hud) با پشتیبانی از mode."""
         lang = (await get_user_lang(update, context, self.db) or 'fa') if context else 'fa'
-        guide = await self.db.get_guide(key, mode=mode)
+        guide = await self.db.cms.get_guide(key, mode=mode)
         # استفاده از translation key به جای name از دیتابیس
         name = t(f"guides.{key}_short", lang)
         photos = guide.get("photos", []) or []
@@ -147,7 +147,7 @@ class GuidesHandler(BaseUserHandler):
         mode_name = t(f"mode.{mode}_btn", lang)
         
         # دریافت راهنماها
-        guides = await self.db.get_guides(mode=mode)
+        guides = await self.db.cms.get_guides(mode=mode)
         
         # ساخت دکمه‌ها با ایموجی و تعداد مدیا
         def make_button_text(emoji: str, name: str, guide_key: str) -> str:
@@ -195,7 +195,7 @@ class GuidesHandler(BaseUserHandler):
             return
         
         context.user_data['game_settings_mode'] = mode
-        guide = await self.db.get_guide(key, mode=mode)
+        guide = await self.db.cms.get_guide(key, mode=mode)
         # استفاده از translation key به جای name از دیتابیس
         lang = await get_user_lang(update, context, self.db) or 'fa'
         name = t(f"guides.{key}_short", lang)

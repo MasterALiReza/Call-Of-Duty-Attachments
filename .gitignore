@@ -61,7 +61,6 @@ Desktop.ini
 Temp/
 temp/
 tmp/
-docs/
 .venv/
 
 # Analytics data (runtime) - removed (PG-only)
@@ -74,7 +73,7 @@ upload_batch_*.json
 upload_batch_*.jsonl
 
 # Reports (generated)
-/reports/
+/reports/generated/
 
 # Archive (old files)
 archive/

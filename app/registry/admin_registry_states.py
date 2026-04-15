@@ -323,7 +323,7 @@ def get_admin_conversation_states(admin_handlers):
         # ========== Data Management ==========
         DATA_MGMT_MENU: [
             MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), admin_handlers.admin_menu_return),
-            CallbackQueryHandler(admin_handlers.health_handler.create_backup, pattern="^admin_create_backup$"),
+            CallbackQueryHandler(admin_handlers.data_mgmt_handler.create_backup, pattern="^admin_create_backup$"),
             CallbackQueryHandler(admin_handlers.auto_backup_menu, pattern="^admin_auto_backup_menu$"),
             CallbackQueryHandler(admin_handlers.health_handler.restore_backup_start, pattern="^restore_backup$"),
             CallbackQueryHandler(admin_handlers.admin_menu_return, pattern="^admin_cancel$")
@@ -337,27 +337,13 @@ def get_admin_conversation_states(admin_handlers):
         AWAITING_BACKUP_FILE: [
             MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), admin_handlers.admin_menu_return),
             MessageHandler(filters.Document.ALL, admin_handlers.health_handler.restore_backup_file),
-            CallbackQueryHandler(admin_handlers.health_handler.fix_issues_menu, pattern="^admin_data_management$"),
+            CallbackQueryHandler(admin_handlers.data_management_menu, pattern="^admin_data_management$"),
+            CallbackQueryHandler(admin_handlers.health_handler.fix_issues_menu, pattern="^health_fix_issues_menu$"),
+            CallbackQueryHandler(admin_handlers.health_handler.fix_issues_menu, pattern="^fix_issues_menu$"),
             MessageHandler(filters.ALL & ~filters.COMMAND, admin_handlers.handle_invalid_input)
         ],
         IMPORT_START: [
             MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), admin_handlers.admin_menu_return),
-            CallbackQueryHandler(admin_handlers.admin_menu_return, pattern="^admin_cancel$")
-        ],
-        IMPORT_FILE: [
-            MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), admin_handlers.admin_menu_return),
-            MessageHandler(filters.Document.ALL, admin_handlers.import_file_received),
-            CallbackQueryHandler(admin_handlers.admin_menu_return, pattern="^admin_cancel$"),
-            MessageHandler(filters.ALL & ~filters.COMMAND, admin_handlers.handle_invalid_input)
-        ],
-        IMPORT_MODE: [
-            MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), admin_handlers.admin_menu_return),
-            CallbackQueryHandler(admin_handlers.import_mode_selected, pattern="^imp_mode_"),
-            CallbackQueryHandler(admin_handlers.admin_menu_return, pattern="^admin_cancel$")
-        ],
-        EXPORT_START: [
-            MessageHandler(filters.Regex(build_regex_for_key('menu.buttons.admin')), admin_handlers.admin_menu_return),
-            CallbackQueryHandler(admin_handlers.export_type_selected, pattern="^exp_"),
             CallbackQueryHandler(admin_handlers.admin_menu_return, pattern="^admin_cancel$")
         ],
         

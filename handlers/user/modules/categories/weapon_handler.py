@@ -46,7 +46,7 @@ class WeaponHandler(BaseUserHandler):
             return
         
         context.user_data['current_category'] = category
-        weapons = await self.db.get_weapons_in_category(category)
+        weapons = await self.db.attachments.get_weapons_in_category(category)
         if not weapons:
             reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="categories")]])
             await safe_edit_message_text(
@@ -114,7 +114,7 @@ class WeaponHandler(BaseUserHandler):
         if not category:
             for cat in WEAPON_CATEGORIES_IDS:
                 try:
-                    weapons = await self.db.get_weapons_in_category(cat)
+                    weapons = await self.db.attachments.get_weapons_in_category(cat)
                 except Exception:
                     weapons = []
                 if weapon_name in weapons:
@@ -127,7 +127,7 @@ class WeaponHandler(BaseUserHandler):
         if selected_mode:
             context.user_data['current_mode'] = selected_mode
             # نمایش مستقیم منوی اتچمنت‌ها
-            weapon_data = await self.db.get_weapon_attachments(category, weapon_name, mode=selected_mode)
+            weapon_data = await self.db.attachments.get_weapon_attachments(category, weapon_name, mode=selected_mode)
             
             # Handle list structure from DB
             all_attachments = weapon_data if isinstance(weapon_data, list) else weapon_data.get('all_attachments', [])
@@ -189,8 +189,8 @@ class WeaponHandler(BaseUserHandler):
             return
         
         # دریافت تعداد اتچمنت‌ها برای هر mode (فلوی قدیمی - backward compatibility)
-        br_data = await self.db.get_weapon_attachments(category, weapon_name, mode="br")
-        mp_data = await self.db.get_weapon_attachments(category, weapon_name, mode="mp")
+        br_data = await self.db.attachments.get_weapon_attachments(category, weapon_name, mode="br")
+        mp_data = await self.db.attachments.get_weapon_attachments(category, weapon_name, mode="mp")
         
         br_count = len(br_data) if isinstance(br_data, list) else len(br_data.get('all_attachments', []))
         mp_count = len(mp_data) if isinstance(mp_data, list) else len(mp_data.get('all_attachments', []))
@@ -249,7 +249,7 @@ class WeaponHandler(BaseUserHandler):
         category = context.user_data.get('current_category')
         context.user_data['current_mode'] = mode
         
-        weapon_data = await self.db.get_weapon_attachments(category, weapon_name, mode=mode)
+        weapon_data = await self.db.attachments.get_weapon_attachments(category, weapon_name, mode=mode)
         
         # Handle list structure from DB
         all_attachments = weapon_data if isinstance(weapon_data, list) else weapon_data.get('all_attachments', [])

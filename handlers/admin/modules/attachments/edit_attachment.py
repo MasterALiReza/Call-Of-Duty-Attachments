@@ -138,7 +138,7 @@ class EditAttachmentHandler(BaseAdminHandler):
         category = query.data.replace("ecat_", "")
         context.user_data['edit_att_category'] = category
         
-        weapons = await self.db.get_weapons_in_category(category)
+        weapons = await self.db.attachments.get_weapons_in_category(category)
         mode = context.user_data.get('edit_att_mode', 'br')
         mode_name = GAME_MODES.get(mode, mode)
         
@@ -208,7 +208,7 @@ class EditAttachmentHandler(BaseAdminHandler):
         mode_name = GAME_MODES.get(mode, mode)
         lang = await get_user_lang(update, context, self.db) or 'fa'
         
-        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         query = update.callback_query
         
         if not attachments:
@@ -260,7 +260,7 @@ class EditAttachmentHandler(BaseAdminHandler):
         weapon = context.user_data['edit_att_weapon']
         mode = context.user_data.get('edit_att_mode', 'br')
         
-        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         selected_att = next((att for att in attachments if att['id'] == att_id), None)
         
         if not selected_att:
@@ -282,7 +282,7 @@ class EditAttachmentHandler(BaseAdminHandler):
         lang = await get_user_lang(update, context, self.db) or 'fa'
         
         # پیدا کردن نام اتچمنت از روی ID
-        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         selected_att = next((att for att in attachments if att['id'] == att_id), None)
         att_name = selected_att['name'] if selected_att else t("common.unknown", lang)
         
@@ -424,7 +424,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             # پیدا کردن نام قبلی برای اعلان
             old_name = None
             try:
-                for att in await self.db.get_all_attachments(category, weapon, mode=mode):
+                for att in await self.db.attachments.get_all_attachments(category, weapon, mode=mode):
                     if att.get('code') == code:
                         old_name = att.get('name')
                         break
@@ -435,7 +435,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             try:
                 # Get current attachment to fill missing fields for Pydantic
                 current_att = None
-                for att in await self.db.get_all_attachments(category, weapon, mode=mode):
+                for att in await self.db.attachments.get_all_attachments(category, weapon, mode=mode):
                     if att.get('code') == code:
                         current_att = att
                         break
@@ -457,7 +457,7 @@ class EditAttachmentHandler(BaseAdminHandler):
                 await update.message.reply_text(f"❌ Validation Error: {str(e)}")
                 return await self.admin_menu_return(update, context)
 
-            ok = await self.db.update_attachment(category, weapon, code, new_name=new_name, new_image=None, mode=mode)
+            ok = await self.db.attachments.update_attachment(category, weapon, code, new_name=new_name, new_image=None, mode=mode)
             
             if ok:
                 # ✅ DB Audit Logging
@@ -533,7 +533,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             weapon = context.user_data['edit_att_weapon']
             mode = context.user_data.get('edit_att_mode', 'br')
             code = context.user_data['edit_att_code']
-            ok = await self.db.update_attachment(category, weapon, code, new_name=None, new_image=new_image, mode=mode)
+            ok = await self.db.attachments.update_attachment(category, weapon, code, new_name=None, new_image=new_image, mode=mode)
             if ok:
                 # پاک کردن cache
                 try:
@@ -546,7 +546,7 @@ class EditAttachmentHandler(BaseAdminHandler):
                 # اعلان خودکار
                 name = None
                 try:
-                    for att in await self.db.get_all_attachments(category, weapon, mode=mode):
+                    for att in await self.db.attachments.get_all_attachments(category, weapon, mode=mode):
                         if att.get('code') == code:
                             name = att.get('name')
                             break
@@ -585,14 +585,14 @@ class EditAttachmentHandler(BaseAdminHandler):
             # نام را برای پیام بیابیم
             name = None
             try:
-                for att in await self.db.get_all_attachments(category, weapon, mode=mode):
+                for att in await self.db.attachments.get_all_attachments(category, weapon, mode=mode):
                     if att.get('code', '').upper() == old_code.upper():
                         name = att.get('name')
                         break
             except Exception:
                 pass
             
-            ok = await self.db.update_attachment_code(category, weapon, old_code, new_code, mode)
+            ok = await self.db.attachments.update_attachment_code(category, weapon, old_code, new_code, mode)
             if ok:
                 # پاک کردن cache
                 try:
@@ -661,7 +661,7 @@ class EditAttachmentHandler(BaseAdminHandler):
             lang = await get_user_lang(update, context, self.db) or 'fa'
             
             if category:
-                weapons = await self.db.get_weapons_in_category(category)
+                weapons = await self.db.attachments.get_weapons_in_category(category)
                 keyboard = self._make_weapon_keyboard(weapons, "ewpn_", category)
                 self._add_back_cancel_buttons(keyboard, show_back=True)
                 await safe_edit_message_text(

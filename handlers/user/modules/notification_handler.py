@@ -244,7 +244,7 @@ class NotificationHandler:
             return
         
         # دریافت اتچمنت از دیتابیس
-        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         selected = next((att for att in attachments if att.get('code') == code), None)
         
         if not selected:
@@ -262,11 +262,11 @@ class NotificationHandler:
         caption += f"{t('attachment.code', lang)}: `{selected['code']}`\n\n{t('attachment.tap_to_copy', lang)}"
         # آمار بازخورد + ثبت بازدید
         att_id = selected.get('id')
-        stats = await self.db.get_attachment_stats(att_id, period='all') if att_id else {}
+        stats = await self.db.analytics.get_attachment_stats(att_id, period='all') if att_id else {}
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         if att_id:
-            await self.db.track_attachment_view(query.from_user.id, att_id)
+            await self.db.analytics.track_attachment_view(query.from_user.id, att_id)
         feedback_kb = None
         if att_id:
             from core.container import get_container

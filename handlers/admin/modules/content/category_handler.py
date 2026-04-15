@@ -285,17 +285,17 @@ class CategoryHandler(BaseAdminHandler):
             return await self.show_category_management_menu(update, context, mode)
         
         # بکاپ قبل از پاک‌سازی
-        backup_file = await self.db.backup_database()
+        backup_file = await self.db.settings.backup_database()
         
         # شمارش اتچمنت‌ها قبل از حذف
-        weapons = await self.db.get_weapons_in_category(category)
+        weapons = await self.db.attachments.get_weapons_in_category(category)
         total_attachments = 0
         for weapon in weapons:
-            attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+            attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
             total_attachments += len(attachments)
         
         # پاک‌سازی برای mode مشخص
-        success = await self.db.clear_category(category, mode=mode)
+        success = await self.db.attachments.clear_category(category, mode=mode)
         
         if success:
             msg = t("admin.categories.clear.success.title", lang) + "\n\n"

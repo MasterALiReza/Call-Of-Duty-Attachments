@@ -1,6 +1,5 @@
 """Contact handlers module"""
 
-from .contact_handlers import *
-from .direct_contact_handlers import *
+from .contact_handlers import ContactHandlers
 
 __all__ = ['ContactHandlers']

@@ -86,7 +86,7 @@ async def seed_faqs():
     # Check schema first using direct query to ensure exception is raised if column missing
     try:
         # Probe for 'language' column
-        db.execute_query("SELECT language FROM faqs LIMIT 1;")
+        await db.execute_query("SELECT language FROM faqs LIMIT 1;")
     except Exception as e:
         error_str = str(e)
         # Check for specific postgres error
@@ -95,7 +95,7 @@ async def seed_faqs():
             print("(!) Attempting to DROP and RECREATE 'faqs' table...")
             try:
                 # DROP
-                db.execute_query("DROP TABLE IF EXISTS faqs CASCADE;")
+                await db.execute_query("DROP TABLE IF EXISTS faqs CASCADE;")
                 print("Table dropped.")
                 
                 # CREATE
@@ -118,7 +118,7 @@ async def seed_faqs():
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_faqs_question_language ON faqs (question, language);
                 """
                 
-                db.execute_query(create_sql_fixed)
+                await db.execute_query(create_sql_fixed)
                 print("Table recreated with correct schema (using 'language' column).")
             except Exception as e2:
                 print(f"(X) Failed to reset table: {e2}")
@@ -136,7 +136,9 @@ async def seed_faqs():
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (question, language) DO NOTHING
             """
-            result = db.execute_query(query, (faq['question'], faq['answer'], faq['category'], faq['lang']))
+            result = await db.execute_query(
+                query, (faq['question'], faq['answer'], faq['category'], faq['lang'])
+            )
             print(f"(+) Added: {faq['question'][:20]}... ({faq['lang']})")
             count += 1
             

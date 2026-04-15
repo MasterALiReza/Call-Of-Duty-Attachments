@@ -1,18 +1,20 @@
-from core.context import CustomContext
 """
 Browse Handler - نمایش اتچمنت‌های تایید شده کاربران
 """
 
 import json
-from datetime import datetime, date
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler
-from config.config import WEAPON_CATEGORIES, WEAPON_CATEGORIES_SHORT, GAME_MODES, build_category_keyboard
-from core.database.database_adapter import get_database_adapter
+from datetime import date, datetime
+
+from config.config import WEAPON_CATEGORIES, WEAPON_CATEGORIES_SHORT, build_category_keyboard
 from core.cache.ua_cache_manager import get_ua_cache
-from utils.logger import get_logger
-from utils.language import get_user_lang
+from core.context import CustomContext
+from core.database.database_adapter import get_database_adapter
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler
+from utils.error_handler import error_handler
 from utils.i18n import t
+from utils.language import get_user_lang
+from utils.logger import get_logger, log_exception
 
 logger = get_logger('browse_attachments', 'user.log')
 db = get_database_adapter()
@@ -22,6 +24,16 @@ cache = get_ua_cache(db, ttl_seconds=300)
 ATTACHMENTS_PER_PAGE = 5
 
 
+async def _handle_boundary_error(
+    update: Update,
+    context: CustomContext,
+    exc: Exception,
+    scope: str,
+) -> None:
+    log_exception(logger, exc, scope)
+    await error_handler.handle_telegram_error(update, context, exc)
+
+
 async def browse_attachments_menu(update: Update, context: CustomContext):
     """منوی اصلی Browse"""
     query = update.callback_query
@@ -29,7 +41,7 @@ async def browse_attachments_menu(update: Update, context: CustomContext):
     lang = await get_user_lang(update, context, db) or 'fa'
     
     # دریافت مودهای فعال
-    enabled_modes_str = await db.get_ua_setting('enabled_modes') or '["mp","br"]'
+    enabled_modes_str = await db.settings.get_ua_setting('enabled_modes') or '["mp","br"]'
     enabled_modes = json.loads(enabled_modes_str)
     
     keyboard = []
@@ -144,10 +156,6 @@ async def browse_show_all_attachments(update: Update, context: CustomContext):
     context.user_data['browse_mode'] = mode
     context.user_data['browse_category'] = 'all'  # علامت همه دسته‌ها
     
-    # فیلتر کردن دسته‌های فعال برای mode انتخاب شده
-    from config.config import is_category_enabled
-    enabled_categories = [k for k in WEAPON_CATEGORIES.keys() if await is_category_enabled(k, mode, context.bot_data.get('db'))]
-    
     # آماده‌سازی صفحه‌بندی
     context.user_data['browse_page'] = 0
     
@@ -162,9 +170,7 @@ async def browse_category_selected(update: Update, context: CustomContext):
     
     category = query.data.replace('ua_browse_cat_', '')
     context.user_data['browse_category'] = category
-    
-    mode = context.user_data['browse_mode']
-    
+
     # آماده‌سازی صفحه‌بندی
     context.user_data['browse_page'] = 0
     
@@ -184,7 +190,7 @@ async def show_attachments_page(update: Update, context: CustomContext):
     lang = await get_user_lang(update, context, db) or 'fa'
     
     # دریافت آمار و داده‌ها از دیتابیس
-    total_count = await db.get_approved_user_attachments_count(mode, category)
+    total_count = await db.users.get_approved_user_attachments_count(mode, category)
     if total_count == 0:
         mode_name = t(f"mode.{mode}_btn", lang)
         cat_name = t(f"category.{category}", 'en') if category != 'all' else t('ua.all_categories', lang)
@@ -198,7 +204,7 @@ async def show_attachments_page(update: Update, context: CustomContext):
         )
         return
 
-    attachments = await db.get_approved_user_attachments_paginated(
+    attachments = await db.users.get_approved_user_attachments_paginated(
         mode, category, 
         limit=ATTACHMENTS_PER_PAGE, 
         offset=page * ATTACHMENTS_PER_PAGE
@@ -232,7 +238,6 @@ async def show_attachments_page(update: Update, context: CustomContext):
         weapon = att.get('custom_weapon_name') or t('common.unknown', lang)
         att_name = att.get('name') or att.get('attachment_name') or t('common.unknown', lang)
         likes = att.get('like_count', 0)
-        username = (att.get('username') or att.get('first_name') or t('user.anonymous', lang))
         cat_key = att.get('category', '')
         
         # اگر همه دسته‌ها: نمایش مخفف دسته
@@ -272,13 +277,14 @@ async def show_attachments_page(update: Update, context: CustomContext):
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        except Exception:
+        except Exception as exc:
+            log_exception(logger, exc, "ua_browse.show_attachments_page.edit_message")
             # اگر پیام photo بود، نمیشه edit کرد
             # پس delete کن و پیام جدید بفرست
             try:
                 await query.message.delete()
-            except Exception as e:
-                logger.warning(f"Failed to delete previous browse message: {e}")
+            except Exception as delete_exc:
+                log_exception(logger, delete_exc, "ua_browse.show_attachments_page.delete_source")
             await update.effective_chat.send_message(
                 message,
                 parse_mode='Markdown',
@@ -312,7 +318,7 @@ async def view_attachment_detail(update: Update, context: CustomContext):
     attachment_id = int(query.data.replace('ua_view_', ''))
     
     # دریافت اتچمنت
-    attachment = await db.get_user_attachment(attachment_id)
+    attachment = await db.users.get_user_attachment(attachment_id)
     
     if not attachment:
         lang = await get_user_lang(update, context, db) or 'fa'
@@ -328,8 +334,8 @@ async def view_attachment_detail(update: Update, context: CustomContext):
                     SET view_count = view_count + 1 
                     WHERE id = %s
                 """, (attachment_id,))
-    except Exception as e:
-        logger.error(f"Error updating view count: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_browse.view_attachment_detail.update_view_count")
     
     # ساخت پیام
     from telegram.helpers import escape_markdown
@@ -393,7 +399,8 @@ async def view_attachment_detail(update: Update, context: CustomContext):
                         """,
                         (attachment_id, update.effective_user.id),
                     )
-                except Exception:
+                except Exception as fallback_exc:
+                    log_exception(logger, fallback_exc, "ua_browse.view_attachment_detail.precheck_legacy_reporter")
                     await cur.execute(
                         """
                         SELECT 1 FROM user_attachment_reports
@@ -403,8 +410,8 @@ async def view_attachment_detail(update: Update, context: CustomContext):
                         (attachment_id, update.effective_user.id),
                     )
                 already_reported = await cur.fetchone() is not None
-    except Exception as _pre_err:
-        logger.error(f"Error prechecking already_reported: {_pre_err}")
+    except Exception as pre_err:
+        log_exception(logger, pre_err, "ua_browse.view_attachment_detail.precheck_already_reported")
 
     row1 = [InlineKeyboardButton("👍", callback_data=f"ua_like_{attachment_id}")]
     if not already_reported:
@@ -425,8 +432,8 @@ async def view_attachment_detail(update: Update, context: CustomContext):
     # حذف پیام قبلی
     try:
         await query.message.delete()
-    except Exception as e:
-        logger.warning(f"Failed to delete previous attachment detail message: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_browse.view_attachment_detail.delete_source")
 
 
 async def like_attachment(update: Update, context: CustomContext):
@@ -446,8 +453,8 @@ async def like_attachment(update: Update, context: CustomContext):
         
         lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('success.generic', lang), show_alert=True)
-    except Exception as e:
-        logger.error(f"Error liking attachment: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_browse.like_attachment")
         lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('error.generic', lang), show_alert=True)
 
@@ -475,7 +482,8 @@ async def report_attachment(update: Update, context: CustomContext):
                         """,
                         (attachment_id, reporter_id),
                     )
-                except Exception:
+                except Exception as fallback_exc:
+                    log_exception(logger, fallback_exc, "ua_browse.report_attachment.duplicate_precheck_legacy")
                     # سازگاری با اسکیما قدیمی (user_id به جای reporter_id)
                     await cur.execute(
                         """
@@ -503,7 +511,8 @@ async def report_attachment(update: Update, context: CustomContext):
                         """,
                         (reporter_id,),
                     )
-                except Exception:
+                except Exception as fallback_exc:
+                    log_exception(logger, fallback_exc, "ua_browse.report_attachment.daily_limit_legacy")
                     # سازگاری با ستون created_at
                     await cur.execute(
                         """
@@ -520,7 +529,7 @@ async def report_attachment(update: Update, context: CustomContext):
                     await query.answer(t('ua.report.limit_reached', lang), show_alert=True)
                     return
     except Exception as pre_err:
-        logger.error(f"Precheck error on reporting attachment: {pre_err}")
+        log_exception(logger, pre_err, "ua_browse.report_attachment.precheck")
 
     # ذخیره report (ساده)
     try:
@@ -539,7 +548,8 @@ async def report_attachment(update: Update, context: CustomContext):
                         INSERT INTO user_attachment_reports (attachment_id, reporter_id, reason, reported_at)
                         VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                     """, (attachment_id, reporter_id, 'محتوای نامناسب'))
-                except Exception:
+                except Exception as fallback_exc:
+                    log_exception(logger, fallback_exc, "ua_browse.report_attachment.insert_legacy")
                     await cursor.execute("""
                         INSERT INTO user_attachment_reports (attachment_id, user_id, reason, created_at)
                         VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
@@ -547,13 +557,13 @@ async def report_attachment(update: Update, context: CustomContext):
         # بعد از ثبت گزارش، کش آمار را پاک می‌کنیم تا شمارنده‌ها به‌روز شوند
         try:
             await cache.invalidate('stats')
-        except Exception:
-            pass
+        except Exception as cache_exc:
+            log_exception(logger, cache_exc, "ua_browse.report_attachment.invalidate_stats_cache")
         used_now = (today_count or 0) + 1
         lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('ua.report.saved_today', lang, used=used_now), show_alert=True)
-    except Exception as e:
-        logger.error(f"Error reporting attachment: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_browse.report_attachment")
         lang = await get_user_lang(update, context, db) or 'fa'
         await query.answer(t('ua.report.duplicate', lang), show_alert=True)
 
@@ -566,8 +576,8 @@ async def browse_back_to_list(update: Update, context: CustomContext):
     # حذف پیام تصویر
     try:
         await query.message.delete()
-    except Exception as e:
-        logger.warning(f"Failed to delete browse image message: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_browse.browse_back_to_list.delete_source")
     
     # نمایش مجدد لیست
     await show_attachments_page(update, context)

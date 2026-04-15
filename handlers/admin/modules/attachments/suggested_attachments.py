@@ -45,10 +45,10 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         
         # دریافت تعداد اتچمنت‌های پیشنهادی (با اندازه‌گیری زمان هر فراخوانی)
         t0 = time.perf_counter()
-        br_count = await self.db.get_suggested_count('br')
+        br_count = await self.db.attachments.get_suggested_count('br')
         log_performance(performance_logger, "DB.get_suggested_count(br)", time.perf_counter() - t0, threshold=0.1)
         t1 = time.perf_counter()
-        mp_count = await self.db.get_suggested_count('mp')
+        mp_count = await self.db.attachments.get_suggested_count('mp')
         log_performance(performance_logger, "DB.get_suggested_count(mp)", time.perf_counter() - t1, threshold=0.1)
         total_count = br_count + mp_count
         
@@ -92,8 +92,8 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         await query.answer()
         lang = await get_user_lang(update, context, self.db) or 'fa'
         
-        br_count = await self.db.get_suggested_count('br')
-        mp_count = await self.db.get_suggested_count('mp')
+        br_count = await self.db.attachments.get_suggested_count('br')
+        mp_count = await self.db.attachments.get_suggested_count('mp')
         total = br_count + mp_count
         
         text = (
@@ -122,7 +122,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         items = []
         for mode in ('br', 'mp'):
             try:
-                items.extend(await self.db.get_suggested_ranked(mode))
+                items.extend(await self.db.attachments.get_suggested_ranked(mode))
             except Exception:
                 pass
         
@@ -166,7 +166,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         items = []
         for mode in ('br', 'mp'):
             try:
-                items.extend(await self.db.get_suggested_ranked(mode))
+                items.extend(await self.db.attachments.get_suggested_ranked(mode))
             except Exception:
                 pass
         
@@ -214,7 +214,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         items = []
         for mode in ('br', 'mp'):
             try:
-                items.extend(await self.db.get_suggested_ranked(mode))
+                items.extend(await self.db.attachments.get_suggested_ranked(mode))
             except Exception:
                 pass
         
@@ -333,7 +333,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         category = query.data.replace("sacat_", "")
         context.user_data['suggested_category'] = category
         
-        weapons = await self.db.get_weapons_in_category(category)
+        weapons = await self.db.attachments.get_weapons_in_category(category)
         if not weapons:
             await query.answer(t("admin.no_weapons_in_category", lang), show_alert=True)
             return SUGGESTED_ADD_CATEGORY
@@ -375,12 +375,12 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         category = context.user_data['suggested_category']
         mode = context.user_data['suggested_mode']
         
-        attachments = await self.db.get_all_attachments(category, weapon, mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode)
         if not attachments:
             await query.answer(t('attachment.none', lang), show_alert=True)
             return SUGGESTED_ADD_WEAPON
         
-        sugg_items = await self.db.get_suggested_attachments(mode)
+        sugg_items = await self.db.attachments.get_suggested_attachments(mode)
         suggested_ids = set()
         for it in sugg_items:
             att = (it or {}).get('attachment', {})
@@ -426,7 +426,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         admin_id = query.from_user.id
         
         # بررسی تکراری نبودن
-        if await self.db.is_attachment_suggested(att_id, mode):
+        if await self.db.attachments.is_attachment_suggested(att_id, mode):
             # فقط نمایش alert بدون تغییر صفحه
             await query.answer(t('admin.suggested.already_suggested_alert', lang), show_alert=True)
             return SUGGESTED_ADD_ATTACHMENT
@@ -434,7 +434,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         await query.answer()
         
         # افزودن به دیتابیس
-        success = await self.db.add_suggested_attachment(
+        success = await self.db.attachments.add_suggested_attachment(
             attachment_id=att_id,
             mode=mode,
             priority=500,  # اولویت پیش‌فرض
@@ -487,7 +487,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         
         mode = query.data.replace("srmode_", "")
         t0 = time.perf_counter()
-        items = await self.db.get_suggested_attachments(mode)
+        items = await self.db.attachments.get_suggested_attachments(mode)
         log_performance(performance_logger, f"DB.get_suggested_attachments({mode})", time.perf_counter() - t0, threshold=0.2)
         
         if not items:
@@ -541,7 +541,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         mode = parts[0]
         att_id = int(parts[1])
         
-        if await self.db.remove_suggested_attachment(att_id, mode):
+        if await self.db.attachments.remove_suggested_attachment(att_id, mode):
             await safe_edit_message_text(
                 query,
                 t('admin.suggested.delete.success', lang),
@@ -564,10 +564,10 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         
         # دریافت لیست اتچمنت‌های پیشنهادی
         t0 = time.perf_counter()
-        br_items = await self.db.get_suggested_attachments('br')
+        br_items = await self.db.attachments.get_suggested_attachments('br')
         log_performance(performance_logger, "DB.get_suggested_attachments(br)", time.perf_counter() - t0, threshold=0.2)
         t1 = time.perf_counter()
-        mp_items = await self.db.get_suggested_attachments('mp')
+        mp_items = await self.db.attachments.get_suggested_attachments('mp')
         log_performance(performance_logger, "DB.get_suggested_attachments(mp)", time.perf_counter() - t1, threshold=0.2)
         
         text = t("admin.suggested.view_list.title", lang) + "\n\n"
@@ -615,8 +615,8 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
         
         if state == MANAGE_SUGGESTED_MENU:
             # بازگشت به منوی اصلی
-            br_count = await self.db.get_suggested_count('br')
-            mp_count = await self.db.get_suggested_count('mp')
+            br_count = await self.db.attachments.get_suggested_count('br')
+            mp_count = await self.db.attachments.get_suggested_count('mp')
             total_count = br_count + mp_count
             
             text = (
@@ -682,7 +682,7 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
             # بازگشت به لیست سلاح‌ها
             category = context.user_data.get('suggested_category')
             if category:
-                weapons = await self.db.get_weapons_in_category(category)
+                weapons = await self.db.attachments.get_weapons_in_category(category)
                 keyboard = self._make_weapon_keyboard(weapons, "sawpn_", category)
                 self._add_back_cancel_buttons(keyboard, show_back=True)
                 
@@ -698,8 +698,8 @@ class SuggestedAttachmentsHandler(BaseAdminHandler):
             weapon = context.user_data.get('suggested_weapon')
             mode = context.user_data.get('suggested_mode')
             
-            attachments = await self.db.get_all_attachments(category, weapon, mode)
-            sugg_items = await self.db.get_suggested_attachments(mode)
+            attachments = await self.db.attachments.get_all_attachments(category, weapon, mode)
+            sugg_items = await self.db.attachments.get_suggested_attachments(mode)
             suggested_ids = set()
             for it in sugg_items:
                 att_d = (it or {}).get('attachment', {})

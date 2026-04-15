@@ -150,7 +150,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
         category = query.data.replace("dcat_", "")
         context.user_data['del_att_category'] = category
         
-        weapons = await self.db.get_weapons_in_category(category)
+        weapons = await self.db.attachments.get_weapons_in_category(category)
         mode = context.user_data.get('del_att_mode', 'br')
         mode_name = GAME_MODES.get(mode, mode)
         
@@ -247,7 +247,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
         mode_name = GAME_MODES.get(mode, mode)
         
         # مستقیماً لیست اتچمنت‌ها را برای حذف نمایش بده
-        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         
         if not attachments:
             # ساخت کیبورد با دکمه بازگشت به لیست سلاح‌ها
@@ -326,7 +326,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
         # پیدا کردن اتچمنت با ID برای گرفتن نام و کد
         att_to_delete = None
         try:
-            for att in await self.db.get_all_attachments(category, weapon, mode=mode):
+            for att in await self.db.attachments.get_all_attachments(category, weapon, mode=mode):
                 if att.get('id') == att_id:
                     att_to_delete = att
                     break
@@ -347,7 +347,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
         code = att_to_delete['code']
         name = att_to_delete['name']
         
-        if await self.db.delete_attachment(category=category, weapon_name=weapon, code=code, mode=mode):
+        if await self.db.attachments.delete_attachment(category=category, weapon_name=weapon, code=code, mode=mode):
             # Show success message as popup alert
             await query.answer(t("admin.delete.success_alert", lang, name=name), show_alert=True)
             
@@ -379,7 +379,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
             )
             
             # رفرش کردن لیست - همان منطقی که در delete_attachment_weapon_selected داریم
-            attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+            attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
             
             if not attachments:
                 # اگر آیتمی نمانده، پیام "خالی" را نشان بده
@@ -481,7 +481,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
             lang = await get_user_lang(update, context, self.db) or 'fa'
             
             if category:
-                weapons = await self.db.get_weapons_in_category(category)
+                weapons = await self.db.attachments.get_weapons_in_category(category)
                 keyboard = self._make_weapon_keyboard(weapons, "dwpn_", category)
                 self._add_back_cancel_buttons(keyboard, show_back=True)
                 try:
@@ -507,7 +507,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
             mode_name = GAME_MODES.get(mode, mode)
             lang = await get_user_lang(update, context, self.db) or 'fa'
             
-            attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+            attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
             keyboard = []
             for att in attachments:
                 keyboard.append([InlineKeyboardButton(

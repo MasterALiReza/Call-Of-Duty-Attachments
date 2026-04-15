@@ -33,7 +33,7 @@ class CMSUserHandler(BaseUserHandler):
         await query.answer()
         lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         total = 0
@@ -71,7 +71,7 @@ class CMSUserHandler(BaseUserHandler):
         """نمایش منوی CMS (انتخاب نوع محتوا) از طریق پیام."""
         lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         total = 0
@@ -101,7 +101,7 @@ class CMSUserHandler(BaseUserHandler):
         await query.answer()
         lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         total = 0
@@ -186,7 +186,7 @@ class CMSUserHandler(BaseUserHandler):
         await query.answer()
         lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         if not cms_enabled:
@@ -211,7 +211,7 @@ class CMSUserHandler(BaseUserHandler):
         await query.answer()
         lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         if not cms_enabled:

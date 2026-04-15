@@ -124,7 +124,7 @@ async def build_category_keyboard(callback_prefix: str, show_count: bool = False
     if show_count and db:
         try:
             # کش در خود متد دیتابیس هندل می‌شود
-            counts = await db.get_all_category_counts()
+            counts = await db.attachments.get_all_category_counts()
         except Exception:
             counts = {}
     
@@ -220,7 +220,7 @@ import json
 
 async def get_all_category_settings(db=None) -> dict:
     if db:
-        val = await db.get_setting('category_settings')
+        val = await db.settings.get_setting('category_settings')
         if val:
             try:
                 return json.loads(val)
@@ -263,7 +263,7 @@ async def set_category_enabled(category: str, enabled: bool, mode: str = None, d
         settings[mode][category]['enabled'] = enabled
     
     if db:
-        await db.set_setting('category_settings', json.dumps(settings), "Category enable/disable settings")
+        await db.settings.set_setting('category_settings', json.dumps(settings), "Category enable/disable settings")
 
 DEFAULT_NOTIFICATION_SETTINGS = {
     "enabled": True,
@@ -292,7 +292,7 @@ DEFAULT_NOTIFICATION_SETTINGS = {
 
 async def get_notification_settings(db=None) -> dict:
     if db:
-        val = await db.get_setting('notification_settings')
+        val = await db.settings.get_setting('notification_settings')
         if val:
             try:
                 settings = json.loads(val)
@@ -306,7 +306,7 @@ async def get_notification_settings(db=None) -> dict:
 
 async def set_notification_settings(settings: dict, db=None) -> bool:
     if db:
-        return await db.set_setting('notification_settings', json.dumps(settings), "Global notification settings")
+        return await db.settings.set_setting('notification_settings', json.dumps(settings), "Global notification settings")
     return False
 
 

@@ -55,9 +55,9 @@ class DirectContactHandler(BaseAdminHandler):
         
         # دریافت تنظیمات فعلی
         lang = await get_user_lang(update, context, self.db) or 'fa'
-        enabled = await self.db.get_setting('direct_contact_enabled', 'true')
-        contact_name = await self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
-        contact_link = await self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
+        enabled = await self.db.settings.get_setting('direct_contact_enabled', 'true')
+        contact_name = await self.db.settings.get_setting('direct_contact_name', '💬 تماس مستقیم')
+        contact_link = await self.db.settings.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
         
         status_text = t("common.status.enabled", lang) if enabled.lower() == 'true' else t("common.status.disabled", lang)
         
@@ -104,7 +104,7 @@ class DirectContactHandler(BaseAdminHandler):
         new_status = 'true' if action == 'enable' else 'false'
         
         lang = await get_user_lang(update, context, self.db) or 'fa'
-        success = await self.db.set_setting(
+        success = await self.db.settings.set_setting(
             'direct_contact_enabled',
             new_status,
             description='وضعیت فعال/غیرفعال تماس مستقیم',
@@ -137,7 +137,7 @@ class DirectContactHandler(BaseAdminHandler):
         await query.answer()
         
         lang = await get_user_lang(update, context, self.db) or 'fa'
-        current_name = await self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
+        current_name = await self.db.settings.get_setting('direct_contact_name', '💬 تماس مستقیم')
         
         text = t("admin.direct.change_name.text", lang, current=current_name)
         
@@ -174,7 +174,7 @@ class DirectContactHandler(BaseAdminHandler):
             return DIRECT_CONTACT_NAME
         
         # ذخیره تنظیمات
-        success = await self.db.set_setting(
+        success = await self.db.settings.set_setting(
             'direct_contact_name',
             new_name,
             description='نام دکمه تماس مستقیم',
@@ -206,7 +206,7 @@ class DirectContactHandler(BaseAdminHandler):
         await query.answer()
         
         lang = await get_user_lang(update, context, self.db) or 'fa'
-        current_link = await self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
+        current_link = await self.db.settings.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
         
         text = t("admin.direct.change_link.text", lang, current=current_link)
         
@@ -243,7 +243,7 @@ class DirectContactHandler(BaseAdminHandler):
             return DIRECT_CONTACT_LINK
         
         # ذخیره تنظیمات
-        success = await self.db.set_setting(
+        success = await self.db.settings.set_setting(
             'direct_contact_link',
             new_link,
             description='لینک تماس مستقیم',

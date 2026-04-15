@@ -154,7 +154,7 @@ class TopAttachmentsHandler(BaseAdminHandler):
         category = query.data.replace("tcat_", "")
         context.user_data['set_top_category'] = category
         
-        weapons = await self.db.get_weapons_in_category(category)
+        weapons = await self.db.attachments.get_weapons_in_category(category)
         mode = context.user_data.get('set_top_mode', 'br')
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
@@ -239,7 +239,7 @@ class TopAttachmentsHandler(BaseAdminHandler):
         mode = context.user_data.get('set_top_mode', 'br')
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
-        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         
         if not attachments:
             await safe_edit_message_text(
@@ -317,7 +317,7 @@ class TopAttachmentsHandler(BaseAdminHandler):
         weapon = context.user_data['set_top_weapon']
         mode = context.user_data.get('set_top_mode', 'br')
         
-        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         selected_att = next((a for a in attachments if a['id'] == att_id), None)
         
         if not selected_att:
@@ -429,7 +429,7 @@ class TopAttachmentsHandler(BaseAdminHandler):
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
         # دریافت اتچمنت‌ها برای استخراج کدها و نام‌ها
-        attachments = await self.db.get_all_attachments(category, weapon, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         codes = []
         names = []
         for att_id in selected_tops:
@@ -438,7 +438,7 @@ class TopAttachmentsHandler(BaseAdminHandler):
                 codes.append(att['code'])
                 names.append(att['name'])
         
-        if await self.db.set_top_attachments(category, weapon, codes, mode=mode):
+        if await self.db.attachments.set_top_attachments(category, weapon, codes, mode=mode):
             try:
                 await safe_edit_message_text(
                     query,
@@ -530,7 +530,7 @@ class TopAttachmentsHandler(BaseAdminHandler):
             mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
             
             if category:
-                weapons = await self.db.get_weapons_in_category(category)
+                weapons = await self.db.attachments.get_weapons_in_category(category)
                 keyboard = self._make_weapon_keyboard(weapons, "twpn_", category)
                 self._add_back_cancel_buttons(keyboard, show_back=True)
                 try:

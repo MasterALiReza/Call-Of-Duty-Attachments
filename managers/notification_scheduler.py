@@ -62,7 +62,7 @@ class NotificationScheduler:
             try:
                 now = datetime.now(timezone.utc)
                 # Fetch due schedules
-                due_items = await self.db.get_due_scheduled_notifications(now)
+                due_items = await self.db.cms.get_due_scheduled_notifications(now)
                 if due_items:
                     logger.info(f"Found {len(due_items)} due scheduled notifications")
                 for item in due_items:
@@ -71,7 +71,7 @@ class NotificationScheduler:
                         # Compute next run
                         interval_hours = int(item.get('interval_hours') or 0)
                         next_run_at = now + timedelta(hours=interval_hours)
-                        await self.db.mark_schedule_sent(item['id'], now, next_run_at)
+                        await self.db.cms.mark_schedule_sent(item['id'], now, next_run_at)
                     except Exception as e:
                         logger.error(f"Error sending scheduled notification id={item.get('id')}: {e}")
                 # Sleep

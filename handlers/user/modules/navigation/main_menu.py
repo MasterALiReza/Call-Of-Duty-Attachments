@@ -40,7 +40,7 @@ class MainMenuHandler(BaseUserHandler):
             if param.startswith("att-"):
                 att_id, mode = parse_attachment_deep_link(param)
                 if att_id:
-                    att = await self.db.get_attachment_by_id(att_id)
+                    att = await self.db.attachments.get_attachment_by_id(att_id)
                     if att:
                         lang = await get_user_lang(update, context, self.db) or 'fa'
                         mode_name = t(f"mode.{mode}_btn", lang)
@@ -51,7 +51,7 @@ class MainMenuHandler(BaseUserHandler):
                         a_id = att.get('id')
                         if a_id:
                             try:
-                                stats = await self.db.get_attachment_stats(a_id, period='all') or {}
+                                stats = await self.db.analytics.get_attachment_stats(a_id, period='all') or {}
                                 like_count = stats.get('like_count', 0)
                                 dislike_count = stats.get('dislike_count', 0)
                             except Exception:
@@ -81,7 +81,7 @@ class MainMenuHandler(BaseUserHandler):
             if param.startswith("allw-"):
                 category, weapon, mode = parse_all_weapons_deep_link(param)
                 if category and weapon:
-                    items = await self.db.get_all_attachments(category, weapon, mode=mode) or []
+                    items = await self.db.attachments.get_all_attachments(category, weapon, mode=mode) or []
                     lang = await get_user_lang(update, context, self.db) or 'fa'
                     mode_name = t(f"mode.{mode}_btn", lang)
                     if not items:
@@ -123,7 +123,7 @@ class MainMenuHandler(BaseUserHandler):
         ]
         
         # ردیف 2: بسته به فعال بودن سیستم اتچمنت کاربران
-        ua_system_enabled = await self.db.get_ua_setting('system_enabled') or '1'
+        ua_system_enabled = await self.db.settings.get_ua_setting('system_enabled') or '1'
         logger.info(f"[DEBUG] UA system_enabled value: {repr(ua_system_enabled)} (type: {type(ua_system_enabled).__name__})")
         if ua_system_enabled in ('1', 'true', 'True'):
             keyboard.append([kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)])
@@ -138,7 +138,7 @@ class MainMenuHandler(BaseUserHandler):
 
         # ردیف CMS (نمایش مشروط به فعال بودن و داشتن محتوا)
         try:
-            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         if cms_enabled:
@@ -152,7 +152,7 @@ class MainMenuHandler(BaseUserHandler):
         keyboard.append([kb("menu.buttons.leaderboard", lang), kb("menu.buttons.user_settings", lang)])
 
         # اگر کاربر ادمین است، دکمه پنل ادمین را اضافه کن (بررسی از دیتابیس RBAC)
-        if await self.db.is_admin(user_id):
+        if await self.db.users.is_admin(user_id):
             keyboard.append([kb("menu.buttons.admin", lang)])
 
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -181,7 +181,7 @@ class MainMenuHandler(BaseUserHandler):
             [kb("menu.buttons.game_settings", lang), kb("menu.buttons.get", lang)]
         ]
 
-        ua_system_enabled = await self.db.get_ua_setting('system_enabled') or '1'
+        ua_system_enabled = await self.db.settings.get_ua_setting('system_enabled') or '1'
         if ua_system_enabled in ('1', 'true', 'True'):
             keyboard.append([kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)])
         else:
@@ -194,7 +194,7 @@ class MainMenuHandler(BaseUserHandler):
         ])
 
         try:
-            cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
         except Exception:
             cms_enabled = False
         if cms_enabled:
@@ -207,7 +207,7 @@ class MainMenuHandler(BaseUserHandler):
 
         keyboard.append([kb("menu.buttons.leaderboard", lang), kb("menu.buttons.user_settings", lang)])
 
-        if await self.db.is_admin(user_id):
+        if await self.db.users.is_admin(user_id):
             keyboard.append([kb("menu.buttons.admin", lang)])
 
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

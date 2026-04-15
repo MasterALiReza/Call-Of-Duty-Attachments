@@ -1642,6 +1642,7 @@
   "admin.health.restore.start.cancel": "برای لغو: /cancel",
   "admin.health.restore.file_required": "⚠️ لطفاً یک فایل ارسال کنید.",
   "admin.health.restore.invalid_format": "⚠️ فرمت فایل نامعتبر است. فقط فایل‌های با پسوند .zip، .dump یا .sql پذیرفته می‌شوند.",
+  "admin.health.restore.partial_success": "⚠️ بازگردانی با تعارض‌های غیر بحرانی کامل شد و اشیای موجود تا حد ممکن حفظ شدند.",
   "admin.health.restore.success.title": "✅ **بازگردانی بکاپ انجام شد**",
   "admin.health.restore.success.safety_backup": "📦 پشتیبان ایمنی قبل از بازگردانی: `{file}`",
   "admin.health.restore.success.restart": "▶️ برای اعمال کامل، ربات را راه‌اندازی مجدد کنید:\n`{cmd}`",

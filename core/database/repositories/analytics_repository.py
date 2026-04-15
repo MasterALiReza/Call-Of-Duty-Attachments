@@ -5,7 +5,7 @@ import logging
 import json
 import datetime
 from .base_repository import BaseRepository
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, cast
 from utils.logger import log_exception
 logger = logging.getLogger('database.analytics_mixin')
 
@@ -131,7 +131,7 @@ class AnalyticsRepository(BaseRepository):
         """دریافت محبوب\u200cترین اتچمنت\u200cها بر اساس رأی و تعامل"""
         try:
             where_clauses = []
-            params = []
+            params: list[object] = []
             if category:
                 where_clauses.append('wc.name = %s')
                 params.append(category)
@@ -164,13 +164,13 @@ class AnalyticsRepository(BaseRepository):
             elif period == 'year':
                 date_filter = "AND last_view_date >= NOW() - INTERVAL '365 days'"
             query_votes = f'\n                SELECT \n                    SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) as likes,\n                    SUM(CASE WHEN rating = -1 THEN 1 ELSE 0 END) as dislikes,\n                    COUNT(CASE WHEN rating IS NOT NULL THEN 1 END) as total_votes,\n                    SUM(COALESCE(total_views, 0)) as total_views,\n                    SUM(COALESCE(total_clicks, 0)) as total_clicks,\n                    COUNT(DISTINCT user_id) as unique_users\n                FROM user_attachment_engagement\n                WHERE attachment_id = %s {date_filter}\n            '
-            vote_stats = await self.execute_query(query_votes, (attachment_id,), fetch_one=True)
-            likes = vote_stats['likes'] or 0
-            dislikes = vote_stats['dislikes'] or 0
-            total_votes = vote_stats['total_votes'] or 0
+            vote_stats = await self.execute_query(query_votes, (attachment_id,), fetch_one=True) or {}
+            likes = vote_stats.get('likes', 0) or 0
+            dislikes = vote_stats.get('dislikes', 0) or 0
+            total_votes = vote_stats.get('total_votes', 0) or 0
             like_ratio = likes / total_votes * 100 if total_votes > 0 else 0
             dislike_ratio = dislikes / total_votes * 100 if total_votes > 0 else 0
-            return {'like_count': likes, 'dislike_count': dislikes, 'total_votes': total_votes, 'like_ratio': round(like_ratio, 1), 'dislike_ratio': round(dislike_ratio, 1), 'net_score': likes - dislikes, 'total_views': vote_stats['total_views'] or 0, 'total_clicks': vote_stats['total_clicks'] or 0, 'unique_users': vote_stats['unique_users'] or 0, 'period': period}
+            return {'like_count': likes, 'dislike_count': dislikes, 'total_votes': total_votes, 'like_ratio': round(like_ratio, 1), 'dislike_ratio': round(dislike_ratio, 1), 'net_score': likes - dislikes, 'total_views': vote_stats.get('total_views', 0) or 0, 'total_clicks': vote_stats.get('total_clicks', 0) or 0, 'unique_users': vote_stats.get('unique_users', 0) or 0, 'period': period}
         except Exception as e:
             log_exception(logger, e, f'get_attachment_stats({attachment_id})')
             return {'like_count': 0, 'dislike_count': 0, 'total_votes': 0, 'like_ratio': 0, 'dislike_ratio': 0, 'net_score': 0, 'total_views': 0, 'total_clicks': 0, 'unique_users': 0, 'period': period}
@@ -256,14 +256,15 @@ class AnalyticsRepository(BaseRepository):
         """دریافت آمار جستجو"""
         try:
             query_stats = '\n                SELECT \n                    COUNT(*) as total_searches,\n                    COUNT(DISTINCT user_id) as unique_users,\n                    AVG(results_count) as avg_results,\n                    AVG(execution_time_ms) as avg_time_ms,\n                    SUM(CASE WHEN results_count = 0 THEN 1 ELSE 0 END) as zero_results\n                FROM search_history\n                WHERE created_at >= NOW() - make_interval(days => %s)\n            '
-            stats = await self.execute_query(query_stats, (days,), fetch_one=True)
+            stats = await self.execute_query(query_stats, (days,), fetch_one=True) or {}
             query_top = '\n                SELECT query, COUNT(*) as count\n                FROM search_history\n                WHERE created_at >= NOW() - make_interval(days => %s)\n                GROUP BY query\n                ORDER BY count DESC\n                LIMIT 10\n            '
             top_queries = await self.execute_query(query_top, (days,), fetch_all=True)
             query_failed = '\n                SELECT query, COUNT(*) as count\n                FROM search_history\n                WHERE results_count = 0\n                  AND created_at >= NOW() - make_interval(days => %s)\n                GROUP BY query\n                ORDER BY count DESC\n                LIMIT 10\n            '
             failed_queries = await self.execute_query(query_failed, (days,), fetch_all=True)
-            total = stats['total_searches'] or 1
-            zero_rate = stats['zero_results'] / total * 100 if total > 0 else 0
-            return {'total_searches': stats['total_searches'] or 0, 'unique_users': stats['unique_users'] or 0, 'avg_results': round(stats['avg_results'] or 0, 1), 'avg_time_ms': round(stats['avg_time_ms'] or 0, 1), 'zero_results': stats['zero_results'] or 0, 'zero_rate': round(zero_rate, 1), 'top_queries': [{'query': q['query'], 'count': q['count']} for q in top_queries], 'failed_queries': [{'query': q['query'], 'count': q['count']} for q in failed_queries]}
+            total = stats.get('total_searches', 0) or 1
+            zero_results = stats.get('zero_results', 0) or 0
+            zero_rate = zero_results / total * 100 if total > 0 else 0
+            return {'total_searches': stats.get('total_searches', 0) or 0, 'unique_users': stats.get('unique_users', 0) or 0, 'avg_results': round(stats.get('avg_results', 0) or 0, 1), 'avg_time_ms': round(stats.get('avg_time_ms', 0) or 0, 1), 'zero_results': zero_results, 'zero_rate': round(zero_rate, 1), 'top_queries': [{'query': q['query'], 'count': q['count']} for q in top_queries], 'failed_queries': [{'query': q['query'], 'count': q['count']} for q in failed_queries]}
         except Exception as e:
             log_exception(logger, e, 'get_search_analytics')
             return {'total_searches': 0, 'unique_users': 0, 'avg_results': 0, 'avg_time_ms': 0, 'zero_results': 0, 'zero_rate': 0, 'top_queries': [], 'failed_queries': []}
@@ -301,12 +302,12 @@ class AnalyticsRepository(BaseRepository):
         """دریافت آمار کامل و تفصیلی دیتابیس"""
         try:
             stats = {'total_weapons': 0, 'total_attachments': 0, 'total_attachments_br': 0, 'total_attachments_mp': 0, 'total_top_attachments': 0, 'total_season_attachments': 0, 'total_guides': 0, 'total_guides_br': 0, 'total_guides_mp': 0, 'total_channels': 0, 'total_admins': 0, 'categories': {}, 'weapons_with_attachments': 0, 'weapons_without_attachments': 0}
-            stats['total_weapons'] = await self.execute_query('SELECT COUNT(*) as count FROM weapons', fetch_one=True)['count']
-            stats['total_attachments'] = await self.execute_query('SELECT COUNT(*) as count FROM attachments', fetch_one=True)['count']
-            stats['total_attachments_br'] = await self.execute_query("SELECT COUNT(*) as count FROM attachments WHERE mode = 'br'", fetch_one=True)['count']
-            stats['total_attachments_mp'] = await self.execute_query("SELECT COUNT(*) as count FROM attachments WHERE mode = 'mp'", fetch_one=True)['count']
-            stats['total_top_attachments'] = await self.execute_query('SELECT COUNT(*) as count FROM attachments WHERE is_top = TRUE', fetch_one=True)['count']
-            stats['total_season_attachments'] = await self.execute_query('SELECT COUNT(*) as count FROM attachments WHERE is_season_top = TRUE', fetch_one=True)['count']
+            stats['total_weapons'] = ((await self.execute_query('SELECT COUNT(*) as count FROM weapons', fetch_one=True)) or {}).get('count', 0)
+            stats['total_attachments'] = ((await self.execute_query('SELECT COUNT(*) as count FROM attachments', fetch_one=True)) or {}).get('count', 0)
+            stats['total_attachments_br'] = ((await self.execute_query("SELECT COUNT(*) as count FROM attachments WHERE mode = 'br'", fetch_one=True)) or {}).get('count', 0)
+            stats['total_attachments_mp'] = ((await self.execute_query("SELECT COUNT(*) as count FROM attachments WHERE mode = 'mp'", fetch_one=True)) or {}).get('count', 0)
+            stats['total_top_attachments'] = ((await self.execute_query('SELECT COUNT(*) as count FROM attachments WHERE is_top = TRUE', fetch_one=True)) or {}).get('count', 0)
+            stats['total_season_attachments'] = ((await self.execute_query('SELECT COUNT(*) as count FROM attachments WHERE is_season_top = TRUE', fetch_one=True)) or {}).get('count', 0)
             return stats
         except Exception as e:
             log_exception(logger, e, 'get_statistics')
@@ -821,15 +822,15 @@ class AnalyticsRepository(BaseRepository):
             if suggested_only:
                 base_sql += ' AND attachment_id IN (SELECT attachment_id FROM suggested_attachments)'
                 
-            row = await self.execute_query(base_sql, fetch_one=True)
+            row = await self.execute_query(base_sql, fetch_one=True) or {}
             
             return {
-                'total_votes': int(row['total_votes'] or 0),
-                'total_likes': int(row['total_likes'] or 0),
-                'total_dislikes': int(row['total_dislikes'] or 0),
-                'total_views': int(row['total_views'] or 0),
-                'total_feedbacks': int(row['total_feedbacks'] or 0),
-                'active_users': int(row['active_users'] or 0)
+                'total_votes': int(row.get('total_votes', 0) or 0),
+                'total_likes': int(row.get('total_likes', 0) or 0),
+                'total_dislikes': int(row.get('total_dislikes', 0) or 0),
+                'total_views': int(row.get('total_views', 0) or 0),
+                'total_feedbacks': int(row.get('total_feedbacks', 0) or 0),
+                'active_users': int(row.get('active_users', 0) or 0)
             }
         except Exception as e:
             log_exception(logger, e, 'get_attachment_feedback_stats')
@@ -843,8 +844,8 @@ class AnalyticsRepository(BaseRepository):
                 where_clause += " AND uae.attachment_id IN (SELECT attachment_id FROM suggested_attachments)"
                 
             count_sql = f"SELECT COUNT(*) as count FROM user_attachment_engagement uae {where_clause}"
-            total_row = await self.execute_query(count_sql, fetch_one=True)
-            total = int(total_row['count'] or 0)
+            total_row = await self.execute_query(count_sql, fetch_one=True) or {}
+            total = int(total_row.get('count', 0) or 0)
             
             list_sql = f"""
                 SELECT 
@@ -931,7 +932,7 @@ class AnalyticsRepository(BaseRepository):
             days = weeks * 7
             dt_filter = get_datetime_interval(days)
             
-            query = f"""
+            query = """
                 SELECT 
                     to_char(date_trunc('week', uae.last_view_date), 'IYYY-IW') AS week_label, 
                     COUNT(CASE WHEN uae.rating IS NOT NULL THEN 1 END) AS votes 
@@ -1003,7 +1004,7 @@ class AnalyticsRepository(BaseRepository):
         """Get aggregated stats for a specific weapon category"""
         try:
             where_clause = "WHERE wc.id = %s"
-            params = [category_id]
+            params: list[object] = [category_id]
             if mode:
                 where_clause += " AND a.mode = %s"
                 params.append(mode)
@@ -1032,7 +1033,7 @@ class AnalyticsRepository(BaseRepository):
                 LEFT JOIN views v ON b.id = v.attachment_id
             """
             params.append(category_id)
-            return await self.execute_query(query, tuple(params), fetch_one=True)
+            return cast(Dict[str, Any], (await self.execute_query(query, tuple(params), fetch_one=True)) or {})
         except Exception as e:
             log_exception(logger, e, f"get_weapon_category_stats({category_id})")
             return {}
@@ -1105,11 +1106,11 @@ class AnalyticsRepository(BaseRepository):
                 FROM attachment_metrics
                 WHERE action_date >= NOW() - make_interval(days => %s)
             """
-            result = await self.execute_query(query, (days,), fetch_one=True)
+            result = await self.execute_query(query, (days,), fetch_one=True) or {}
             return {
-                "views": result['views'] or 0,
-                "clicks": result['clicks'] or 0,
-                "users": result['users'] or 0
+                "views": result.get('views', 0) or 0,
+                "clicks": result.get('clicks', 0) or 0,
+                "users": result.get('users', 0) or 0
             }
         except Exception as e:
             log_exception(logger, e, "get_report_summary")

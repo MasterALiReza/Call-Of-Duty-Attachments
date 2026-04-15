@@ -1,18 +1,23 @@
-from core.context import CustomContext
 """
 Banned Users Handler - مدیریت کاربران محروم
 """
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters
+from core.audit import AuditLogger
+from core.context import CustomContext
 from core.database.database_adapter import get_database_adapter
-from core.security.role_manager import RoleManager, Permission
-from utils.logger import get_logger
+from core.security.role_manager import RoleManager
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.ext import CallbackQueryHandler, ConversationHandler, MessageHandler, filters
+from utils.error_handler import error_handler
 from utils.i18n import t
 from utils.language import get_user_lang
+from utils.logger import get_logger, log_exception
+
+from .permissions import has_manage_user_attachments_permission
 
 logger = get_logger('ua_banned', 'admin.log')
 db = get_database_adapter()
+audit_logger = AuditLogger()
 
 # RBAC helper
 role_manager = RoleManager(db)
@@ -22,12 +27,25 @@ UA_ADMIN_BAN_REASON = 1
 
 async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
-    try:
-        if await role_manager.is_super_admin(user_id):
-            return True
-        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
-    except Exception:
-        return await db.is_admin(user_id)
+    return bool(await has_manage_user_attachments_permission(
+        user_id,
+        db=db,
+        role_manager=role_manager,
+        audit_logger=audit_logger,
+        route="ua_admin_banned",
+        source="banned_handler",
+    ))
+
+
+async def _handle_boundary_error(
+    update: Update,
+    context: CustomContext,
+    exc: Exception,
+    scope: str,
+) -> None:
+    """Log unexpected failures before delegating to the shared Telegram error handler."""
+    log_exception(logger, exc, scope)
+    await error_handler.handle_telegram_error(update, context, exc)
 
 
 async def show_banned_users(update: Update, context: CustomContext):
@@ -61,9 +79,8 @@ async def show_banned_users(update: Update, context: CustomContext):
                 ORDER BY uss.banned_at DESC
             """)
                 banned_users = await cursor.fetchall()
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_banned.show_banned_users")
         return
     
     if not banned_users:
@@ -138,9 +155,8 @@ async def show_banned_detail(update: Update, context: CustomContext):
         
         (uid, username, first_name, reason, banned_at, total, approved, rejected, strikes) = user_info
         
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_banned.show_banned_detail")
         return
     
     display_name = f"@{username}" if username else (first_name or t('user.anonymous', lang))
@@ -152,7 +168,7 @@ async def show_banned_detail(update: Update, context: CustomContext):
         else:
             try:
                 banned_at_display = banned_at.strftime('%Y-%m-%d')
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 banned_at_display = str(banned_at)[:10]
     
     message = (
@@ -194,12 +210,9 @@ async def unban_user(update: Update, context: CustomContext):
     
     try:
         # رفع محرومیت
-        success = await db.unban_user_from_attachments(banned_user_id)
+        success = await db.users.unban_user_from_attachments(banned_user_id)
         
         if success:
-            # دریافت اطلاعات کاربر برای notification
-            user_info = await db.get_user(banned_user_id)
-            
             # Notification به کاربر
             try:
                 notif_text = t('user.ua.unbanned', lang)
@@ -208,8 +221,8 @@ async def unban_user(update: Update, context: CustomContext):
                     text=notif_text,
                     parse_mode='Markdown'
                 )
-            except Exception as e:
-                logger.error(f"Error sending unban notification: {e}")
+            except Exception as exc:
+                log_exception(logger, exc, "ua_banned.unban_user.notification")
             
             await query.answer(t('admin.ua.banned.unban.success', lang), show_alert=True)
             
@@ -218,9 +231,8 @@ async def unban_user(update: Update, context: CustomContext):
         else:
             await query.answer(t('admin.ua.banned.unban.error', lang), show_alert=True)
             
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_banned.unban_user")
 
 
 async def ban_user_from_review(update: Update, context: CustomContext):
@@ -254,8 +266,8 @@ async def ban_user_from_review(update: Update, context: CustomContext):
     # پاک کردن ReplyKeyboard کاربر تا متن به همین مکالمه برسد
     try:
         await query.message.reply_text(t('admin.ua.banned.ban_request.type_reason', lang), reply_markup=ReplyKeyboardRemove())
-    except Exception:
-        pass
+    except Exception as exc:
+        log_exception(logger, exc, "ua_banned.ban_user_from_review.reply_cleanup")
 
     return UA_ADMIN_BAN_REASON
 
@@ -273,7 +285,7 @@ async def receive_ban_reason(update: Update, context: CustomContext):
         await update.message.reply_text(t('error.generic', lang))
         return ConversationHandler.END
     
-    success = await db.ban_user_from_submissions(target_user_id, reason, banned_by=admin_id)
+    success = await db.users.ban_user_from_submissions(target_user_id, reason, banned_by=admin_id)
     if success:
         try:
             notif_text = t('user.ua.banned', lang, reason=reason)
@@ -282,8 +294,8 @@ async def receive_ban_reason(update: Update, context: CustomContext):
                 text=notif_text,
                 parse_mode='Markdown'
             )
-        except Exception as e:
-            logger.error(f"Error sending ban notification: {e}")
+        except Exception as exc:
+            log_exception(logger, exc, "ua_banned.receive_ban_reason.notification")
         await update.message.reply_text(
             t('admin.ua.banned.ban.success', lang),
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_banned")]])

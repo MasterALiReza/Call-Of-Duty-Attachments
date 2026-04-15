@@ -1,31 +1,49 @@
-from core.context import CustomContext
 """
 Settings Handler - تنظیمات سیستم اتچمنت کاربران
 """
 
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
+
+from core.audit import AuditLogger
+from core.context import CustomContext
 from core.database.database_adapter import get_database_adapter
-from core.security.role_manager import RoleManager, Permission
-from utils.logger import get_logger
+from core.security.role_manager import RoleManager
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler, ConversationHandler, MessageHandler, filters
+from utils.error_handler import error_handler
 from utils.i18n import t
 from utils.language import get_user_lang
+from utils.logger import get_logger, log_exception
+
+from .permissions import has_manage_user_attachments_permission
 
 logger = get_logger('ua_settings', 'admin.log')
 db = get_database_adapter()
+audit_logger = AuditLogger()
 
 # RBAC helper
 role_manager = RoleManager(db)
 
 async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
-    try:
-        if await role_manager.is_super_admin(user_id):
-            return True
-        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
-    except Exception:
-        return await db.is_admin(user_id)
+    return bool(await has_manage_user_attachments_permission(
+        user_id,
+        db=db,
+        role_manager=role_manager,
+        audit_logger=audit_logger,
+        route="ua_admin_settings",
+        source="settings_handler",
+    ))
+
+
+async def _handle_boundary_error(
+    update: Update,
+    context: CustomContext,
+    exc: Exception,
+    scope: str,
+) -> None:
+    log_exception(logger, exc, scope)
+    await error_handler.handle_telegram_error(update, context, exc)
 
 # States برای مدیریت blacklist
 ADD_BLACKLIST_WORD, REMOVE_BLACKLIST_WORD = range(2)
@@ -45,11 +63,11 @@ async def show_ua_settings(update: Update, context: CustomContext):
     try:
         # دریافت تنظیمات
         settings = {}
-        all_settings = await db.get_all_user_attachment_settings()
+        all_settings = await db.settings.get_all_user_attachment_settings()
         for setting in all_settings:
             settings[setting['setting_key']] = setting['setting_value']
-    except Exception as e:
-        logger.error(f"Error fetching settings: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_settings.show_ua_settings.fetch_settings")
         settings = {}
     
     # تبدیل به boolean/int
@@ -61,8 +79,8 @@ async def show_ua_settings(update: Update, context: CustomContext):
         enabled_modes = json.loads(enabled_modes_str)
         br_enabled = 'br' in enabled_modes
         mp_enabled = 'mp' in enabled_modes
-    except Exception as e:
-        logger.error(f"Error parsing enabled_modes: {e}")
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        log_exception(logger, exc, "ua_settings.show_ua_settings.parse_enabled_modes")
         br_enabled = True
         mp_enabled = True
     
@@ -125,9 +143,9 @@ async def toggle_system(update: Update, context: CustomContext):
         return
     
     try:
-        current_value = await db.get_ua_setting('system_enabled')
+        current_value = await db.settings.get_ua_setting('system_enabled')
         new_value = '0' if current_value == '1' else '1'
-        await db.set_user_attachment_setting('system_enabled', new_value, user_id)
+        await db.settings.set_user_attachment_setting('system_enabled', new_value, user_id)
         
         status_word = t('common.enabled_word', lang) if new_value == '1' else t('common.disabled_word', lang)
         await query.answer(t('admin.ua.settings.system.toggled', lang, status=status_word), show_alert=True)
@@ -135,9 +153,8 @@ async def toggle_system(update: Update, context: CustomContext):
         # بازگشت به منو
         await show_ua_settings(update, context)
         
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_settings.toggle_system")
 
 
 async def toggle_mode(update: Update, context: CustomContext):
@@ -161,7 +178,7 @@ async def toggle_mode(update: Update, context: CustomContext):
     
     try:
         # دریافت enabled_modes فعلی
-        enabled_modes_str = await db.get_ua_setting('enabled_modes') or '["mp","br"]'
+        enabled_modes_str = await db.settings.get_ua_setting('enabled_modes') or '["mp","br"]'
         enabled_modes = json.loads(enabled_modes_str)
         
         # toggle کردن mode
@@ -174,7 +191,7 @@ async def toggle_mode(update: Update, context: CustomContext):
         
         # ذخیره تغییرات
         new_value = json.dumps(enabled_modes)
-        success = await db.set_user_attachment_setting('enabled_modes', new_value, user_id)
+        success = await db.settings.set_user_attachment_setting('enabled_modes', new_value, user_id)
         
         if success:
             logger.info(f"Mode {mode} toggled | New modes: {enabled_modes}")
@@ -186,9 +203,8 @@ async def toggle_mode(update: Update, context: CustomContext):
         # بازگشت به منو
         await show_ua_settings(update, context)
         
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_settings.toggle_mode")
 
 
 async def show_blacklist(update: Update, context: CustomContext):
@@ -203,9 +219,9 @@ async def show_blacklist(update: Update, context: CustomContext):
         return
     
     try:
-        blacklist = await db.get_all_blacklisted_words()
-    except Exception as e:
-        logger.error(f"Error fetching blacklist: {e}")
+        blacklist = await db.settings.get_all_blacklisted_words()
+    except Exception as exc:
+        log_exception(logger, exc, "ua_settings.show_blacklist.fetch_blacklist")
         blacklist = []
     
     if not blacklist:
@@ -263,7 +279,7 @@ async def show_limits_settings(update: Update, context: CustomContext):
     try:
         # دریافت تنظیمات
         settings = {}
-        all_settings = await db.get_all_user_attachment_settings()
+        all_settings = await db.settings.get_all_user_attachment_settings()
         for setting in all_settings:
             settings[setting['setting_key']] = setting['setting_value']
     except Exception as e:
@@ -336,10 +352,10 @@ async def show_categories_settings(update: Update, context: CustomContext):
     
     try:
         # دریافت enabled_categories
-        enabled_categories_str = await db.get_ua_setting('enabled_categories') or '[]'
+        enabled_categories_str = await db.settings.get_ua_setting('enabled_categories') or '[]'
         enabled_categories = json.loads(enabled_categories_str)
-    except Exception as e:
-        logger.error(f"Error fetching enabled_categories: {e}")
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        log_exception(logger, exc, "ua_settings.show_categories_settings.parse_enabled_categories")
         enabled_categories = all_categories.copy()  # پیش‌فرض: همه فعال
     
     emoji_map = {
@@ -406,7 +422,7 @@ async def toggle_category(update: Update, context: CustomContext):
     
     try:
         # دریافت enabled_categories فعلی
-        enabled_categories_str = await db.get_ua_setting('enabled_categories') or '[]'
+        enabled_categories_str = await db.settings.get_ua_setting('enabled_categories') or '[]'
         enabled_categories = json.loads(enabled_categories_str)
         
         # toggle کردن
@@ -419,7 +435,7 @@ async def toggle_category(update: Update, context: CustomContext):
         
         # ذخیره
         new_value = json.dumps(enabled_categories)
-        success = await db.set_user_attachment_setting('enabled_categories', new_value, user_id)
+        success = await db.settings.set_user_attachment_setting('enabled_categories', new_value, user_id)
         
         if success:
             # Force English for category name in toggle message
@@ -431,9 +447,8 @@ async def toggle_category(update: Update, context: CustomContext):
         # بازگشت به منو
         await show_categories_settings(update, context)
         
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_settings.toggle_category")
 
 
 # Handlers برای افزودن و حذف کلمه (placeholder - نیاز به ConversationHandler)
@@ -516,7 +531,7 @@ async def receive_new_blacklist_word(update: Update, context: CustomContext):
                 continue
             
             # اضافه کردن به database
-            success = await db.add_blacklisted_word(word, 'profanity', severity, user_id)
+            success = await db.settings.add_blacklisted_word(word, 'profanity', severity, user_id)
             
             if success:
                 success_words.append(f"{word} ({severity_names[severity]})")
@@ -690,8 +705,8 @@ async def set_limit_value(update: Update, context: CustomContext):
             window = parts[5]
             
             # ذخیره هر دو مقدار
-            success1 = await db.set_user_attachment_setting('rate_limit_requests', requests, user_id)
-            success2 = await db.set_user_attachment_setting('rate_limit_window', window, user_id)
+            success1 = await db.settings.set_user_attachment_setting('rate_limit_requests', requests, user_id)
+            success2 = await db.settings.set_user_attachment_setting('rate_limit_window', window, user_id)
             
             if success1 and success2:
                 await query.answer("✅ " + t('admin.ua.limits.buttons.rate', lang, requests=requests, minutes=int(window)/60, min_label=t('common.min', lang)), show_alert=True)
@@ -716,7 +731,7 @@ async def set_limit_value(update: Update, context: CustomContext):
                 return
             
             # ذخیره در database
-            success = await db.set_user_attachment_setting(setting_key, new_value, user_id)
+            success = await db.settings.set_user_attachment_setting(setting_key, new_value, user_id)
             
             if success:
                 if limit_type == 'image':
@@ -732,9 +747,8 @@ async def set_limit_value(update: Update, context: CustomContext):
             else:
                 await query.answer(t('error.generic', lang), show_alert=True)
                 
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_settings.set_limit_value")
 
 
 async def start_remove_blacklist_word(update: Update, context: CustomContext):
@@ -750,14 +764,13 @@ async def start_remove_blacklist_word(update: Update, context: CustomContext):
     
     # دریافت لیست کلمات
     try:
-        blacklist = await db.get_all_blacklisted_words()
+        blacklist = await db.settings.get_all_blacklisted_words()
         if not blacklist:
             await query.answer(t('admin.ua.blacklist.empty_title', lang), show_alert=True)
             await show_blacklist(update, context)
             return ConversationHandler.END
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_settings.start_remove_blacklist_word")
         return ConversationHandler.END
     
     message = (
@@ -794,7 +807,7 @@ async def receive_word_to_remove(update: Update, context: CustomContext):
     
     try:
         # پیدا کردن ID کلمه
-        blacklist = await db.get_all_blacklisted_words()
+        blacklist = await db.settings.get_all_blacklisted_words()
         word_entry = next((w for w in blacklist if w['word'].lower() == word.lower()), None)
         
         if not word_entry:
@@ -804,7 +817,7 @@ async def receive_word_to_remove(update: Update, context: CustomContext):
             return REMOVE_BLACKLIST_WORD
         
         # حذف کلمه
-        success = db.remove_blacklisted_word(word_entry['id'])
+        success = await db.settings.remove_blacklisted_word(word_entry['id'])
         
         if success:
             keyboard = [
@@ -827,8 +840,8 @@ async def receive_word_to_remove(update: Update, context: CustomContext):
         
         return ConversationHandler.END
         
-    except Exception as e:
-        logger.error(f"Error removing word: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_settings.receive_word_to_remove")
         await update.message.reply_text(t('admin.ua.blacklist.remove.error', lang))
         return ConversationHandler.END
 

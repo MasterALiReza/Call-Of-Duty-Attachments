@@ -14,18 +14,18 @@ Features:
 from core.context import CustomContext
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import BadRequest
 from handlers.admin.modules.base_handler import BaseAdminHandler
 from handlers.admin.admin_states import (
     ADMIN_MENU, USER_MGMT_MENU, USER_MGMT_LIST,
     USER_MGMT_SEARCH, USER_MGMT_DETAIL, USER_MGMT_BAN
 )
-from utils.logger import get_logger, log_admin_action
+from utils.logger import get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
 from core.security.role_manager import Permission
 import math
+from typing import Any
 
 logger = get_logger('user_mgmt', 'admin.log')
 
@@ -57,12 +57,12 @@ class UserManagementHandler(BaseAdminHandler):
             return str(n).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
         return str(n)
 
-    def _format_datetime(self, dt, lang: str = 'fa') -> str:
+    def _format_datetime(self, dt: Any, lang: str = 'fa') -> str:
         """فرمت تاریخ/زمان"""
         if dt is None:
-            return t('admin.user_mgmt.never', lang)
+            return str(t('admin.user_mgmt.never', lang))
         try:
-            return dt.strftime('%Y-%m-%d %H:%M')
+            return str(dt.strftime('%Y-%m-%d %H:%M'))
         except Exception:
             return str(dt)[:16]
 
@@ -72,6 +72,21 @@ class UserManagementHandler(BaseAdminHandler):
             return ""
         # در مارک‌داون معمولی تلگرام، کاراکترهای _ و * و [ و ` باید با دقت مدیریت شوند
         return str(text).replace('_', '\\_').replace('*', '\\*').replace('`', '\\`')
+
+    async def _deny_manage_users(
+        self,
+        update: Update,
+        context: CustomContext,
+        *,
+        route: str,
+    ) -> None:
+        await self.send_permission_denied(
+            update,
+            context,
+            route=route,
+            permission=Permission.MANAGE_USERS,
+            source=route,
+        )
 
     # ========== منوی اصلی مدیریت کاربران ==========
 
@@ -87,7 +102,7 @@ class UserManagementHandler(BaseAdminHandler):
         has_perm = await self.check_permission(user_id, Permission.MANAGE_USERS)
         is_super = await self.role_manager.is_super_admin(user_id)
         if not has_perm and not is_super:
-            await self.send_permission_denied(update, context)
+            await self._deny_manage_users(update, context, route="user_mgmt_menu")
             return ADMIN_MENU
 
         # پاک کردن داده‌های قبلی
@@ -96,8 +111,9 @@ class UserManagementHandler(BaseAdminHandler):
         context.user_data.pop('um_page', None)
 
         # دریافت آمار
-        stats = await self.db.get_users_stats()
-        _n = lambda n: self._fa_digits(n, lang)
+        stats = await self.db.users.get_users_stats()
+        def _n(n: object) -> str:
+            return self._fa_digits(n, lang)
 
         text = "━━━━━━━━━━━━━━━━━━━━\n"
         text += t('admin.user_mgmt.title', lang) + "\n"
@@ -141,7 +157,7 @@ class UserManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.check_permission(user_id, Permission.MANAGE_USERS):
-            await self.send_permission_denied(update, context)
+            await self._deny_manage_users(update, context, route="user_list")
             return ADMIN_MENU
 
         # تشخیص صفحه
@@ -157,11 +173,12 @@ class UserManagementHandler(BaseAdminHandler):
         is_banned = context.user_data.get('um_filter')
 
         # دریافت کاربران
-        users = await self.db.get_users_paginated(page=page, limit=PAGE_SIZE, search=search, is_banned=is_banned)
-        total = await self.db.get_users_count(search=search, is_banned=is_banned)
+        users = await self.db.users.get_users_paginated(page=page, limit=PAGE_SIZE, search=search, is_banned=is_banned)
+        total = await self.db.users.get_users_count(search=search, is_banned=is_banned)
         total_pages = max(1, math.ceil(total / PAGE_SIZE))
 
-        _n = lambda n: self._fa_digits(n, lang)
+        def _n(n: object) -> str:
+            return self._fa_digits(n, lang)
 
         text = t('admin.user_mgmt.list.title', lang) + "\n"
         if search:
@@ -233,7 +250,7 @@ class UserManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.check_permission(user_id, Permission.MANAGE_USERS):
-            await self.send_permission_denied(update, context)
+            await self._deny_manage_users(update, context, route="user_search_start")
             return ADMIN_MENU
 
         text = t('admin.user_mgmt.search.prompt', lang)
@@ -248,6 +265,12 @@ class UserManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.check_permission(user_id, Permission.MANAGE_USERS):
+            await self.audit_permission_denied(
+                user_id,
+                route="user_search_received",
+                permission=Permission.MANAGE_USERS,
+                source="user_search_received",
+            )
             await update.message.reply_text(t('common.no_permission', lang))
             return ADMIN_MENU
 
@@ -262,9 +285,10 @@ class UserManagementHandler(BaseAdminHandler):
         context.user_data.pop('um_filter', None)
 
         # دریافت نتایج
-        users = await self.db.get_users_paginated(page=1, limit=PAGE_SIZE, search=search_text)
-        total = await self.db.get_users_count(search=search_text)
-        _n = lambda n: self._fa_digits(n, lang)
+        users = await self.db.users.get_users_paginated(page=1, limit=PAGE_SIZE, search=search_text)
+        total = await self.db.users.get_users_count(search=search_text)
+        def _n(n: object) -> str:
+            return self._fa_digits(n, lang)
 
         text = t('admin.user_mgmt.search.results', lang, q=self._escape(search_text), n=_n(total)) + "\n"
         text += "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
@@ -316,13 +340,11 @@ class UserManagementHandler(BaseAdminHandler):
 
     async def user_filter_banned(self, update: Update, context: CustomContext):
         """فیلتر فقط کاربران بن‌شده"""
-        query = update.callback_query
         user_id = update.effective_user.id
-        lang = await get_user_lang(update, context, self.db) or 'fa'
 
         # بررسی دسترسی
         if not await self.check_permission(user_id, Permission.MANAGE_USERS):
-            await self.send_permission_denied(update, context)
+            await self._deny_manage_users(update, context, route="user_filter_banned")
             return ADMIN_MENU
 
         context.user_data['um_filter'] = True
@@ -343,17 +365,18 @@ class UserManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.check_permission(user_id, Permission.MANAGE_USERS):
-            await self.send_permission_denied(update, context)
+            await self._deny_manage_users(update, context, route="user_detail")
             return ADMIN_MENU
 
         target_user_id = int(query.data.replace("um_detail_", ""))
-        user_data = await self.db.get_user_detailed(target_user_id)
+        user_data = await self.db.users.get_user_detailed(target_user_id)
 
         if not user_data:
             await safe_edit_message_text(query, t('admin.user_mgmt.detail.not_found', lang))
             return USER_MGMT_MENU
 
-        _n = lambda n: self._fa_digits(n, lang)
+        def _n(n: object) -> str:
+            return self._fa_digits(n, lang)
 
         # ساخت متن جزئیات
         uname = user_data.get('username')
@@ -427,7 +450,7 @@ class UserManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.check_permission(user_id, Permission.MANAGE_USERS):
-            await self.send_permission_denied(update, context)
+            await self._deny_manage_users(update, context, route="user_ban_start")
             return ADMIN_MENU
 
         target_user_id = int(query.data.replace("um_ban_", ""))
@@ -445,6 +468,12 @@ class UserManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.check_permission(user_id, Permission.MANAGE_USERS):
+            await self.audit_permission_denied(
+                user_id,
+                route="user_ban_confirm",
+                permission=Permission.MANAGE_USERS,
+                source="user_ban_confirm",
+            )
             await update.message.reply_text(t('common.no_permission', lang))
             return ADMIN_MENU
 
@@ -455,7 +484,7 @@ class UserManagementHandler(BaseAdminHandler):
             await update.message.reply_text(t('admin.user_mgmt.ban.error', lang))
             return await self._return_to_menu(update, context)
 
-        success = await self.db.ban_user(target_user_id, reason)
+        success = await self.db.users.ban_user(target_user_id, reason)
 
         # Audit log
         await self.audit.log_action(
@@ -485,12 +514,12 @@ class UserManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.check_permission(user_id, Permission.MANAGE_USERS):
-            await self.send_permission_denied(update, context)
+            await self._deny_manage_users(update, context, route="user_unban")
             return ADMIN_MENU
 
         target_user_id = int(query.data.replace("um_unban_", ""))
 
-        success = await self.db.unban_user(target_user_id)
+        success = await self.db.users.unban_user(target_user_id)
 
         # Audit log
         await self.audit.log_action(
@@ -516,8 +545,9 @@ class UserManagementHandler(BaseAdminHandler):
         """بازگشت به منوی مدیریت کاربران"""
         lang = await get_user_lang(update, context, self.db) or 'fa'
 
-        stats = await self.db.get_users_stats()
-        _n = lambda n: self._fa_digits(n, lang)
+        stats = await self.db.users.get_users_stats()
+        def _n(n: object) -> str:
+            return self._fa_digits(n, lang)
 
         text = "━━━━━━━━━━━━━━━━━━━━\n"
         text += t('admin.user_mgmt.title', lang) + "\n"

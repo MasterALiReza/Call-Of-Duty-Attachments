@@ -110,7 +110,7 @@ class NotificationManager:
                 for user_id in active_users:
                     user_lang = None
                     try:
-                        user_lang = await self.db.get_user_language(user_id)
+                        user_lang = await self.db.users.get_user_language(user_id)
                     except Exception as e:
                         logger.error(f"[NotifManager] Error getting language for user {user_id}: {e}")
                     if not user_lang:
@@ -271,7 +271,7 @@ class NotificationManager:
         try:
             # استفاده از متد بهینه دیتابیس اگر وجود داشته باشد
             if hasattr(self.db, 'get_users_for_notification'):
-                active_users = await self.db.get_users_for_notification(event_types, mode)
+                active_users = await self.db.users.get_users_for_notification(event_types, mode)
                 
                 duration = (datetime.now() - start_time).total_seconds()
                 logger.info(f"[NotifManager] SQL Filter: Found {len(active_users)} users in {duration:.3f}s")
@@ -299,7 +299,7 @@ class NotificationManager:
         for user_id in all_subscribers:
             try:
                 # دریافت تنظیمات کاربر از دیتابیس
-                user_prefs = await self.db.get_user_notification_preferences(user_id)
+                user_prefs = await self.db.settings.get_user_notification_preferences(user_id)
                 
                 if not user_prefs:
                     active_users.add(user_id)
@@ -357,7 +357,7 @@ class NotificationManager:
     
     async def get_user_preferences(self, user_id: int) -> dict:
         """دریافت تنظیمات نوتیفیکیشن کاربر"""
-        prefs = await self.db.get_user_notification_preferences(user_id)
+        prefs = await self.db.settings.get_user_notification_preferences(user_id)
         
         if not prefs:
             # تنظیمات پیش‌فرض
@@ -380,7 +380,7 @@ class NotificationManager:
     
     async def update_user_preferences(self, user_id: int, preferences: dict) -> bool:
         """به‌روزرسانی تنظیمات نوتیفیکیشن کاربر"""
-        return await self.db.update_user_notification_preferences(user_id, preferences)
+        return await self.db.settings.update_user_notification_preferences(user_id, preferences)
     
     async def toggle_user_notifications(self, user_id: int) -> bool:
         """فعال/غیرفعال کردن نوتیفیکیشن‌های کاربر"""

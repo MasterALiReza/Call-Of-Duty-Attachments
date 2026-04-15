@@ -84,7 +84,7 @@ class FeedbackAdminHandler(BaseAdminHandler):
         mode = context.user_data.get('fb_mode')
         category = context.user_data.get('fb_category')
         suggested_only = context.user_data.get('fb_suggested_only', False)
-        popular = await self.db.get_popular_attachments(limit=10, days=period, mode=mode, category=category, suggested_only=suggested_only)
+        popular = await self.db.analytics.get_popular_attachments(limit=10, days=period, mode=mode, category=category, suggested_only=suggested_only)
         if not popular:
             text = t('admin.feedback.top.empty', lang)
             keyboard = [[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data='fb_dashboard')]]
@@ -122,7 +122,7 @@ class FeedbackAdminHandler(BaseAdminHandler):
         mode = context.user_data.get('fb_mode')
         category = context.user_data.get('fb_category')
         suggested_only = context.user_data.get('fb_suggested_only', False)
-        popular = await self.db.get_popular_attachments(limit=100, days=period, mode=mode, category=category, suggested_only=suggested_only)
+        popular = await self.db.analytics.get_popular_attachments(limit=100, days=period, mode=mode, category=category, suggested_only=suggested_only)
         negative = [item for item in popular if item['likes'] - item['dislikes'] < 0]
         negative.sort(key=lambda x: x['likes'] - x['dislikes'])
         if not negative:
@@ -149,7 +149,7 @@ class FeedbackAdminHandler(BaseAdminHandler):
         await query.answer()
         lang = await get_user_lang(update, context, self.db) or 'fa'
         try:
-            popular = await self.db.get_popular_searches(limit=10)
+            popular = await self.db.analytics.get_popular_searches(limit=10)
         except Exception:
             popular = []
         text = t('admin.feedback.search.menu.title', lang) + '\n\n' + t('admin.feedback.search.menu.desc', lang) + '\n\n'
@@ -176,7 +176,7 @@ class FeedbackAdminHandler(BaseAdminHandler):
         lang = await get_user_lang(update, context, self.db) or 'fa'
         results = []
         try:
-            results = await self.db.search_attachments(qtext)
+            results = await self.db.analytics.search_attachments(qtext)
         except Exception as e:
             logger.error(f'Error searching attachments: {e}')
             results = []

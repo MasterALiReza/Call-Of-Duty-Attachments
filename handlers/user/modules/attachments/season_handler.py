@@ -61,7 +61,7 @@ class SeasonTopHandler(BaseUserHandler):
         mode = query.data.replace('season_top_mode_', '')
         context.user_data['season_top_mode'] = mode
         lang = await get_user_lang(update, context, self.db) or 'fa'
-        items = await self.db.get_season_top_attachments(mode=mode)
+        items = await self.db.attachments.get_season_top_attachments(mode=mode)
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         if not items:
             await query.message.reply_text(t('attachment.none', lang))
@@ -74,11 +74,11 @@ class SeasonTopHandler(BaseUserHandler):
             cat_name = t(f"category.{item['category']}", 'en')
             caption = f"**#{i} - {att['name']}**\n{t('attachment.code', lang)}: `{att['code']}`\n{t('weapon.label', lang)}: {weapon} ({cat_name})\n{mode_name}\n\n{t('attachment.tap_to_copy', lang)}"
             att_id = att.get('id')
-            stats = await self.db.get_attachment_stats(att_id, period='all') if att_id else {}
+            stats = await self.db.analytics.get_attachment_stats(att_id, period='all') if att_id else {}
             like_count = stats.get('like_count', 0)
             dislike_count = stats.get('dislike_count', 0)
             if att_id:
-                await self.db.track_attachment_view(query.from_user.id, att_id)
+                await self.db.analytics.track_attachment_view(query.from_user.id, att_id)
             feedback_kb = None
             if att_id:
                 from core.container import get_container
@@ -110,7 +110,7 @@ class SeasonTopHandler(BaseUserHandler):
 
     async def _season_top_cache(self, context: CustomContext, mode: str=None) -> list:
         """ذخیره اتچمنت\u200cهای برتر فصل با mode مشخص در cache"""
-        items = await self.db.get_season_top_attachments(mode=mode)
+        items = await self.db.attachments.get_season_top_attachments(mode=mode)
         context.user_data['season_top_cache'] = items
         return items
 
@@ -246,11 +246,11 @@ class SeasonTopHandler(BaseUserHandler):
         mode_name = f"{t('mode.label', lang)}: {mode_short}"
         caption = f"**{att['name']}**\n{t('attachment.code', lang)}: `{att['code']}`\n{t('weapon.label', lang)}: {weapon} ({cat_name})\n{mode_name}"
         att_id = att.get('id')
-        stats = await self.db.get_attachment_stats(att_id, period='all') if att_id else {}
+        stats = await self.db.analytics.get_attachment_stats(att_id, period='all') if att_id else {}
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         if att_id:
-            await self.db.track_attachment_view(query.from_user.id, att_id)
+            await self.db.analytics.track_attachment_view(query.from_user.id, att_id)
         feedback_kb = None
         if att_id:
             from core.container import get_container

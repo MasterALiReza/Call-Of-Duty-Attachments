@@ -11,6 +11,13 @@ class AuditLogger:
     def __init__(self):
         self.db = get_database_adapter()
 
+    async def _execute(self, query: str, params: tuple[object, ...] | None = None) -> None:
+        """Run audit SQL without relying on deprecated direct adapter query helpers."""
+        async with self.db.get_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(query, params or ())
+                await conn.commit()
+
     async def create_table_if_not_exists(self):
         """Creates the audit_logs table during initialization."""
         query = """
@@ -26,7 +33,7 @@ class AuditLogger:
         CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
         """
         try:
-            await self.db.execute_query(query)
+            await self._execute(query)
             logger.info("Audit logs table verified/created.")
         except Exception as e:
             log_exception(logger, e, "create_audit_table")
@@ -50,7 +57,34 @@ class AuditLogger:
         details_json = json.dumps(details, ensure_ascii=False) if details else None
         
         try:
-            await self.db.execute_query(query, (admin_id, action, target_id, details_json))
+            await self._execute(query, (admin_id, action, target_id, details_json))
             logger.debug(f"[Audit] Recorded block: Admin {admin_id} did {action} -> {target_id}")
         except Exception as e:
             log_exception(logger, e, f"log_audit_action({admin_id}, {action})")
+
+    async def log_permission_decision(
+        self,
+        actor_id: int,
+        permission: str,
+        allowed: bool,
+        route: str,
+        reason: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Record an allow/deny permission decision with a stable action name."""
+        payload: Dict[str, Any] = {
+            "permission": permission,
+            "allowed": allowed,
+            "route": route,
+        }
+        if reason:
+            payload["reason"] = reason
+        if details:
+            payload.update(details)
+
+        await self.log_action(
+            actor_id,
+            "PERMISSION_DENIED" if not allowed else "PERMISSION_ALLOWED",
+            target_id=route,
+            details=payload,
+        )

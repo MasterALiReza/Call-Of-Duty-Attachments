@@ -52,8 +52,8 @@ class AllAttachmentsHandler(BaseUserHandler):
         
         # اگر از search آمده، هر دو mode را نمایش بده
         if from_search:
-            br_atts = await self.db.get_all_attachments(category, weapon_name, mode="br")
-            mp_atts = await self.db.get_all_attachments(category, weapon_name, mode="mp")
+            br_atts = await self.db.attachments.get_all_attachments(category, weapon_name, mode="br")
+            mp_atts = await self.db.attachments.get_all_attachments(category, weapon_name, mode="mp")
             
             if not br_atts and not mp_atts:
                 if should_send_new:
@@ -143,7 +143,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         
         # اگر از منوی عادی آمده (با mode مشخص)
         mode = context.user_data.get('current_mode', 'br')
-        all_attachments = await self.db.get_all_attachments(category, weapon_name, mode=mode)
+        all_attachments = await self.db.attachments.get_all_attachments(category, weapon_name, mode=mode)
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
         if not all_attachments:
@@ -227,7 +227,7 @@ class AllAttachmentsHandler(BaseUserHandler):
             await update.message.reply_text(t('weapon.select_first', lang))
             return
         
-        all_attachments = await self.db.get_all_attachments(category, weapon_name, mode=mode)
+        all_attachments = await self.db.attachments.get_all_attachments(category, weapon_name, mode=mode)
         if not all_attachments:
             await update.message.reply_text(t('attachment.none', lang))
             return
@@ -246,7 +246,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         text = t('attachment.all.title', lang, weapon=weapon_name, mode=mode_name) + f" _{t('notification.updated', lang, time=now)}_\n"
         text += t('pagination.page_of', lang, page=page, total=total_pages) + "\n\n"
         for i, att in enumerate(all_attachments[start_idx:end_idx], start_idx + 1):
-            stats = await self.db.get_attachment_stats(att['id'], period='all')
+            stats = await self.db.analytics.get_attachment_stats(att['id'], period='all')
             likes = stats.get('like_count', 0)
             text += f"**{i}.** {att['name']}"
             if likes > 0:
@@ -256,7 +256,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         # دکمه انتخاب اتچمنت‌ها
         keyboard = []
         for i, att in enumerate(all_attachments[start_idx:end_idx], start_idx + 1):
-            stats = await self.db.get_attachment_stats(att['id'], period='all')
+            stats = await self.db.analytics.get_attachment_stats(att['id'], period='all')
             likes = stats.get('like_count', 0)
             button_text = f"{i}. {att['name']}"
             if likes > 0:
@@ -280,12 +280,12 @@ class AllAttachmentsHandler(BaseUserHandler):
         """نمایش جزئیات اتچمنت با mode در callback: attm_{mode}_{code}"""
         query = update.callback_query
         await query.answer()
-        
+        lang = await get_user_lang(update, context, self.db) or 'fa'
+
         payload = query.data.replace("attm_", "")
         try:
             mode, code = payload.split("_", 1)
         except ValueError:
-            lang = await get_user_lang(update, context, self.db) or 'fa'
             logger.warning(f"Invalid attachment detail payload: {query.data}")
             await safe_edit_message_text(query, t('error.generic', lang))
             return
@@ -294,14 +294,13 @@ class AllAttachmentsHandler(BaseUserHandler):
         weapon_name = context.user_data.get('current_weapon')
         
         if not category or not weapon_name:
-            lang = await get_user_lang(update, context, self.db) or 'fa'
             await safe_edit_message_text(query, t('weapon.select_first', lang))
             return
         
         # ست کردن mode
         context.user_data['current_mode'] = mode
         
-        attachments = await self.db.get_all_attachments(category, weapon_name, mode=mode)
+        attachments = await self.db.attachments.get_all_attachments(category, weapon_name, mode=mode)
         selected = next((att for att in attachments if att.get('code') == code), None)
         if not selected:
             await safe_edit_message_text(query, t('attachment.not_found', lang))
@@ -313,7 +312,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         
         # دریافت آمار بازخورد
         att_id = selected.get('id')
-        stats = await self.db.get_attachment_stats(att_id, period='all') if att_id else {}
+        stats = await self.db.analytics.get_attachment_stats(att_id, period='all') if att_id else {}
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         
@@ -378,7 +377,7 @@ class AllAttachmentsHandler(BaseUserHandler):
             await safe_edit_message_text(query, t('weapon.select_first', lang))
             return
         
-        attachments = await self.db.get_all_attachments(category, weapon_name, mode=mode)  # اضافه کردن mode
+        attachments = await self.db.attachments.get_all_attachments(category, weapon_name, mode=mode)  # اضافه کردن mode
         selected = next((att for att in attachments if att.get('code') == code), None)
         if not selected:
             await safe_edit_message_text(query, t('attachment.not_found', lang))
@@ -388,7 +387,7 @@ class AllAttachmentsHandler(BaseUserHandler):
         
         # دریافت آمار بازخورد
         att_id = selected.get('id')
-        stats = await self.db.get_attachment_stats(att_id, period='all') if att_id else {}
+        stats = await self.db.analytics.get_attachment_stats(att_id, period='all') if att_id else {}
         like_count = stats.get('like_count', 0)
         dislike_count = stats.get('dislike_count', 0)
         

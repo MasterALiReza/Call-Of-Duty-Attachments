@@ -3,9 +3,8 @@ Database mixin for Category, Weapon, and Attachment operations.
 """
 import logging
 from .base_repository import BaseRepository
-from .validators import validate_mode, validate_limit_offset, safe_sort_column
-from datetime import datetime
-from typing import Optional, Dict, List, Any
+from .validators import validate_mode, validate_limit_offset
+from typing import Optional, Dict, List, cast
 from core.cache.cache_manager import cached, invalidate_cache_on_write
 from psycopg.errors import UniqueViolation
 from utils.logger import log_exception
@@ -123,7 +122,7 @@ class AttachmentRepository(BaseRepository):
 
     async def get_all_attachments(self, category: str, weapon_name: str, mode: str='br', limit: int = None, offset: int = None) -> List[Dict]:
         """دریافت تمام اتچمنت‌های یک سلاح"""
-        return await self.get_weapon_attachments(category, weapon_name, mode, limit=limit, offset=offset)
+        return cast(List[Dict], await self.get_weapon_attachments(category, weapon_name, mode, limit=limit, offset=offset))
 
     async def search(self, query_text: str) -> List[Dict]:
         """جستجوی هوشمند اتچمنت‌ها با ترکیب SQL ILIKE و Fuzzy Matching"""
@@ -291,7 +290,7 @@ class AttachmentRepository(BaseRepository):
         """ویرایش اتچمنت"""
         try:
             updates = []
-            params = []
+            params: list[object] = []
             if name is not None:
                 updates.append('name = %s')
                 params.append(name)
@@ -310,7 +309,7 @@ class AttachmentRepository(BaseRepository):
             if attachment_id is not None:
                 where_clause = 'id = %s'
                 params.append(attachment_id)
-            elif all([category, weapon_name, mode, code]):
+            elif category is not None and weapon_name is not None and mode is not None and code is not None:
                 where_clause = '\n                    weapon_id = (\n                        SELECT w.id FROM weapons w\n                        JOIN weapon_categories c ON w.category_id = c.id\n                        WHERE c.name = %s AND w.name = %s\n                    ) AND mode = %s AND code = %s\n                '
                 params.extend([category, weapon_name, mode, code])
             else:
@@ -319,7 +318,7 @@ class AttachmentRepository(BaseRepository):
             await self.execute_query(query, tuple(params))
             return True
         except Exception as e:
-            log_exception(logger, e, f'update_attachment')
+            log_exception(logger, e, 'update_attachment')
             return False
 
     @invalidate_cache_on_write(['get_weapon_attachments', 'get_all_category_counts', 'cat_kb', 'get_weapon_info', 'get_weapons_in_category'])
@@ -328,8 +327,8 @@ class AttachmentRepository(BaseRepository):
         try:
             if attachment_id is not None:
                 query = 'DELETE FROM attachments WHERE id = %s'
-                params = (attachment_id,)
-            elif all([category, weapon_name, mode, code]):
+                params: tuple[object, ...] = (attachment_id,)
+            elif category is not None and weapon_name is not None and mode is not None and code is not None:
                 query = '\n                    DELETE FROM attachments\n                    WHERE weapon_id = (\n                        SELECT w.id FROM weapons w\n                        JOIN weapon_categories c ON w.category_id = c.id\n                        WHERE c.name = %s AND w.name = %s\n                    ) AND mode = %s AND code = %s\n                '
                 params = (category, weapon_name, mode, code)
             else:
@@ -337,7 +336,7 @@ class AttachmentRepository(BaseRepository):
             await self.execute_query(query, params)
             return True
         except Exception as e:
-            log_exception(logger, e, f'delete_attachment')
+            log_exception(logger, e, 'delete_attachment')
             return False
 
     async def update_attachment_code(self, category: str, weapon_name: str, old_code: str, new_code: str, mode: str='br') -> bool:
@@ -345,8 +344,9 @@ class AttachmentRepository(BaseRepository):
         try:
             query = '\n                UPDATE attachments \n                SET code = %s\n                WHERE weapon_id = (\n                    SELECT w.id FROM weapons w\n                    JOIN weapon_categories c ON w.category_id = c.id\n                    WHERE c.name = %s AND w.name = %s\n                )\n                AND code = %s AND mode = %s\n            '
             result = await self.execute_query(query, (new_code, category, weapon_name, old_code, mode))
-            if result and hasattr(result, 'rowcount'):
-                return result.rowcount > 0
+            rowcount = cast(int | None, getattr(result, 'rowcount', None))
+            if rowcount is not None:
+                return rowcount > 0
             return True
         except Exception as e:
             log_exception(logger, e, f'update_attachment_code({category}, {weapon_name}, {old_code}, {new_code})')
@@ -395,7 +395,7 @@ class AttachmentRepository(BaseRepository):
                 row['season_top'] = True
             return results
         except Exception as e:
-            log_exception(logger, e, f'get_season_top_attachments_for_weapon')
+            log_exception(logger, e, 'get_season_top_attachments_for_weapon')
             return []
 
     async def get_season_top_attachments(self, mode: str=None) -> List[Dict]:
@@ -415,7 +415,7 @@ class AttachmentRepository(BaseRepository):
             log_exception(logger, e, 'get_season_top_attachments')
             return []
 
-    async def get_weapon_by_name(self, category: str, weapon_name: str) -> dict:
+    async def get_weapon_by_name(self, category: str, weapon_name: str) -> Optional[dict]:
         """دریافت اطلاعات سلاح بر اساس نام و دسته"""
         try:
             query = '\n                SELECT w.* \n                FROM weapons w\n                JOIN weapon_categories c ON w.category_id = c.id\n                WHERE c.name = %s AND w.name = %s\n            '
@@ -437,8 +437,8 @@ class AttachmentRepository(BaseRepository):
             info = {'is_active': is_active}
             for mode in ['br', 'mp']:
                 query_counts = '\n                    SELECT \n                        COUNT(*) as total,\n                        SUM(CASE WHEN is_top = TRUE THEN 1 ELSE 0 END) as top_count\n                    FROM attachments\n                    WHERE weapon_id = %s AND mode = %s\n                '
-                counts = await self.execute_query(query_counts, (weapon_id, mode), fetch_one=True)
-                info[mode] = {'attachment_count': counts['total'] or 0, 'top_count': counts['top_count'] or 0}
+                counts = await self.execute_query(query_counts, (weapon_id, mode), fetch_one=True) or {}
+                info[mode] = {'attachment_count': counts.get('total', 0) or 0, 'top_count': counts.get('top_count', 0) or 0}
             return info
         except Exception as e:
             log_exception(logger, e, f'get_weapon_info({category}, {weapon_name})')
@@ -471,6 +471,31 @@ class AttachmentRepository(BaseRepository):
                 return True
         except Exception as e:
             log_exception(logger, e, f'delete_weapon({category}, {weapon_name})')
+            return False
+
+    @invalidate_cache_on_write(['get_weapons_in_category', 'get_all_category_counts', 'cat_kb', 'get_weapon_attachments'])
+    async def clear_category(self, category: str, mode: str) -> bool:
+        """Delete all attachments for a category in a specific game mode."""
+        try:
+            async with self.transaction() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        DELETE FROM attachments
+                        WHERE mode = %s
+                          AND weapon_id IN (
+                              SELECT w.id
+                              FROM weapons w
+                              JOIN weapon_categories c ON w.category_id = c.id
+                              WHERE c.name = %s
+                          )
+                        """,
+                        (mode, category),
+                    )
+                logger.info(f'✅ Category attachments deleted: {category} ({mode})')
+                return True
+        except Exception as e:
+            log_exception(logger, e, f'clear_category({category}, {mode})')
             return False
 
     @invalidate_cache_on_write(['get_weapons_in_category', 'get_all_category_counts', 'cat_kb', 'get_weapon_info'])
@@ -536,7 +561,7 @@ class AttachmentRepository(BaseRepository):
         try:
             query = '\n                SELECT COUNT(*) as count\n                FROM suggested_attachments\n                WHERE attachment_id = %s AND mode = %s\n            '
             result = await self.execute_query(query, (attachment_id, mode), fetch_one=True)
-            return result['count'] > 0
+            return bool((result or {}).get('count', 0) > 0)
         except Exception as e:
             log_exception(logger, e, f'is_attachment_suggested({attachment_id})')
             return False
@@ -566,7 +591,7 @@ class AttachmentRepository(BaseRepository):
             else:
                 query = '\n                    SELECT COUNT(*) as count\n                    FROM suggested_attachments\n                '
                 result = await self.execute_query(query, fetch_one=True)
-            return result['count']
+            return int((result or {}).get('count', 0))
         except Exception as e:
             log_exception(logger, e, 'get_suggested_count')
             return 0

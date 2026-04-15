@@ -2,8 +2,10 @@
 Database mixin for Tickets and FAQ System.
 """
 import logging
+from typing import cast
 from .base_repository import BaseRepository
 from typing import Optional, Dict, List
+from core.errors import InfrastructureError
 from utils.logger import log_exception
 logger = logging.getLogger('database.support_mixin')
 
@@ -12,6 +14,25 @@ class SupportRepository(BaseRepository):
     Mixin containing Tickets and FAQ operations.
     Requires self.execute_query and self.transaction to be provided by the base class.
     """
+
+    @staticmethod
+    def _is_faq_language_schema_error(exc: Exception) -> bool:
+        error_str = str(exc).lower()
+        return 'column' in error_str and ('lang' in error_str or 'language' in error_str)
+
+    @staticmethod
+    def _is_faq_not_helpful_schema_error(exc: Exception) -> bool:
+        error_str = str(exc).lower()
+        return 'column' in error_str and 'not_helpful_count' in error_str
+
+    async def _ensure_faq_not_helpful_count_column(self) -> None:
+        try:
+            await self.execute_query(
+                'ALTER TABLE faqs ADD COLUMN IF NOT EXISTS not_helpful_count INTEGER NOT NULL DEFAULT 0;'
+            )
+        except Exception as e:
+            log_exception(logger, e, 'ensure_faq_not_helpful_count_column')
+            raise InfrastructureError("Failed to repair FAQ not_helpful_count schema.") from e
 
     async def add_ticket(self, user_id: int, category: str, subject: str, description: str, priority: str='medium', attachments: List[str]=None) -> Optional[int]:
         """ایجاد تیکت جدید"""
@@ -32,7 +53,7 @@ class SupportRepository(BaseRepository):
                                 VALUES (%s, %s, 'photo')
                             """, (ticket_id, file_id))
                 logger.info(f'✅ Ticket created: {ticket_id}')
-                return ticket_id
+                return cast(int | None, ticket_id)
         except Exception as e:
             log_exception(logger, e, 'add_ticket')
             return None
@@ -77,7 +98,7 @@ class SupportRepository(BaseRepository):
         """دریافت همه تیکت\u200cها (برای ادمین)"""
         try:
             query = 'SELECT * FROM tickets WHERE TRUE'
-            params = []
+            params: list[object] = []
             if status:
                 query += ' AND status = %s'
                 params.append(status)
@@ -265,6 +286,7 @@ class SupportRepository(BaseRepository):
                         logger.info("Added 'language' column to faqs table")
         except Exception as e:
             log_exception(logger, e, 'ensure_faqs_language_column')
+            raise InfrastructureError("Failed to repair FAQ language schema.") from e
 
     async def get_faqs(self, category: Optional[str]=None, lang: Optional[str]=None) -> List[Dict]:
         """دریافت FAQ ها (فیلتر بر اساس زبان در صورت ارائه)"""
@@ -284,10 +306,13 @@ class SupportRepository(BaseRepository):
                     results = await self.execute_query(query, fetch_all=True)
                 return [dict(row) for row in results]
             except Exception as e:
-                error_str = str(e).lower()
-                if attempt == 0 and ('column' in error_str and ('lang' in error_str or 'language' in error_str)):
+                if attempt == 0 and self._is_faq_language_schema_error(e):
                     logger.warning(f'Schema mismatch in get_faqs, attempting fix... Error: {e}')
-                    await self._ensure_faqs_language_column()
+                    try:
+                        await self._ensure_faqs_language_column()
+                    except InfrastructureError as repair_error:
+                        log_exception(logger, repair_error, 'get_faqs_schema_repair')
+                        return []
                     continue
                 log_exception(logger, e, 'get_faqs')
                 return []
@@ -299,19 +324,19 @@ class SupportRepository(BaseRepository):
             search_term = f'%{query}%'
             if lang:
                 query_sql = '\n                    SELECT * FROM faqs \n                    WHERE (question ILIKE %s OR answer ILIKE %s) AND language = %s\n                    ORDER BY views DESC\n                '
-                params = (search_term, search_term, lang)
+                params: tuple[object, ...] = (search_term, search_term, lang)
             else:
                 query_sql = '\n                    SELECT * FROM faqs \n                    WHERE question ILIKE %s OR answer ILIKE %s\n                    ORDER BY views DESC\n                '
                 params = (search_term, search_term)
             results = await self.execute_query(query_sql, params, fetch_all=True)
             return [dict(row) for row in results]
         except Exception as e:
-            if 'column' in str(e).lower():
+            if self._is_faq_language_schema_error(e):
                 try:
                     await self._ensure_faqs_language_column()
                     return await self.search_faqs(query, lang)
-                except:
-                    pass
+                except InfrastructureError as repair_error:
+                    log_exception(logger, repair_error, 'search_faqs_schema_repair')
             log_exception(logger, e, f'search_faqs({query})')
             return []
 
@@ -350,13 +375,14 @@ class SupportRepository(BaseRepository):
                     await self.execute_query(query, (faq_id,))
                     return True
                 except Exception as inner:
+                    if not self._is_faq_not_helpful_schema_error(inner):
+                        raise
                     try:
-                        alter_sql = 'ALTER TABLE faqs ADD COLUMN IF NOT EXISTS not_helpful_count INTEGER NOT NULL DEFAULT 0;'
-                        await self.execute_query(alter_sql)
+                        await self._ensure_faq_not_helpful_count_column()
                         query = 'UPDATE faqs SET not_helpful_count = not_helpful_count + 1 WHERE id = %s'
                         await self.execute_query(query, (faq_id,))
                         return True
-                    except Exception as inner2:
+                    except InfrastructureError as inner2:
                         log_exception(logger, inner2, 'mark_faq_not_helpful_migration_failed')
                         return False
         except Exception as e:
@@ -366,8 +392,8 @@ class SupportRepository(BaseRepository):
     async def update_faq(self, faq_id: int, question: str=None, answer: str=None, category: str=None) -> bool:
         """به\u200cروزرسانی FAQ"""
         try:
+            params: list[object] = []
             updates = []
-            params = []
             if question is not None:
                 updates.append('question = %s')
                 params.append(question)
@@ -455,8 +481,10 @@ class SupportRepository(BaseRepository):
                                 updated_at = NOW()
                             WHERE id = %s
                         """, (dh, dnh, faq_id))
-                    except Exception:
-                        await cursor.execute('ALTER TABLE faqs ADD COLUMN IF NOT EXISTS not_helpful_count INTEGER NOT NULL DEFAULT 0;')
+                    except Exception as column_error:
+                        if not self._is_faq_not_helpful_schema_error(column_error):
+                            raise
+                        await self._ensure_faq_not_helpful_count_column()
                         await cursor.execute("""
                             UPDATE faqs
                             SET helpful_count = GREATEST(helpful_count + %s, 0),

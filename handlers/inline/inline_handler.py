@@ -1,7 +1,6 @@
 from core.context import CustomContext
 from core.container import get_container
 from telegram import Update, InlineQueryResultArticle, InlineQueryResultCachedPhoto, InputTextMessageContent, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultsButton
-from telegram.ext import ContextTypes
 from config.config import GAME_MODES
 from utils.language import get_user_lang
 from utils.i18n import t
@@ -36,7 +35,7 @@ class InlineHandler(BaseUserHandler):
             logger.info(f'Query too short, returning {len(results)} suggestions')
         else:
             try:
-                items = await self.db.search(q)
+                items = await self.db.attachments.search(q)
                 logger.info(f'Search found {len(items)} items')
                 bot_username = None
                 try:
@@ -61,10 +60,10 @@ class InlineHandler(BaseUserHandler):
                         att_id, mode = (None, 'br')
                     results = []
                     if att_id:
-                        att = await self.db.get_attachment_by_id(att_id)
+                        att = await self.db.attachments.get_attachment_by_id(att_id)
                         if att and att.get('image'):
                             try:
-                                stats = await self.db.get_attachment_stats(att_id, period='all') or {}
+                                stats = await self.db.analytics.get_attachment_stats(att_id, period='all') or {}
                                 like_count = stats.get('like_count', 0)
                                 dislike_count = stats.get('dislike_count', 0)
                             except Exception:
@@ -113,7 +112,9 @@ class InlineHandler(BaseUserHandler):
         logger = logging.getLogger(__name__)
         result = update.chosen_inline_result
         result_id = result.result_id if result else None
-        user_id = update.effective_user.id if update.effective_user else getattr(result, 'from_user', None).id if result and getattr(result, 'from_user', None) else None
+        effective_user = update.effective_user
+        result_user = getattr(result, 'from_user', None) if result else None
+        user_id = effective_user.id if effective_user else (result_user.id if result_user else None)
         logger.info(f"ChosenInlineResult received: result_id={result_id}, user_id={user_id}, inline_message_id={getattr(result, 'inline_message_id', None)}")
         if not result_id or not user_id:
             logger.warning('ChosenInlineResult missing result_id or user_id; skipping')
@@ -186,7 +187,7 @@ class InlineHandler(BaseUserHandler):
             logger.warning('No best weapon found, returning empty results')
             return []
         category, weapon = best
-        results = []
+        results: list[object] = []
         recent_count = 0
         try:
             recent_count = int(os.getenv('INLINE_RECENT_COUNT', '2'))
@@ -194,7 +195,7 @@ class InlineHandler(BaseUserHandler):
             recent_count = 2
         for mode in ['br', 'mp']:
             mode_name = GAME_MODES.get(mode, mode)
-            atts = await self.db.get_all_attachments(category, weapon, mode=mode) or []
+            atts = await self.db.attachments.get_all_attachments(category, weapon, mode=mode) or []
             logger.info(f'Fetched {len(atts)} attachments for {weapon} ({mode})')
 
             def sort_key(a):
@@ -210,7 +211,7 @@ class InlineHandler(BaseUserHandler):
                 title = f"{('🪂' if mode == 'br' else '🎮')} {att.get('name', '?')} ({weapon})"
                 desc = f"{t('attachment.code', lang)}: {att.get('code', '')} | {t(f'mode.{mode}', lang)}"
                 try:
-                    stats = await self.db.get_attachment_stats(att_id, period='all') or {}
+                    stats = await self.db.analytics.get_attachment_stats(att_id, period='all') or {}
                     like_count = stats.get('like_count', 0)
                     dislike_count = stats.get('dislike_count', 0)
                 except Exception:
@@ -236,7 +237,7 @@ class InlineHandler(BaseUserHandler):
         for mode in ['br', 'mp']:
             mode_name = GAME_MODES.get(mode, mode)
             if started:
-                atts2 = await self.db.get_all_attachments(category, weapon, mode=mode) or []
+                atts2 = await self.db.attachments.get_all_attachments(category, weapon, mode=mode) or []
                 if not atts2:
                     text2 = t('attachment.none', lang)
                 else:
@@ -258,7 +259,7 @@ class InlineHandler(BaseUserHandler):
         category, weapon = best
         results = []
         for mode in ['br', 'mp']:
-            atts = await self.db.get_all_attachments(category, weapon, mode=mode) or []
+            atts = await self.db.attachments.get_all_attachments(category, weapon, mode=mode) or []
 
             def sort_key(a):
                 return (a.get('created_at') or 0, a.get('id') or 0)
@@ -276,7 +277,7 @@ class InlineHandler(BaseUserHandler):
                 can_use_photo = bool(att.get('image')) and (not self.article_only)
                 if can_use_photo:
                     try:
-                        stats = await self.db.get_attachment_stats(att_id, period='all') or {}
+                        stats = await self.db.analytics.get_attachment_stats(att_id, period='all') or {}
                         like_count = stats.get('like_count', 0)
                         dislike_count = stats.get('dislike_count', 0)
                     except Exception:
@@ -337,7 +338,7 @@ class InlineHandler(BaseUserHandler):
         results = []
         for category, weapon in selected:
             for mode in ['br', 'mp']:
-                atts = await self.db.get_all_attachments(category, weapon, mode=mode) or []
+                atts = await self.db.attachments.get_all_attachments(category, weapon, mode=mode) or []
 
                 def sort_key(a):
                     return (a.get('created_at') or 0, a.get('id') or 0)
@@ -354,14 +355,14 @@ class InlineHandler(BaseUserHandler):
                     desc = f"{t('attachment.code', lang)}: {att.get('code', '')} | {mode_btn}"
                     can_use_photo = bool(att.get('image')) and remaining_quota > 0 and (not self.article_only) and started
                     try:
-                        stats = await self.db.get_attachment_stats(att_id, period='all') or {}
+                        stats = await self.db.analytics.get_attachment_stats(att_id, period='all') or {}
                         like_count = stats.get('like_count', 0)
                         dislike_count = stats.get('dislike_count', 0)
                     except Exception:
                         like_count = dislike_count = 0
                         
                     try:
-                        stats = await self.db.get_attachment_stats(att_id, period='all') or {}
+                        stats = await self.db.analytics.get_attachment_stats(att_id, period='all') or {}
                         like_count = stats.get('like_count', 0)
                         dislike_count = stats.get('dislike_count', 0)
                     except Exception:
@@ -380,7 +381,8 @@ class InlineHandler(BaseUserHandler):
                     kb = InlineKeyboardMarkup(kb_rows)
                     if can_use_photo:
                         remaining_quota -= 1
-                        self._use_inline_photo_quota(user_id, 1)
+                        if user_id is not None:
+                            self._use_inline_photo_quota(user_id, 1)
                         results.append(InlineQueryResultCachedPhoto(id=f'att-{att_id}-{mode}', photo_file_id=att['image'], title=title, description=desc, caption=f"**{att.get('name', '')}**\n{t('attachment.code', lang)}: `{att.get('code', '')}`\n{weapon} | {mode_btn}", parse_mode='Markdown', reply_markup=kb))
                     else:
                         results.append(InlineQueryResultArticle(id=f'att-{att_id}-{mode}', title=title, input_message_content=InputTextMessageContent(message_text=f"**{att.get('name', '')}**\n{t('attachment.code', lang)}: `{att.get('code', '')}`\n{weapon} | {mode_btn}", parse_mode='Markdown'), description=desc, reply_markup=kb))
@@ -389,7 +391,7 @@ class InlineHandler(BaseUserHandler):
         return results[:25]
 
     async def _build_attachment_results(self, items, bot_username: str, remaining_quota: int=0, user_id: int=None, started: bool=False, is_group: bool=False, lang: str='fa'):
-        results = []
+        results: list[object] = []
         if not items:
             return results
         unique_sets = set()
@@ -407,7 +409,7 @@ class InlineHandler(BaseUserHandler):
             if not att_id:
                 continue
             try:
-                stats = await self.db.get_attachment_stats(att_id, period='all') or {}
+                stats = await self.db.analytics.get_attachment_stats(att_id, period='all') or {}
                 like_count = stats.get('like_count', 0)
                 dislike_count = stats.get('dislike_count', 0)
             except Exception:
@@ -427,7 +429,8 @@ class InlineHandler(BaseUserHandler):
             can_use_photo = bool(attachment.get('image')) and remaining_quota > 0 and (not self.article_only) and started
             if can_use_photo:
                 remaining_quota -= 1
-                self._use_inline_photo_quota(user_id, 1)
+                if user_id is not None:
+                    self._use_inline_photo_quota(user_id, 1)
                 results.append(InlineQueryResultCachedPhoto(id=f'att-{att_id}-{mode}', photo_file_id=attachment['image'], title=f"{attachment['name']} ({weapon})", description=f"{t('attachment.code', lang)}: {attachment['code']} | {mode_name}", reply_markup=InlineKeyboardMarkup(keyboard + ([[InlineKeyboardButton(t('inline.send_in_pm', lang), url=f'https://t.me/{bot_username}?start=att-{att_id}-{mode}')]] if bot_username else []) + [[InlineKeyboardButton(t('inline.send_photo_group', lang), switch_inline_query_current_chat=f'att:{att_id}-{mode}')]]), caption=f"**{attachment['name']}**\n{t('attachment.code', lang)}: `{attachment['code']}`\n{weapon} | {mode_name}", parse_mode='Markdown'))
             else:
                 results.append(InlineQueryResultArticle(id=f'att-{att_id}-{mode}', title=f"{attachment['name']} ({weapon})", input_message_content=InputTextMessageContent(message_text=f"**{attachment['name']}**\n{t('attachment.code', lang)}: `{attachment['code']}`\n{weapon} | {mode_name}", parse_mode='Markdown'), description=f"{t('attachment.code', lang)}: {attachment['code']}", reply_markup=InlineKeyboardMarkup(keyboard + ([[InlineKeyboardButton(t('inline.send_in_pm', lang), url=f'https://t.me/{bot_username}?start=att-{att_id}-{mode}')]] if bot_username else []) + [[InlineKeyboardButton(t('inline.send_photo_group', lang), switch_inline_query_current_chat=f'att:{att_id}-{mode}')]])))
@@ -490,7 +493,7 @@ class InlineHandler(BaseUserHandler):
         kb = None
         if att_id:
             try:
-                stats = await self.db.get_attachment_stats(att_id, period='all') or {}
+                stats = await self.db.analytics.get_attachment_stats(att_id, period='all') or {}
                 like_count = stats.get('like_count', 0)
                 dislike_count = stats.get('dislike_count', 0)
             except Exception:
@@ -531,7 +534,7 @@ class InlineHandler(BaseUserHandler):
         kb = None
         if att_id:
             try:
-                stats = await self.db.get_attachment_stats(att_id, period='all') or {}
+                stats = await self.db.analytics.get_attachment_stats(att_id, period='all') or {}
                 like_count = stats.get('like_count', 0)
                 dislike_count = stats.get('dislike_count', 0)
             except Exception:
@@ -554,7 +557,7 @@ class InlineHandler(BaseUserHandler):
             if attachment.get('image'):
                 logger.info(f'Sending photo with share button to chat {chat_id}')
                 await context.bot.send_photo(chat_id=chat_id, photo=attachment['image'], caption=caption, parse_mode='Markdown', reply_markup=kb)
-                logger.info(f'Photo with share button sent successfully')
+                logger.info('Photo with share button sent successfully')
             else:
                 await context.bot.send_message(chat_id=chat_id, text=caption, parse_mode='Markdown', reply_markup=kb)
         except Exception as e:
@@ -565,7 +568,7 @@ class InlineHandler(BaseUserHandler):
                 logger.error(f'Error sending fallback message: {e2}')
 
     async def _send_weapon_list_pm(self, context: CustomContext, chat_id: int, category: str, weapon: str, mode: str, lang: str='fa'):
-        items = await self.db.get_all_attachments(category, weapon, mode=mode)
+        items = await self.db.attachments.get_all_attachments(category, weapon, mode=mode)
         mode_name = GAME_MODES.get(mode, mode)
         if not items:
             try:

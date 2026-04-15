@@ -74,7 +74,9 @@ class SystemMonitoringHandler(BaseAdminHandler):
             db_latency = 0
             try:
                 start = time.time()
-                await self.db.execute_query("SELECT 1")
+                async with self.db.get_connection() as conn:
+                    async with conn.cursor() as cursor:
+                        await cursor.execute("SELECT 1")
                 db_latency = (time.time() - start) * 1000
             except Exception as e:
                 db_status = f"🔴 Error: {str(e)[:40]}..."

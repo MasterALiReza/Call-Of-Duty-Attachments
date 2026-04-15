@@ -1,16 +1,17 @@
-from core.context import CustomContext
 """
 My Attachments Handler - مدیریت اتچمنت‌های شخصی کاربر
 """
 
-from datetime import datetime, date
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler
-from config.config import GAME_MODES, WEAPON_CATEGORIES
+from datetime import date, datetime
+
+from core.context import CustomContext
 from core.database.database_adapter import get_database_adapter
-from utils.logger import get_logger
-from utils.language import get_user_lang
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler
+from utils.error_handler import error_handler
 from utils.i18n import t
+from utils.language import get_user_lang
+from utils.logger import get_logger, log_exception
 from utils.validation import safe_int
 
 logger = get_logger('my_attachments', 'user.log')
@@ -18,6 +19,16 @@ db = get_database_adapter()
 
 # تعداد اتچمنت در هر صفحه
 MY_ATTACHMENTS_PER_PAGE = 5
+
+
+async def _handle_boundary_error(
+    update: Update,
+    context: CustomContext,
+    exc: Exception,
+    scope: str,
+) -> None:
+    log_exception(logger, exc, scope)
+    await error_handler.handle_telegram_error(update, context, exc)
 
 
 async def my_attachments_menu(update: Update, context: CustomContext):
@@ -29,7 +40,7 @@ async def my_attachments_menu(update: Update, context: CustomContext):
     user_id = update.effective_user.id
     
     # دریافت آمار کاربر
-    stats = await db.get_user_submission_stats(user_id)
+    stats = await db.settings.get_user_submission_stats(user_id)
     
     # دریافت تمام اتچمنت‌های کاربر
     try:
@@ -46,8 +57,8 @@ async def my_attachments_menu(update: Update, context: CustomContext):
                 )
                 rows = await cursor.fetchall()
         all_attachments = [dict(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Error fetching user attachments: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_my.my_attachments_menu.fetch_user_attachments")
         all_attachments = []
     
     # دسته‌بندی بر اساس وضعیت
@@ -105,12 +116,13 @@ async def my_attachments_menu(update: Update, context: CustomContext):
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    except Exception:
+    except Exception as exc:
+        log_exception(logger, exc, "ua_my.my_attachments_menu.edit_message")
         # اگر پیام photo بود، نمیشه edit کرد
         try:
             await query.message.delete()
-        except Exception as e:
-            logger.warning(f"Failed to delete previous my_attachments menu message: {e}")
+        except Exception as delete_exc:
+            log_exception(logger, delete_exc, "ua_my.my_attachments_menu.delete_source")
         await update.effective_chat.send_message(
             message,
             parse_mode='Markdown',
@@ -142,11 +154,11 @@ async def show_my_attachments_by_status(update: Update, context: CustomContext):
     user_id = update.effective_user.id
     
     # دریافت تعداد کل برای صفحه‌بندی
-    total_count = await db.get_user_attachments_count(user_id, status)
+    total_count = await db.users.get_user_attachments_count(user_id, status)
     total_pages = (total_count - 1) // MY_ATTACHMENTS_PER_PAGE + 1
     
     # دریافت اتچمنت‌های این صفحه
-    attachments = await db.get_user_attachments_paginated(
+    attachments = await db.users.get_user_attachments_paginated(
         user_id, 
         status, 
         limit=MY_ATTACHMENTS_PER_PAGE, 
@@ -200,12 +212,13 @@ async def show_my_attachments_by_status(update: Update, context: CustomContext):
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    except Exception:
+    except Exception as exc:
+        log_exception(logger, exc, "ua_my.show_my_attachments_by_status.edit_message")
         # اگر پیام photo بود، نمیشه edit کرد
         try:
             await query.message.delete()
-        except Exception as e:
-            logger.warning(f"Failed to delete previous my_attachments status message: {e}")
+        except Exception as delete_exc:
+            log_exception(logger, delete_exc, "ua_my.show_my_attachments_by_status.delete_source")
         await update.effective_chat.send_message(
             message,
             parse_mode='Markdown',
@@ -221,7 +234,7 @@ async def show_my_attachment_detail(update: Update, context: CustomContext):
     attachment_id = safe_int(query.data.replace('ua_my_detail_', ''))
     
     # دریافت اتچمنت
-    attachment = await db.get_user_attachment(attachment_id)
+    attachment = await db.users.get_user_attachment(attachment_id)
     
     if not attachment:
         lang = await get_user_lang(update, context, db) or 'fa'
@@ -321,16 +334,16 @@ async def show_my_attachment_detail(update: Update, context: CustomContext):
             parse_mode='MarkdownV2',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    except Exception as e:
-        logger.error(f"Error sending photo for attachment {attachment_id}: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_my.show_my_attachment_detail.send_photo")
         await query.answer(t('ua.error.view_image', lang), show_alert=True)
         return
     
     # حذف پیام قبلی
     try:
         await query.message.delete()
-    except Exception as e:
-        logger.warning(f"Failed to delete previous my_attachments detail message: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_my.show_my_attachment_detail.delete_source")
 
 
 async def ask_delete_confirmation(update: Update, context: CustomContext):
@@ -354,15 +367,17 @@ async def ask_delete_confirmation(update: Update, context: CustomContext):
             caption=t("ua.my.delete_confirm", lang),
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    except Exception:
+    except Exception as exc:
+        log_exception(logger, exc, "ua_my.ask_delete_confirmation.edit_caption")
         # اگر خطا داد (مثلاً اگر عکس نیست)، متن را ادیت می‌کنیم
         try:
             await query.edit_message_text(
                 t("ua.my.delete_confirm", lang),
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        except Exception:
-             # Fallback: ارسال پیام جدید
+        except Exception as fallback_exc:
+            log_exception(logger, fallback_exc, "ua_my.ask_delete_confirmation.edit_text_fallback")
+            # Fallback: ارسال پیام جدید
             await query.message.reply_text(
                 t("ua.my.delete_confirm", lang),
                 reply_markup=InlineKeyboardMarkup(keyboard)
@@ -378,7 +393,7 @@ async def perform_delete_my_attachment(update: Update, context: CustomContext):
     lang = await get_user_lang(update, context, db) or 'fa'
     
     # بررسی مالکیت
-    attachment = await db.get_user_attachment(attachment_id)
+    attachment = await db.users.get_user_attachment(attachment_id)
     
     if not attachment or attachment['user_id'] != user_id:
         await query.answer(t('error.unauthorized', lang), show_alert=True)
@@ -386,22 +401,21 @@ async def perform_delete_my_attachment(update: Update, context: CustomContext):
     
     # حذف با متد جدید دیتابیس
     try:
-        if await db.delete_user_attachment(attachment_id, deleted_by=user_id):
+        if await db.users.delete_user_attachment(attachment_id, deleted_by=user_id):
             await query.answer(t('ua.success.deleted', lang), show_alert=True)
             
             # حذف پیام و بازگشت
             try:
                 await query.message.delete()
-            except Exception as e:
-                logger.warning(f"Failed to delete message after delete: {e}")
+            except Exception as exc:
+                log_exception(logger, exc, "ua_my.perform_delete_my_attachment.delete_source")
             
             # نمایش لیست pending (یا وضعیت قبلی اگر ذخیره شده باشد، اما پیش‌فرض pending خوب است)
             # بهتر است به منوی اصلی برگردیم چون شاید لیست خالی شده باشد
             await my_attachments_menu(update, context)
             
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_my.perform_delete_my_attachment")
 
 
 async def my_attachments_prev_page(update: Update, context: CustomContext):

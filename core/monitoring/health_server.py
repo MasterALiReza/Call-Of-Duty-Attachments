@@ -37,7 +37,9 @@ class HealthServer:
         # Check Database
         if self.db:
             try:
-                await self.db.execute_query("SELECT 1")
+                async with self.db.get_connection() as conn:
+                    async with conn.cursor() as cursor:
+                        await cursor.execute("SELECT 1")
                 health["services"]["database"] = "ok"
             except Exception as e:
                 health["status"] = "fail"

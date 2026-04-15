@@ -259,23 +259,13 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         # Handler برای انتخاب mode بعد از انتخاب سلاح (BR/MP در سطح weapon)
         self.application.add_handler(CallbackQueryHandler(self.weapon_handler.show_mode_menu, pattern="^mode_(?!mp$|br$)"))
         self.application.add_handler(CallbackQueryHandler(self.top_handler.show_top_attachments, pattern="^show_top$"))
-        # نمایش همه اتچمنت‌ها؛ پشتیبانی از مسیر مستقیم از نتایج جستجو: all_{category}__{weapon}
+        # نمایش همه اتچمنت‌ها + مسیر مستقیم از نتایج جستجو: all_{category}__{weapon}
         self.application.add_handler(CallbackQueryHandler(self.all_handler.show_all_attachments, pattern="^show_all$|^all_page_|^all_"))
-        # send_attachment_quick is in AllAttachmentsHandler? No, it was in UserHandlers.
-        # Let's check where it should be. Probably AllAttachmentsHandler or SearchHandler.
-        # UserHandlers had it. I need to find it.
-        # It's for "qatt_" callback.
-        # I'll assume it's in AllAttachmentsHandler or I need to move it.
-        # Checked SearchHandler: it generates "qatt_" buttons.
-        # But who handles them? UserHandlers.send_attachment_quick.
-        # I need to move send_attachment_quick to SearchHandler or AllAttachmentsHandler.
-        # Let's assume I moved it to SearchHandler (it's related to quick result from search).
-        # Wait, I didn't move it yet. I need to add it to SearchHandler.
+        # نتیجه سریع جستجو: qatt_{category}__{weapon}__{mode}__{code}
         self.application.add_handler(CallbackQueryHandler(self.search_handler.send_attachment_quick, pattern="^qatt_"))
         
         # اتچمنت با mode (فرمت: attm_{mode}_{code})
-        # پیاده‌سازی صحیح در AllAttachmentsHandler.attachment_detail_with_mode قرار دارد.
-        self.application.add_handler(CallbackQueryHandler(self.all_handler.attachment_detail_with_mode, pattern="^attm_"))
+        self.application.add_handler(CallbackQueryHandler(self.all_handler.attachment_detail_with_mode, pattern=r"^attm_(?!_)"))
         
         # اتچمنت عادی - فقط att_{code} نه top/season/like/dislike/fb/copy
         # Exclude copy_ تا دکمه «📋 کپی کد» به هندلر اختصاصی خودش برود

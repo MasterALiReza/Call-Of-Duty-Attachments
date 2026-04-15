@@ -6,7 +6,7 @@ Base handler برای تمام admin handlers
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
-from typing import Dict, List
+from typing import Any, Dict, List
 from config.config import SUPER_ADMIN_ID
 from core.security.role_manager import Permission
 from utils.logger import get_logger
@@ -44,21 +44,61 @@ class BaseAdminHandler:
             return await self.role_manager.is_admin(user_id)
         # fallback به سوپراادمین
         return user_id == SUPER_ADMIN_ID
-    
+
     async def check_permission(self, user_id: int, permission) -> bool:
-        """بررسی دسترسی کاربر به یک permission خاص"""
+        """Check user permission access."""
         if hasattr(self, 'role_manager'):
             return await self.role_manager.has_permission(user_id, permission)
-        # fallback: اگر ادمین است true برگردان
-        return self.is_admin(user_id)
-    
-    async def send_permission_denied(self, update: Update, context: CustomContext):
-        """ارسال پیام عدم دسترسی"""
+        return await self.is_admin(user_id)
+
+    def _permission_name(self, permission: Any = None) -> str:
+        if permission is None:
+            return "ADMIN_ACCESS"
+        if isinstance(permission, str):
+            return permission
+        return getattr(permission, "name", str(permission))
+
+    async def audit_permission_denied(
+        self,
+        user_id: int,
+        *,
+        route: str,
+        permission: Any = None,
+        reason: str = "permission_denied",
+        source: str = "admin_handler",
+    ) -> None:
+        await self.audit.log_permission_decision(
+            actor_id=user_id,
+            permission=self._permission_name(permission),
+            allowed=False,
+            route=route,
+            reason=reason,
+            details={"source": source},
+        )
+
+    async def send_permission_denied(
+        self,
+        update: Update,
+        context: CustomContext,
+        *,
+        route: str = "unknown",
+        permission: Any = None,
+        reason: str = "permission_denied",
+        source: str = "admin_handler",
+    ):
+        """????? ???? ??? ??????"""
+        await self.audit_permission_denied(
+            update.effective_user.id,
+            route=route,
+            permission=permission,
+            reason=reason,
+            source=source,
+        )
         lang = await get_user_lang(update, context, self.db) or 'fa'
         message = t("admin.permission.denied.title", lang) + "\n\n" + t("admin.permission.denied.body", lang)
-        
+
         keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_menu_return")]]
-        
+
         if update.callback_query:
             await update.callback_query.edit_message_text(
                 message,
@@ -72,6 +112,7 @@ class BaseAdminHandler:
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+
     
     async def admin_cancel(self, update: Update, context: CustomContext):
         """لغو عملیات و بازگشت به منوی ادمین"""

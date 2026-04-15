@@ -158,7 +158,7 @@ class AddAttachmentHandler(BaseAdminHandler):
         # 🔍 DEBUG: بررسی category و callback
         logger.info(f"🔍 Category selected: callback_data='{query.data}', extracted_category='{category}'")
         
-        weapons = await self.db.get_weapons_in_category(category)
+        weapons = await self.db.attachments.get_weapons_in_category(category)
         
         # 🔍 DEBUG: بررسی weapons یافت شده
         logger.info(f"🔍 Weapons found for '{category}': {len(weapons)} weapons")
@@ -469,8 +469,8 @@ class AddAttachmentHandler(BaseAdminHandler):
             # So we create a slightly modified validation path or use weapon_id=1 as dummy
             
             # First, check if weapon exists to get ID
-            all_weapons = await self.db.get_weapons_in_category(category)
-            weapon_obj = await self.db.get_weapon_by_name(weapon)
+            all_weapons = await self.db.attachments.get_weapons_in_category(category)
+            weapon_obj = await self.db.attachments.get_weapon_by_name(weapon)
             w_id = weapon_obj['id'] if weapon_obj else 0
             
             validated_data = AttachmentCreate(
@@ -489,7 +489,7 @@ class AddAttachmentHandler(BaseAdminHandler):
 
         mode_name = GAME_MODES.get(mode, mode)
         
-        if await self.db.add_attachment(category, weapon, code, name, image, is_top, is_season_top, mode=mode):
+        if await self.db.attachments.add_attachment(category, weapon, code, name, image, is_top, is_season_top, mode=mode):
             # ✅ DB Audit Logging
             await self.audit.log_action(
                 admin_id=update.effective_user.id,
@@ -614,7 +614,7 @@ class AddAttachmentHandler(BaseAdminHandler):
             lang = await get_user_lang(update, context, self.db) or 'fa'
             
             if category:
-                weapons = await self.db.get_weapons_in_category(category)
+                weapons = await self.db.attachments.get_weapons_in_category(category)
                 keyboard = [[InlineKeyboardButton(t("admin.attach.buttons.add_weapon", lang), callback_data="awpn_new")]]
                 keyboard.extend(self._make_weapon_keyboard(weapons, "awpn_", category))
                 self._add_back_cancel_buttons(keyboard, show_back=True)

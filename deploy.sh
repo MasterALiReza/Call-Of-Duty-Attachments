@@ -46,8 +46,8 @@ SERVICE_NAME="codm-bot"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default database credentials
-DEFAULT_DB_NAME="codm_bot_db"
-DEFAULT_DB_USER="codm_bot_user"
+DEFAULT_DB_NAME="codm_bot"
+DEFAULT_DB_USER="codm_admin"
 
 # ============================================================================
 # Utility Functions
@@ -847,12 +847,23 @@ setup_database() {
         
         sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" >/dev/null
         
-        # Setup schema
-        if [ -f "$INSTALL_DIR/scripts/setup_database.sql" ]; then
-            print_step "Setting up database schema..."
-            PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" \
-                -f "$INSTALL_DIR/scripts/setup_database.sql" >/dev/null 2>&1
-            print_success "Database schema created"
+        # Setup schema via the canonical migration runner only.
+        print_step "Applying canonical database migrations..."
+        if sudo -u "$BOT_USER" env \
+            PATH="$INSTALL_DIR/venv/bin:$PATH" \
+            DB_NAME="$DB_NAME" \
+            DB_USER="$DB_USER" \
+            DB_PASSWORD="$DB_PASS" \
+            DB_HOST="$DB_HOST" \
+            DB_PORT="$DB_PORT" \
+            POSTGRES_DB="$DB_NAME" \
+            POSTGRES_USER="$DB_USER" \
+            POSTGRES_PASSWORD="$DB_PASS" \
+            "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/scripts/setup_database.py" --migrate-only >/tmp/codm-setup-db.log 2>&1; then
+            print_success "Database schema created from canonical migrations"
+        else
+            print_error "Failed applying canonical migrations (see /tmp/codm-setup-db.log)"
+            return 1
         fi
     fi
     
@@ -1004,6 +1015,7 @@ POSTGRES_PASSWORD=$DB_PASS
 DB_POOL_SIZE=20
 DB_POOL_MAX_OVERFLOW=10
 DB_POOL_TIMEOUT=30
+DB_RUNTIME_SCHEMA_ENSURE=false
 
 # Language Settings
 DEFAULT_LANG=fa
@@ -1387,63 +1399,28 @@ update_bot() {
     sudo -u $BOT_USER "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --upgrade >/dev/null 2>&1
     print_success "Libraries updated"
     
-    # Run database migrations
-    if [ -d "$INSTALL_DIR/scripts/migrations" ]; then
-        print_step "Running database migrations..."
-        
-        if [ -f "$INSTALL_DIR/.env" ]; then
-            source "$INSTALL_DIR/.env"
-            
-            # Sort migrations to ensure order
-            # Using simple expansion might not be sorted in all shells, using ls | sort is safer here
-            migrations=$(ls "$INSTALL_DIR/scripts/migrations"/*.sql 2>/dev/null | sort)
-            
-            if [ -n "$migrations" ]; then
-                # Ensure migrations table exists
-                PGPASSWORD="$POSTGRES_PASSWORD" psql -h "${POSTGRES_HOST:-localhost}" \
-                    -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-                    -c "CREATE TABLE IF NOT EXISTS _migrations (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, applied_at TIMESTAMP DEFAULT NOW());" >/dev/null 2>&1
+    # Run database migrations via the canonical migration runner only.
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        print_step "Running canonical database migrations..."
+        source "$INSTALL_DIR/.env"
 
-                for migration in $migrations; do
-                    if [ -f "$migration" ]; then
-                        migration_name=$(basename "$migration")
-                        
-                        # Check if already applied
-                        is_applied=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h "${POSTGRES_HOST:-localhost}" \
-                            -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A \
-                            -c "SELECT 1 FROM _migrations WHERE name = '$migration_name';")
-                        
-                        if [ "$is_applied" = "1" ]; then
-                            continue
-                        fi
-
-                        print_info "Applying: $migration_name"
-                        
-                        # Run migration and capture output
-                        if PGPASSWORD="$POSTGRES_PASSWORD" psql -h "${POSTGRES_HOST:-localhost}" \
-                            -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-                            -v ON_ERROR_STOP=1 \
-                            -f "$migration" > /tmp/db_migration.log 2>&1; then
-                            
-                            # Record migration
-                            PGPASSWORD="$POSTGRES_PASSWORD" psql -h "${POSTGRES_HOST:-localhost}" \
-                                -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-                                -c "INSERT INTO _migrations (name) VALUES ('$migration_name');" >/dev/null 2>&1
-                            
-                            print_success "Done: $migration_name"
-                        else
-                            # Ignore errors if it's just "relation already exists" etc, but warn user
-                            print_warning "Warning in $migration_name (Details in /tmp/db_migration.log)"
-                        fi
-                    fi
-                done
-                print_success "Database migrations completed"
-            else
-                print_info "No migration files found"
-            fi
+        if sudo -u "$BOT_USER" env \
+            PATH="$INSTALL_DIR/venv/bin:$PATH" \
+            DB_NAME="$POSTGRES_DB" \
+            DB_USER="$POSTGRES_USER" \
+            DB_PASSWORD="$POSTGRES_PASSWORD" \
+            DB_HOST="${POSTGRES_HOST:-localhost}" \
+            DB_PORT="${POSTGRES_PORT:-5432}" \
+            POSTGRES_DB="$POSTGRES_DB" \
+            POSTGRES_USER="$POSTGRES_USER" \
+            POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/scripts/setup_database.py" --migrate-only >/tmp/db_migration.log 2>&1; then
+            print_success "Database migrations completed"
         else
-             print_warning "Configuration file not found, skipping migrations"
+            print_error "Database migrations failed (Details in /tmp/db_migration.log)"
         fi
+    else
+         print_warning "Configuration file not found, skipping migrations"
     fi
 
     

@@ -104,7 +104,7 @@ class LanguageHandler(BaseUserHandler):
                 ]
                 
                 # Check UA system
-                ua_system_enabled = await self.db.get_ua_setting('system_enabled') or '1'
+                ua_system_enabled = await self.db.settings.get_ua_setting('system_enabled') or '1'
                 if ua_system_enabled in ('1', 'true', 'True'):
                     keyboard.append([kb("menu.buttons.ua", new_lang), kb("menu.buttons.suggested", new_lang)])
                 else:
@@ -118,7 +118,7 @@ class LanguageHandler(BaseUserHandler):
                 
                 # Check CMS
                 try:
-                    cms_enabled = str(await self.db.get_setting('cms_enabled', 'false')).lower() == 'true'
+                    cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
                 except Exception:
                     cms_enabled = False
                 if cms_enabled:
@@ -132,7 +132,7 @@ class LanguageHandler(BaseUserHandler):
                 keyboard.append([kb("menu.buttons.user_settings", new_lang)])
                 
                 # Check admin
-                if await self.db.is_admin(user_id):
+                if await self.db.users.is_admin(user_id):
                     keyboard.append([kb("menu.buttons.admin", new_lang)])
                 
                 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

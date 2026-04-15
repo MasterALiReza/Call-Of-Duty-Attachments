@@ -132,7 +132,7 @@ class GuidesHandler(BaseAdminHandler):
         mode_display = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
         # دریافت راهنماها برای شمارش مدیا
-        guides = await self.db.get_guides(mode=mode)
+        guides = await self.db.cms.get_guides(mode=mode)
         
         # ساخت دکمه‌ها با ایموجی و تعداد مدیا
         def make_button_text(emoji: str, name_key: str, guide_key: str) -> str:
@@ -215,7 +215,7 @@ class GuidesHandler(BaseAdminHandler):
         lang = await get_user_lang(update, context, self.db) or 'fa'
         mode_display = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         
-        g = await self.db.get_guide(key, mode=mode)
+        g = await self.db.cms.get_guide(key, mode=mode)
         p = len(g.get("photos", []) or [])
         v = len(g.get("videos", []) or [])
         
@@ -299,7 +299,7 @@ class GuidesHandler(BaseAdminHandler):
             context.user_data['guide_key'] = key
             context.user_data['guide_mode'] = mode
             
-            g = await self.db.get_guide(key, mode=mode)
+            g = await self.db.cms.get_guide(key, mode=mode)
             current_name = g.get("name", key)
             labels = {"basic": t('guides.basic_short', lang), "sens": t('guides.sens_short', lang), "hud": t('guides.hud_short', lang)}
             section = labels.get(key, key)
@@ -358,7 +358,7 @@ class GuidesHandler(BaseAdminHandler):
             key, mode = self._extract_key_mode(data, "gop_clearmedia_confirm_")
             await query.answer(t('feedback.wait', lang))
             
-            if await self.db.clear_guide_media(key, mode=mode):
+            if await self.db.cms.clear_guide_media(key, mode=mode):
                 await query.message.reply_text(t('admin.guides.clearmedia.success', lang), parse_mode='HTML')
                 logger.info(f"Media cleared for {key} ({mode})")
             else:
@@ -389,7 +389,7 @@ class GuidesHandler(BaseAdminHandler):
             context.user_data['guide_key'] = key
             context.user_data['guide_mode'] = mode
             
-            cur = (await self.db.get_guide_code(key, mode=mode) or "").strip()
+            cur = (await self.db.cms.get_guide_code(key, mode=mode) or "").strip()
             code_label = t('guides.sens_short', lang) if key == "sens" else t('guides.hud_short', lang)
             
             msg = (
@@ -407,7 +407,7 @@ class GuidesHandler(BaseAdminHandler):
             key, mode = self._extract_key_mode(data, "gop_clearcode_")
             await query.answer(t('feedback.wait', lang))
             
-            if await self.db.clear_guide_code(key, mode=mode):
+            if await self.db.cms.clear_guide_code(key, mode=mode):
                 await query.message.reply_text(t('admin.guides.clearcode.success', lang), parse_mode='HTML')
                 logger.info(f"Code cleared for {key} ({mode})")
             else:
@@ -436,7 +436,7 @@ class GuidesHandler(BaseAdminHandler):
             await update.message.reply_text(t('admin.guides.error.key_not_found', lang))
             return ADMIN_MENU
         
-        if await self.db.set_guide_name(key, name, mode=mode):
+        if await self.db.cms.set_guide_name(key, name, mode=mode):
             name_esc = name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             msg = t('admin.guides.rename.saved', lang, name=name_esc)
             
@@ -515,9 +515,9 @@ class GuidesHandler(BaseAdminHandler):
         
         # ذخیره رسانه‌ها
         for photo_id in photos:
-            await self.db.add_guide_photo(key, photo_id, mode=mode)
+            await self.db.cms.add_guide_photo(key, photo_id, mode=mode)
         for video_id in videos:
-            await self.db.add_guide_video(key, video_id, mode=mode)
+            await self.db.cms.add_guide_video(key, video_id, mode=mode)
         
         # پاکسازی
         context.user_data.pop('guide_temp_photos', None)
@@ -546,7 +546,7 @@ class GuidesHandler(BaseAdminHandler):
             await update.message.reply_text(t('admin.guides.error.key_not_found', lang))
             return ADMIN_MENU
         
-        if await self.db.set_guide_code(key, code, mode=mode):
+        if await self.db.cms.set_guide_code(key, code, mode=mode):
             code_esc = code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             await update.message.reply_text(
                 t('admin.guides.code.saved', lang, code=code_esc),

@@ -1,34 +1,52 @@
-from core.context import CustomContext
 """
 Stats Handler - آمار و گزارش‌های سیستم اتچمنت کاربران
 """
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler
-from datetime import datetime, timedelta
-from core.database.database_adapter import get_database_adapter
+import time
+from datetime import datetime
+
+from core.audit import AuditLogger
+from core.context import CustomContext
 from core.cache.ua_cache_manager import get_ua_cache
-from core.security.role_manager import RoleManager, Permission
-from utils.logger import get_logger
+from core.database.database_adapter import get_database_adapter
+from core.security.role_manager import RoleManager
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler
+from utils.error_handler import error_handler
 from utils.i18n import t
 from utils.language import get_user_lang
-import time
+from utils.logger import get_logger, log_exception
+
+from .permissions import has_manage_user_attachments_permission
 
 logger = get_logger('ua_stats', 'admin.log')
 db = get_database_adapter()
 cache = get_ua_cache(db, ttl_seconds=300)  # 5 minutes cache
+audit_logger = AuditLogger()
 
 # RBAC helper
 role_manager = RoleManager(db)
 
 async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
-    try:
-        if await role_manager.is_super_admin(user_id):
-            return True
-        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
-    except Exception:
-        return await db.is_admin(user_id)
+    return bool(await has_manage_user_attachments_permission(
+        user_id,
+        db=db,
+        role_manager=role_manager,
+        audit_logger=audit_logger,
+        route="ua_admin_stats",
+        source="stats_handler",
+    ))
+
+
+async def _handle_boundary_error(
+    update: Update,
+    context: CustomContext,
+    exc: Exception,
+    scope: str,
+) -> None:
+    log_exception(logger, exc, scope)
+    await error_handler.handle_telegram_error(update, context, exc)
 
 
 async def show_ua_stats(update: Update, context: CustomContext):
@@ -38,7 +56,7 @@ async def show_ua_stats(update: Update, context: CustomContext):
     
     user_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -87,9 +105,8 @@ async def show_ua_stats(update: Update, context: CustomContext):
         elapsed_time = (time.time() - start_time) * 1000
         logger.info(f"Stats loaded in {elapsed_time:.2f}ms (from {'fresh calculation' if force_refresh else 'cache'})")
         
-    except Exception as e:
-        from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+    except Exception as exc:
+        await _handle_boundary_error(update, context, exc, "ua_stats.show_ua_stats")
         return
     
     # ساخت پیام
@@ -149,8 +166,8 @@ async def show_ua_stats(update: Update, context: CustomContext):
                     cache_age = f" ({t('time.seconds_ago', lang, n=int(age_seconds))})"
                 else:
                     cache_age = f" ({t('time.minutes_ago', lang, n=int(age_seconds/60))})"
-            except Exception as e:
-                logger.warning(f"Failed to parse UA stats updated_at '{updated_at}': {e}")
+            except (TypeError, ValueError) as exc:
+                log_exception(logger, exc, "ua_stats.show_ua_stats.updated_at")
     
     message += "\n_" + t('admin.ua.stats.footer.loaded_in', lang, ms=f"{elapsed_time:.0f}", cache_age=cache_age) + "_"
     
@@ -173,7 +190,7 @@ async def show_approved_list(update: Update, context: CustomContext):
     
     user_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
@@ -190,7 +207,7 @@ async def show_approved_list(update: Update, context: CustomContext):
         total = await cache.get_paginated_count('approved')
         
         # دریافت لیست (این یکی cache نداره چون pagination داره)
-        approved = await db.get_user_attachments_by_status('approved', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
+        approved = await db.users.get_user_attachments_by_status('approved', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
         
         # Batch load usernames برای جلوگیری از N+1
         if approved:
@@ -203,8 +220,8 @@ async def show_approved_list(update: Update, context: CustomContext):
         
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Approved list loaded in {elapsed:.2f}ms")
-    except Exception as e:
-        logger.error(f"Error fetching approved attachments: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_stats.show_approved_list.fetch")
         approved = []
         total = 0
     
@@ -255,12 +272,13 @@ async def show_approved_list(update: Update, context: CustomContext):
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    except Exception:
+    except Exception as exc:
+        log_exception(logger, exc, "ua_stats.show_approved_list.edit_message")
         # اگه پیام photo بود (از view_approved_attachment برگشته)
         try:
             await query.message.delete()
-        except Exception as e:
-            logger.warning(f"Failed to delete UA approved list source message: {e}")
+        except Exception as delete_exc:
+            log_exception(logger, delete_exc, "ua_stats.show_approved_list.delete_source")
         await update.effective_chat.send_message(
             message,
             parse_mode='Markdown',
@@ -292,7 +310,7 @@ async def show_rejected_list(update: Update, context: CustomContext):
         total = await cache.get_paginated_count('rejected')
         
         # دریافت لیست
-        rejected = await db.get_user_attachments_by_status('rejected', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
+        rejected = await db.users.get_user_attachments_by_status('rejected', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
         
         # Batch load usernames
         if rejected:
@@ -305,8 +323,8 @@ async def show_rejected_list(update: Update, context: CustomContext):
         
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Rejected list loaded in {elapsed:.2f}ms")
-    except Exception as e:
-        logger.error(f"Error fetching rejected attachments: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_stats.show_rejected_list.fetch")
         rejected = []
         total = 0
     
@@ -328,7 +346,6 @@ async def show_rejected_list(update: Update, context: CustomContext):
     keyboard = []
     for att in rejected:
         mode_icon = "🎮" if att['mode'] == 'mp' else "🪂"
-        username = att.get('username')
         # Escape markdown characters to prevent parsing errors
         reason = (att.get('rejection_reason') or t('common.no_reason', lang)).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')[:25]
         name = att['attachment_name'].replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')[:20]
@@ -358,12 +375,13 @@ async def show_rejected_list(update: Update, context: CustomContext):
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    except Exception:
+    except Exception as exc:
+        log_exception(logger, exc, "ua_stats.show_rejected_list.edit_message")
         # اگه پیام photo بود
         try:
             await query.message.delete()
-        except Exception as e:
-            logger.warning(f"Failed to delete UA rejected list source message: {e}")
+        except Exception as delete_exc:
+            log_exception(logger, delete_exc, "ua_stats.show_rejected_list.delete_source")
         await update.effective_chat.send_message(
             message,
             parse_mode='Markdown',
@@ -378,14 +396,14 @@ async def view_approved_attachment(update: Update, context: CustomContext):
     
     user_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
-    if not has_ua_perm(user_id):
+    if not await has_ua_perm(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
     attachment_id = int(query.data.replace('ua_admin_view_approved_', ''))
     
     # دریافت اتچمنت
-    attachment = await db.get_user_attachment(attachment_id)
+    attachment = await db.users.get_user_attachment(attachment_id)
     
     if not attachment:
         await query.answer(t('attachment.not_found', lang), show_alert=True)
@@ -393,7 +411,6 @@ async def view_approved_attachment(update: Update, context: CustomContext):
     
     # ساخت caption
     from telegram.helpers import escape_markdown
-    from config.config import GAME_MODES, WEAPON_CATEGORIES
     
     mode_name = t(f"mode.{attachment['mode']}_short", lang)
     category_name = t(f"category.{attachment['category']}", 'en')
@@ -429,8 +446,8 @@ async def view_approved_attachment(update: Update, context: CustomContext):
     # ارسال تصویر
     try:
         await query.message.delete()
-    except Exception as e:
-        logger.warning(f"Failed to delete UA approved view source message: {e}")
+    except Exception as exc:
+        log_exception(logger, exc, "ua_stats.view_approved_attachment.delete_source")
     
     await update.effective_chat.send_photo(
         photo=attachment['image_file_id'],

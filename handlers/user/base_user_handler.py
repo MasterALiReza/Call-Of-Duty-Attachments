@@ -29,7 +29,12 @@ class BaseUserHandler:
         """
         try:
             user = update.effective_user
-            await self.db.upsert_user(user_id=user.id, username=user.username, first_name=user.first_name, last_name=user.last_name)
+            await self.db.users.upsert_user(
+                user_id=user.id,
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+            )
         except Exception as e:
             logger.debug(f'Could not track user info for {user.id}: {e}')
 

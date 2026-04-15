@@ -34,7 +34,13 @@ class CMSHandler(BaseAdminHandler):
 
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_TEXTS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="cms_menu",
+                permission=Permission.MANAGE_TEXTS,
+                source="cms_menu",
+            )
             return ADMIN_MENU
 
         items = await self.cms.get_published_content(limit=5)
@@ -64,7 +70,13 @@ class CMSHandler(BaseAdminHandler):
 
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_TEXTS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="cms_add_start",
+                permission=Permission.MANAGE_TEXTS,
+                source="cms_add_start",
+            )
             return ADMIN_MENU
 
         text = t('admin.cms.add.type_prompt', lang)
@@ -122,7 +134,13 @@ class CMSHandler(BaseAdminHandler):
         lang = await get_user_lang(update, context, self.db) or 'fa'
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_TEXTS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="cms_list_menu",
+                permission=Permission.MANAGE_TEXTS,
+                source="cms_list_menu",
+            )
             return ADMIN_MENU
         rows = await self.cms.list_content(limit=10)
         if not rows:

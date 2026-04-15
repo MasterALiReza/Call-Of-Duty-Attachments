@@ -6,6 +6,7 @@ import os
 import time
 import json
 import asyncio
+import inspect
 from typing import Any, Optional, Dict, Callable
 from functools import wraps
 import threading
@@ -318,7 +319,7 @@ def cached(ttl_or_key=300, key_func: Optional[Callable]=None, ttl: Optional[int]
         cache_ttl = ttl_or_key if isinstance(ttl_or_key, int) else 300
 
     def decorator(func):
-        is_async = asyncio.iscoroutinefunction(func)
+        is_async = inspect.iscoroutinefunction(func)
 
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
@@ -374,7 +375,7 @@ def invalidate_cache_on_write(patterns: list):
     """Decorator to invalidate caches after write operations"""
 
     def decorator(func):
-        is_async = asyncio.iscoroutinefunction(func)
+        is_async = inspect.iscoroutinefunction(func)
 
         @wraps(func)
         async def async_wrapper(*args, **kwargs):

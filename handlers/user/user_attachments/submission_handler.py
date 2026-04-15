@@ -1,24 +1,22 @@
-from core.context import CustomContext
 """
 User Attachment Submission Handler
 فرآیند ارسال اتچمنت توسط کاربران
 """
 
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ContextTypes, ConversationHandler, CallbackQueryHandler,
-    MessageHandler, filters
-)
-from config.config import WEAPON_CATEGORIES, GAME_MODES, build_category_keyboard, build_weapon_keyboard
+
+from config.config import WEAPON_CATEGORIES, build_category_keyboard, build_weapon_keyboard
+from core.context import CustomContext
 from core.database.database_adapter import get_database_adapter
-from utils.content_validator import get_validator
-from utils.logger import get_logger
-from utils.language import get_user_lang
-from utils.i18n import t
+from core.events import EventTypes, event_bus
 from core.security.rate_limiter import SimpleRateLimiter
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler, ConversationHandler, MessageHandler, filters
+from utils.content_validator import get_validator
+from utils.i18n import t
+from utils.language import get_user_lang
+from utils.logger import get_logger
 from utils.telegram_safety import safe_edit_message_text
-from core.events import event_bus, EventTypes
 
 logger = get_logger('user_attachments', 'user.log')
 
@@ -57,7 +55,7 @@ async def show_user_attachments_menu(update: Update, context: CustomContext):
     lang = await get_user_lang(update, context, db) or 'fa'
     
     # بررسی فعال بودن سیستم
-    system_enabled = await db.get_ua_setting('system_enabled') or '1'
+    system_enabled = await db.settings.get_ua_setting('system_enabled') or '1'
     if system_enabled not in ('1', 'true', 'True'):
         text = t("error.generic", lang)
         if query:
@@ -80,7 +78,7 @@ async def show_user_attachments_menu(update: Update, context: CustomContext):
         return
     
     # Track user
-    await db.upsert_user(
+    await db.users.upsert_user(
         user_id=user_id,
         username=update.effective_user.username,
         first_name=update.effective_user.first_name
@@ -140,7 +138,7 @@ async def start_submission(update: Update, context: CustomContext):
     lang = await get_user_lang(update, context, db) or 'fa'
     
     # Check if user is an admin
-    user_role = await db.get_user_role(user_id)
+    user_role = await db.users.get_user_role(user_id)
     is_admin = user_role in ['owner', 'admin']
     
     # بررسی Rate Limit
@@ -156,7 +154,7 @@ async def start_submission(update: Update, context: CustomContext):
         return ConversationHandler.END
     
     # بررسی وضعیت Ban
-    stats = await db.get_user_submission_stats(user_id)
+    stats = await db.settings.get_user_submission_stats(user_id)
     if stats and stats['is_banned']:
         await safe_edit_message_text(
             query,
@@ -169,7 +167,7 @@ async def start_submission(update: Update, context: CustomContext):
         return ConversationHandler.END
     
     # بررسی محدودیت روزانه
-    daily_limit = int(await db.get_ua_setting('daily_limit') or 5)
+    daily_limit = int(await db.settings.get_ua_setting('daily_limit') or 5)
     if stats and stats['daily_submissions'] >= daily_limit:
         await safe_edit_message_text(
             query,
@@ -193,7 +191,7 @@ async def start_submission(update: Update, context: CustomContext):
     context.user_data['submission_user_id'] = user_id
     
     # اطمینان از وجود کاربر در دیتابیس
-    await db.upsert_user(
+    await db.users.upsert_user(
         user_id=user_id,
         username=update.effective_user.username,
         first_name=update.effective_user.first_name,
@@ -210,7 +208,7 @@ async def start_submission(update: Update, context: CustomContext):
         category_name = t(f"category.{browse_category}", 'en')
         
         # دریافت لیست سلاح‌های این دسته
-        weapons = await db.get_weapons_in_category(browse_category)
+        weapons = await db.attachments.get_weapons_in_category(browse_category)
         
         if not weapons:
             await safe_edit_message_text(
@@ -267,7 +265,7 @@ async def start_submission(update: Update, context: CustomContext):
     
     # نمایش انتخاب مود
     # دریافت مودهای فعال
-    enabled_modes_str = await db.get_ua_setting('enabled_modes') or '["mp","br"]'
+    enabled_modes_str = await db.settings.get_ua_setting('enabled_modes') or '["mp","br"]'
     enabled_modes = json.loads(enabled_modes_str)
     
     keyboard = []
@@ -367,7 +365,7 @@ async def category_selected(update: Update, context: CustomContext):
     mode_name = t(f"mode.{context.user_data['mode']}_btn", lang)
     
     # دریافت لیست سلاح‌های موجود در این دسته
-    weapons = await db.get_weapons_in_category(category)
+    weapons = await db.attachments.get_weapons_in_category(category)
     
     if not weapons:
         await safe_edit_message_text(
@@ -407,7 +405,7 @@ async def weapon_selected(update: Update, context: CustomContext):
     lang = await get_user_lang(update, context, db) or 'fa'
     
     # دریافت weapon_id از دیتابیس
-    weapon = await db.get_weapon_by_name(category, weapon_name)
+    weapon = await db.attachments.get_weapon_by_name(category, weapon_name)
     if not weapon:
         await safe_edit_message_text(
             query,
@@ -442,7 +440,7 @@ async def name_entered(update: Update, context: CustomContext):
     lang = await get_user_lang(update, context, db) or 'fa'
     
     # Validation
-    max_length = int(await db.get_ua_setting('max_name_length') or 100)
+    max_length = int(await db.settings.get_ua_setting('max_name_length') or 100)
     valid, reason, violation = validator.validate_text(text, max_length, check_spam=True)
     
     if not valid:
@@ -458,17 +456,17 @@ async def name_entered(update: Update, context: CustomContext):
             else:
                 strike_add = 0.5
             
-            db.update_submission_stats(
+            await db.settings.update_submission_stats(
                 user_id=user_id,
                 add_violation=1,
                 add_strike=strike_add
             )
             
             # بررسی Strike Count
-            stats = await db.get_user_submission_stats(user_id)
+            stats = await db.settings.get_user_submission_stats(user_id)
             if stats['strike_count'] >= 3.0:
                 # Ban دائم
-                await db.ban_user_from_submissions(
+                await db.users.ban_user_from_submissions(
                     user_id=user_id,
                     reason=f"استفاده {stats['violation_count']} بار از کلمات نامناسب"
                 )
@@ -533,7 +531,7 @@ async def image_uploaded(update: Update, context: CustomContext):
     file_id = photo.file_id
     
     # بررسی حجم
-    max_size = int(await db.get_ua_setting('max_image_size') or 5242880)  # default 5 MB
+    max_size = int(await db.settings.get_ua_setting('max_image_size') or 5242880)  # default 5 MB
     if getattr(photo, 'file_size', 0) > max_size:
         max_mb = max_size // (1024 * 1024)
         await update.message.reply_text(t('validation.image.too_large', lang, max_mb=max_mb))
@@ -542,7 +540,7 @@ async def image_uploaded(update: Update, context: CustomContext):
     context.user_data['image_file_id'] = file_id
     
     # درخواست کد اتچمنت
-    max_code_length = int(await db.get_ua_setting('max_description_length') or 500)
+    max_code_length = int(await db.settings.get_ua_setting('max_description_length') or 500)
     
     await update.message.reply_text(
         t('ua.prompt.code', lang, max=max_code_length),
@@ -555,7 +553,6 @@ async def image_uploaded(update: Update, context: CustomContext):
 async def code_entered(update: Update, context: CustomContext):
     """دریافت کد اتچمنت"""
     text = update.message.text.strip()
-    user_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
     
     # اگر skip بود
@@ -573,7 +570,7 @@ async def code_entered(update: Update, context: CustomContext):
         context.user_data['code'] = text
     
     # درخواست توضیحات
-    max_desc_length = int(await db.get_ua_setting('max_description_length') or 200)
+    max_desc_length = int(await db.settings.get_ua_setting('max_description_length') or 200)
     
     await update.message.reply_text(
         t('ua.prompt.description', lang, max=max_desc_length),
@@ -594,7 +591,7 @@ async def description_entered(update: Update, context: CustomContext):
         context.user_data['description'] = None
     else:
         # Validation
-        max_length = int(await db.get_ua_setting('max_description_length') or 200)
+        max_length = int(await db.settings.get_ua_setting('max_description_length') or 200)
         valid, reason, violation = validator.validate_text(text, max_length, check_spam=True)
         
         if not valid:
@@ -603,15 +600,15 @@ async def description_entered(update: Update, context: CustomContext):
                 severity = violation['severity']
                 strike_add = 2.0 if severity == 3 else (1.0 if severity == 2 else 0.5)
                 
-                await db.update_submission_stats(
+                await db.settings.update_submission_stats(
                     user_id=user_id,
                     add_violation=1,
                     add_strike=strike_add
                 )
                 
-                stats = await db.get_user_submission_stats(user_id)
+                stats = await db.settings.get_user_submission_stats(user_id)
                 if stats['strike_count'] >= 3.0:
-                    await db.ban_user_from_submissions(user_id, "تخلفات مکرر")
+                    await db.users.ban_user_from_submissions(user_id, "تخلفات مکرر")
                     await update.message.reply_text(
                         t('ua.banned_simple', lang),
                         parse_mode='Markdown'
@@ -725,7 +722,7 @@ async def final_confirm(update: Update, context: CustomContext):
             combined_desc = None
         
         # ثبت در دیتابیس
-        attachment_id = await db.add_user_attachment(
+        attachment_id = await db.users.add_user_attachment(
             user_id=user_id,
             weapon_id=data.get('weapon_id'),
             mode=data['mode'],
@@ -738,7 +735,7 @@ async def final_confirm(update: Update, context: CustomContext):
         
         if attachment_id:
             # به‌روزرسانی آمار
-            await db.update_submission_stats(
+            await db.settings.update_submission_stats(
                 user_id=user_id,
                 increment_total=True,
                 increment_daily=True
@@ -810,7 +807,7 @@ async def back_to_mode(update: Update, context: CustomContext):
     
     # نمایش انتخاب مود
     # دریافت مودهای فعال
-    enabled_modes_str = await db.get_ua_setting('enabled_modes') or '["mp","br"]'
+    enabled_modes_str = await db.settings.get_ua_setting('enabled_modes') or '["mp","br"]'
     enabled_modes = json.loads(enabled_modes_str)
     
     keyboard = []

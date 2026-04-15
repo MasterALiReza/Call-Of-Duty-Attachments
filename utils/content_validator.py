@@ -24,7 +24,7 @@ class ContentValidator:
     async def _load_blacklist(self):
         """بارگذاری کلمات ممنوعه از دیتابیس"""
         try:
-            words = await self.db.get_all_blacklisted_words()
+            words = await self.db.settings.get_all_blacklisted_words()
             cache = {}
             for word in words or []:
                 w = (word or {}).get('word')

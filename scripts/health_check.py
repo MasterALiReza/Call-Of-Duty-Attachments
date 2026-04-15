@@ -6,9 +6,10 @@ Quick health check utility for bot status verification.
 Used by wx-attach CLI tool for detailed status checks.
 
 Usage:
-    python health_check.py [--json]
+    python health_check.py [--json] [--mode full|readiness]
 """
 
+import argparse
 import os
 import sys
 import json
@@ -21,6 +22,17 @@ sys.path.insert(0, PROJECT_ROOT)
 # Load environment
 from dotenv import load_dotenv
 load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
+
+
+def derive_overall_status(checks: list[dict]) -> str:
+    """Determine overall status from check list."""
+    overall_status = "ok"
+    for check in checks:
+        if check["status"] == "error":
+            return "error"
+        if check["status"] == "warning":
+            overall_status = "warning"
+    return overall_status
 
 
 def check_database() -> dict:
@@ -147,7 +159,7 @@ def check_telegram() -> dict:
     return result
 
 
-def check_environment() -> dict:
+def check_environment(required_vars: list[str] | None = None) -> dict:
     """Check required environment variables."""
     result = {
         "name": "Environment",
@@ -155,7 +167,7 @@ def check_environment() -> dict:
         "details": {}
     }
     
-    required_vars = ['BOT_TOKEN', 'DATABASE_URL', 'SUPER_ADMIN_ID']
+    required_vars = required_vars or ['BOT_TOKEN', 'DATABASE_URL', 'SUPER_ADMIN_ID']
     optional_vars = ['DEFAULT_LANG', 'DB_POOL_SIZE']
     
     missing = []
@@ -179,6 +191,64 @@ def check_environment() -> dict:
     return result
 
 
+def check_database_readiness() -> dict:
+    """Fast database readiness check for container health probes."""
+    result = {
+        "name": "Database Readiness",
+        "status": "unknown",
+        "details": {}
+    }
+
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        database_url = os.getenv('DATABASE_URL')
+        if not database_url:
+            result["status"] = "error"
+            result["details"]["error"] = "DATABASE_URL not configured"
+            return result
+
+        required_tables = ("users", "admins", "attachments")
+        start_time = datetime.now()
+        conn = psycopg.connect(database_url, connect_timeout=5, row_factory=dict_row)
+        cur = conn.cursor()
+        cur.execute("SELECT 1 AS ok")
+        cur.fetchone()
+
+        cur.execute(
+            """
+            SELECT tablename
+            FROM pg_tables
+            WHERE schemaname = 'public' AND tablename = ANY(%s)
+            """,
+            (list(required_tables),),
+        )
+        existing_tables = {row["tablename"] for row in cur.fetchall()}
+        missing_tables = [table for table in required_tables if table not in existing_tables]
+        conn.close()
+
+        elapsed = (datetime.now() - start_time).total_seconds() * 1000
+        if missing_tables:
+            result["status"] = "warning"
+            result["details"] = {
+                "missing_tables": missing_tables,
+                "response_time_ms": round(elapsed, 2),
+            }
+            return result
+
+        result["status"] = "ok"
+        result["details"] = {
+            "required_tables": list(required_tables),
+            "response_time_ms": round(elapsed, 2),
+        }
+        return result
+    except Exception as e:
+        result["status"] = "error"
+        result["details"]["error"] = str(e)
+        return result
+
+
 def check_files() -> dict:
     """Check required files exist."""
     result = {
@@ -192,7 +262,11 @@ def check_files() -> dict:
         'requirements.txt',
         '.env',
         'core/database/database_pg.py',
-        'scripts/setup_database.sql'
+        'scripts/setup_database.py',
+        'scripts/init_postgres.sql',
+    ]
+    required_dirs = [
+        'scripts/migrations',
     ]
     
     missing = []
@@ -204,6 +278,13 @@ def check_files() -> dict:
             found.append(file)
         else:
             missing.append(file)
+
+    for directory in required_dirs:
+        path = os.path.join(PROJECT_ROOT, directory)
+        if os.path.isdir(path):
+            found.append(directory)
+        else:
+            missing.append(directory)
     
     result["status"] = "ok" if not missing else "warning"
     result["details"] = {
@@ -285,19 +366,40 @@ def run_all_checks() -> dict:
         check_super_admin()
     ]
     
-    overall_status = "ok"
-    for check in checks:
-        if check["status"] == "error":
-            overall_status = "error"
-            break
-        elif check["status"] == "warning" and overall_status == "ok":
-            overall_status = "warning"
-    
+    overall_status = derive_overall_status(checks)
+
     return {
         "timestamp": datetime.now().isoformat(),
         "overall_status": overall_status,
         "checks": checks
     }
+
+
+def run_readiness_checks() -> dict:
+    """Run readiness-focused checks for container runtime probes."""
+    checks = [
+        check_environment(),
+        check_database_readiness(),
+    ]
+
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "overall_status": derive_overall_status(checks),
+        "checks": checks,
+    }
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse CLI args."""
+    parser = argparse.ArgumentParser(description="CODM bot health checks")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    parser.add_argument(
+        "--mode",
+        choices=("full", "readiness"),
+        default="full",
+        help="Health check mode",
+    )
+    return parser.parse_args()
 
 
 def print_human_readable(result: dict):
@@ -339,14 +441,21 @@ def print_human_readable(result: dict):
 
 def main():
     """Main entry point."""
-    output_json = '--json' in sys.argv
-    
-    result = run_all_checks()
-    
+    args = parse_args()
+    output_json = args.json
+
+    if args.mode == "readiness":
+        result = run_readiness_checks()
+    else:
+        result = run_all_checks()
+
     if output_json:
         print(json.dumps(result, indent=2))
     else:
-        print_human_readable(result)
+        if args.mode == "readiness":
+            print(f"Readiness: {result['overall_status'].upper()}")
+        else:
+            print_human_readable(result)
     
     # Exit code based on status
     if result['overall_status'] == 'error':

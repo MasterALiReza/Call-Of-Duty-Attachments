@@ -17,7 +17,7 @@ async def get_user_lang(update: Update, context: CustomContext, db) -> Optional[
         user_id = update.effective_user.id if update and update.effective_user else None
         if not user_id:
             return None
-        lang = await db.get_user_language(user_id)
+        lang = await db.users.get_user_language(user_id)
         if lang in SUPPORTED_LANGS:
             context.user_data["_lang"] = lang
             return lang
@@ -55,7 +55,7 @@ async def set_user_lang(update: Update, context: CustomContext, db, lang: str) -
     if lang not in SUPPORTED_LANGS:
         return False
     try:
-        ok = await db.set_user_language(user_id, lang)
+        ok = await db.users.set_user_language(user_id, lang)
         if ok:
             context.user_data["_lang"] = lang
         return ok

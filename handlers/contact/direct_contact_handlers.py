@@ -1,11 +1,10 @@
-from core.context import CustomContext
 """
 ماژول مدیریت تماس مستقیم برای پنل ادمین
 """
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+from core.context import CustomContext
 from handlers.admin.admin_states import ADMIN_MENU, DIRECT_CONTACT_NAME, DIRECT_CONTACT_LINK
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 
 class DirectContactHandlers:
@@ -21,9 +20,9 @@ class DirectContactHandlers:
         await query.answer()
         
         # دریافت تنظیمات فعلی
-        enabled = await self.db.get_setting('direct_contact_enabled', 'true')
-        contact_name = await self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
-        contact_link = await self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
+        enabled = await self.db.settings.get_setting('direct_contact_enabled', 'true')
+        contact_name = await self.db.settings.get_setting('direct_contact_name', '💬 تماس مستقیم')
+        contact_link = await self.db.settings.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
         
         status_text = "🟢 فعال" if enabled.lower() == 'true' else "🔴 غیرفعال"
         
@@ -60,7 +59,7 @@ class DirectContactHandlers:
         action = query.data.split('_')[-1]  # enable یا disable
         new_status = 'true' if action == 'enable' else 'false'
         
-        success = await self.db.set_setting(
+        success = await self.db.settings.set_setting(
             'direct_contact_enabled', 
             new_status,
             'وضعیت فعال/غیرفعال تماس مستقیم',
@@ -82,7 +81,7 @@ class DirectContactHandlers:
         query = update.callback_query
         await query.answer()
         
-        current_name = await self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
+        current_name = await self.db.settings.get_setting('direct_contact_name', '💬 تماس مستقیم')
         
         text = f"""📝 **تغییر نام دکمه تماس مستقیم**
 
@@ -110,7 +109,7 @@ class DirectContactHandlers:
             await update.message.reply_text("❌ نام دکمه نباید بیش از 30 کاراکتر باشد.")
             return DIRECT_CONTACT_NAME
         
-        success = await self.db.set_setting(
+        success = await self.db.settings.set_setting(
             'direct_contact_name', 
             new_name,
             'نام دکمه تماس مستقیم',
@@ -131,7 +130,7 @@ class DirectContactHandlers:
         query = update.callback_query
         await query.answer()
         
-        current_link = await self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
+        current_link = await self.db.settings.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
         
         text = f"""🔗 **تغییر لینک تماس مستقیم**
 
@@ -165,7 +164,7 @@ class DirectContactHandlers:
             await update.message.reply_text("❌ لینک خیلی کوتاه است.")
             return DIRECT_CONTACT_LINK
         
-        success = await self.db.set_setting(
+        success = await self.db.settings.set_setting(
             'direct_contact_link', 
             new_link,
             'لینک تماس مستقیم',

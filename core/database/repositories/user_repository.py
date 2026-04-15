@@ -3,8 +3,9 @@ Database mixin for User and Role management.
 """
 
 import logging
+import json
 from .base_repository import BaseRepository
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, cast
 from utils.logger import log_exception
 
 logger = logging.getLogger('database.user_mixin')
@@ -15,6 +16,17 @@ class UserRepository(BaseRepository):
     Mixin containing user and role related database operations.
     Requires self.execute_query and self.transaction to be provided by the base class.
     """
+
+    @staticmethod
+    def _decode_json_list(value: object, context: str) -> list:
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError as exc:
+                log_exception(logger, exc, context)
+                return []
+            return decoded if isinstance(decoded, list) else []
+        return value if isinstance(value, list) else []
 
     async def get_user(self, user_id: int) -> Optional[Dict]:
         """
@@ -187,17 +199,13 @@ class UserRepository(BaseRepository):
 
             rows = await self.execute_query(query, fetch_all=True) or []
             admins: List[Dict] = []
-            import json as _json
             for row in rows:
                 item = dict(row)
                 # Normalize roles to list[dict]
-                roles = item.get('roles')
-                if isinstance(roles, str):
-                    try:
-                        roles = _json.loads(roles)
-                    except Exception:
-                        roles = []
-                item['roles'] = roles or []
+                item['roles'] = self._decode_json_list(
+                    item.get('roles'),
+                    "get_all_admins.roles_decode",
+                )
                 admins.append(item)
             return admins
         except Exception as e:
@@ -336,10 +344,10 @@ class UserRepository(BaseRepository):
             # تبدیل permissions از JSON به لیست
             result = []
             for row in results:
-                perms = row.get('permissions', [])
-                if isinstance(perms, str):
-                    import json
-                    perms = json.loads(perms)
+                perms = self._decode_json_list(
+                    row.get('permissions', []),
+                    "get_all_roles.permissions_decode",
+                )
                 result.append({
                     'name': row['name'],
                     'display_name': row['display_name'],
@@ -374,10 +382,10 @@ class UserRepository(BaseRepository):
             if not row:
                 return None
             
-            perms = row.get('permissions', [])
-            if isinstance(perms, str):
-                import json
-                perms = json.loads(perms)
+            perms = self._decode_json_list(
+                row.get('permissions', []),
+                f"get_role({role_name}).permissions_decode",
+            )
             
             return {
                 'name': row['name'],
@@ -533,7 +541,7 @@ class UserRepository(BaseRepository):
                 if username:
                     return f"@{username}"
                 elif first_name:
-                    return first_name
+                    return str(first_name)
             
             return f"User_{user_id}"
         except Exception as e:
@@ -559,10 +567,12 @@ class UserRepository(BaseRepository):
                           attachment_name, image_file_id, description))
                     
                     result = await cursor.fetchone()
-                    attachment_id = result['id']
+                    attachment_id = cast(int | None, result['id'] if result else None)
+                    if attachment_id is None:
+                        return None
                 
                 logger.info(f"✅ User attachment added: ID={attachment_id}")
-                return attachment_id
+                return int(attachment_id)
         except Exception as e:
             log_exception(logger, e, "add_user_attachment")
             return None
@@ -596,7 +606,7 @@ class UserRepository(BaseRepository):
         
         try:
             conditions = ["ua.user_id = %s"]
-            params = [user_id]
+            params: list[object] = [user_id]
             
             if status and status in ALLOWED_STATUSES:
                 conditions.append("ua.status = %s")
@@ -626,7 +636,7 @@ class UserRepository(BaseRepository):
         
         try:
             conditions = ["user_id = %s"]
-            params = [user_id]
+            params: list[object] = [user_id]
             
             if status and status in ALLOWED_STATUSES:
                 conditions.append("status = %s")
@@ -650,7 +660,7 @@ class UserRepository(BaseRepository):
             
         try:
             conditions = ["ua.mode = %s", "ua.status = 'approved'"]
-            params = [mode]
+            params: list[object] = [mode]
             
             if category and category != 'all':
                 conditions.append("ua.category = %s")
@@ -843,7 +853,7 @@ class UserRepository(BaseRepository):
                 logger.info(f"✅ User attachment {attachment_id} soft-deleted (Status: {status})")
                 return True
         except Exception as e:
-            logger.error(f"Error soft-deleting user attachment: {e}")
+            log_exception(logger, e, f"delete_user_attachment({attachment_id})")
             return False
 
     async def restore_user_attachment(self, attachment_id: int) -> bool:
@@ -887,7 +897,7 @@ class UserRepository(BaseRepository):
                 logger.info(f"✅ User attachment {attachment_id} restored to pending")
                 return True
         except Exception as e:
-            logger.error(f"Error restoring user attachment: {e}")
+            log_exception(logger, e, f"restore_user_attachment({attachment_id})")
             return False
 
     async def get_attachments_by_status(self, status: str, page: int = 1, limit: int = 10) -> tuple[list[dict], int]:
@@ -995,7 +1005,7 @@ class UserRepository(BaseRepository):
 
         try:
             conditions = []
-            params = []
+            params: list[object] = []
 
             if search:
                 conditions.append(

@@ -155,7 +155,7 @@ class RoleManager:
         """ایجاد/به‌روزرسانی نقش‌های پیش‌فرض در دیتابیس و حذف نقش‌های منسوخ"""
         # ─── 1. upsert همه نقش‌های جدید (با permissions به‌روز) ───
         for role_name, role in self.PREDEFINED_ROLES.items():
-            await self.db.create_role_if_not_exists(
+            await self.db.users.create_role_if_not_exists(
                 role_name=role.name,
                 display_name=role.display_name,
                 description=role.description,
@@ -201,7 +201,7 @@ class RoleManager:
         # ─── 3. مطمئن شدن از super_admin اصلی ───
         from config.config import SUPER_ADMIN_ID
         if SUPER_ADMIN_ID:
-            await self.db.assign_role_to_admin(user_id=SUPER_ADMIN_ID, role_name='super_admin', display_name='Super Admin', added_by=SUPER_ADMIN_ID)
+            await self.db.users.assign_role_to_admin(user_id=SUPER_ADMIN_ID, role_name='super_admin', display_name='Super Admin', added_by=SUPER_ADMIN_ID)
             logger.info(f'✅ Ensured SUPER_ADMIN_ID ({SUPER_ADMIN_ID}) has super_admin role.')
 
     async def get_role(self, role_name: str) -> Optional[Role]:
@@ -212,7 +212,7 @@ class RoleManager:
             for r in self._roles_cache:
                 if r.name == role_name:
                     return r
-        role_data = await self.db.get_role(role_name)
+        role_data = await self.db.users.get_role(role_name)
         if not role_data:
             return None
         return Role(name=role_data['name'], display_name=role_data['display_name'], description=role_data['description'], icon=role_data.get('icon') or '👤', permissions={
@@ -228,7 +228,7 @@ class RoleManager:
         پس یکبار load می\u200cکنیم و cache می\u200cکنیم.
         """
         if self._roles_cache is None:
-            roles_data = await self.db.get_all_roles()
+            roles_data = await self.db.users.get_all_roles()
             def _safe_perms(perms):
                 valid = []
                 for p in perms:
@@ -253,15 +253,15 @@ class RoleManager:
         if not role:
             logger.error(f'نقش {role_name} یافت نشد')
             return False
-        return await self.db.assign_role_to_admin(user_id, role_name)
+        return await self.db.users.assign_role_to_admin(user_id, role_name)
 
     async def remove_role(self, user_id: int) -> bool:
         """حذف نقش کاربر"""
-        return await self.db.remove_admin(user_id)
+        return await self.db.users.remove_admin(user_id)
 
     async def get_user_role(self, user_id: int) -> Optional[Role]:
         """دریافت اولین نقش کاربر (backward compatibility)"""
-        admin_data = await self.db.get_admin(user_id)
+        admin_data = await self.db.users.get_admin(user_id)
         if not admin_data:
             return None
         return await self.get_role(admin_data['role_name'])
@@ -273,7 +273,7 @@ class RoleManager:
         if cached_roles is not None:
             return cached_roles
         try:
-            role_names = await self.db.get_admin_roles(user_id)
+            role_names = await self.db.users.get_admin_roles(user_id)
         except Exception as e:
             logger.error(f'Error loading roles for user {user_id}: {e}')
             role_names = []
@@ -336,7 +336,7 @@ class RoleManager:
 
     async def is_admin(self, user_id: int) -> bool:
         """بررسی اینکه آیا کاربر ادمین است یا نه"""
-        return await self.db.is_admin(user_id)
+        return await self.db.users.is_admin(user_id)
 
     async def is_super_admin(self, user_id: int) -> bool:
         """بررسی اینکه آیا کاربر super admin است یا نه"""
@@ -345,7 +345,7 @@ class RoleManager:
 
     async def get_admin_list(self) -> List[Dict]:
         """دریافت لیست تمام ادمین\u200cها"""
-        return await self.db.get_all_admins()
+        return await self.db.users.get_all_admins()
 
     async def get_mode_permissions(self, user_id: int) -> List[str]:
         """
@@ -384,7 +384,7 @@ def require_admin(func):
 
 def require_permission(*required_permissions: Permission):
     """
-    Decorator برای محدود کردن دسترسی به کاربران با دسترسی\u200cهای خاص
+    Decorator ???? ????? ???? ?????? ?? ??????? ?? ??????‌??? ???
     
     Usage:
         @require_permission(Permission.MANAGE_ATTACHMENTS_BR)
@@ -397,18 +397,35 @@ def require_permission(*required_permissions: Permission):
         @wraps(func)
         async def wrapper(self, update: Update, context: CustomContext, *args, **kwargs):
             user_id = update.effective_user.id
+            permission_name = "|".join((perm.value for perm in required_permissions)) or "ADMIN_ACCESS"
+
+            async def _audit_denial(reason: str) -> None:
+                if not hasattr(self, 'audit_permission_denied'):
+                    return
+                try:
+                    await self.audit_permission_denied(
+                        user_id,
+                        route=func.__name__,
+                        permission=permission_name,
+                        reason=reason,
+                        source=func.__name__,
+                    )
+                except Exception as exc:
+                    logger.warning('Failed to audit permission denial for %s: %s', func.__name__, exc)
+
             if not hasattr(self, 'role_manager'):
                 logger.error('role_manager not found in handler class')
                 if update.callback_query:
-                    await update.callback_query.answer('❌ خطای سیستم', show_alert=True)
+                    await update.callback_query.answer('? ???? ?????', show_alert=True)
                 else:
-                    await update.message.reply_text('❌ خطای سیستم')
+                    await update.message.reply_text('? ???? ?????')
                 return None
             if not await self.role_manager.is_admin(user_id):
+                await _audit_denial('not_admin')
                 if update.callback_query:
-                    await update.callback_query.answer('❌ شما دسترسی ادمین ندارید.', show_alert=True)
+                    await update.callback_query.answer('? ??? ?????? ????? ??????.', show_alert=True)
                 else:
-                    await update.message.reply_text('❌ شما دسترسی ادمین ندارید.')
+                    await update.message.reply_text('? ??? ?????? ????? ??????.')
                 return None
             user_permissions = await self.role_manager.get_user_permissions(user_id)
             if await self.role_manager.is_super_admin(user_id):
@@ -417,10 +434,11 @@ def require_permission(*required_permissions: Permission):
             if not has_permission:
                 permission_names = [p.value for p in required_permissions]
                 logger.warning(f'User {user_id} tried to access {func.__name__} without permission: {permission_names}')
+                await _audit_denial('permission_denied')
                 if update.callback_query:
-                    await update.callback_query.answer('❌ شما دسترسی به این بخش را ندارید.', show_alert=True)
+                    await update.callback_query.answer('? ??? ?????? ?? ??? ??? ?? ??????.', show_alert=True)
                 else:
-                    await update.message.reply_text('❌ شما دسترسی به این بخش را ندارید.')
+                    await update.message.reply_text('? ??? ?????? ?? ??? ??? ?? ??????.')
                 return None
             return await func(self, update, context, *args, **kwargs)
         return wrapper

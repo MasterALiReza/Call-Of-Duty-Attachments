@@ -1,52 +1,124 @@
-from core.context import CustomContext
 """
-Review Handler - بررسی و تایید/رد اتچمنت‌های کاربران
+Review Handler - ?????????? ?? ??????????/???? ????????????????????? ??????????????
 """
 
-from datetime import datetime, date
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+import time
+from datetime import date, datetime
+from typing import cast
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.error import BadRequest
-from telegram.helpers import escape_markdown
-from telegram.ext import ContextTypes, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
-from config.config import GAME_MODES
-from core.database.database_adapter import get_database_adapter
-from core.security.role_manager import RoleManager, Permission
+from telegram.ext import CallbackQueryHandler, ConversationHandler, MessageHandler, filters
+
+from core.audit import AuditLogger
 from core.cache.ua_cache_manager import get_ua_cache
-from utils.logger import get_logger
+from core.context import CustomContext
+from core.database.database_adapter import get_database_adapter
+from core.errors import ValidationError
+from core.security.role_manager import RoleManager
 from utils.i18n import t
 from utils.language import get_user_lang
-import time
+from utils.logger import get_logger, log_exception
+
+from .permissions import has_manage_user_attachments_permission
 
 logger = get_logger('ua_admin', 'admin.log')
 db = get_database_adapter()
 role_manager = RoleManager(db)
 cache = get_ua_cache(db, ttl_seconds=300)
+audit_logger = AuditLogger()
 
 # States
 UA_ADMIN_REJECT_REASON = 1
 UA_ADMIN_EDIT_WEAPON = 2
 
-# تعداد اتچمنت در هر صفحه
+# ØªØ¹Ø¯Ø§Ø¯ Ø§ØªÚ†Ù…Ù†Øª Ø¯Ø± Ù‡Ø± ØµÙØ­Ù‡
 PENDING_PER_PAGE = 10
 
 
 
 
 async def check_ua_admin_permission(user_id: int) -> bool:
-    """بررسی دسترسی مدیریت اتچمنت کاربران"""
-    # Permission-based: allow SuperAdmin or MANAGE_USER_ATTACHMENTS
-    try:
-        if await role_manager.is_super_admin(user_id):
-            return True
-        return await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS)
-    except Exception:
-        # Fallback برای سازگاری قدیمی
-        return await db.is_admin(user_id)
+    """Check access to user-attachments administration."""
+    return await has_manage_user_attachments_permission(
+        user_id,
+        db=db,
+        role_manager=role_manager,
+        audit_logger=audit_logger,
+        route="ua_admin_review",
+        source="review_handler",
+    )
 
+
+def _parse_attachment_action_id(data: str, prefix: str) -> int:
+    payload = data.replace(prefix, "", 1)
+    try:
+        return int(payload)
+    except ValueError as exc:
+        raise ValidationError("Invalid attachment action payload.") from exc
+
+
+async def _invalidate_review_cache(*keys: str) -> None:
+    for key in keys:
+        try:
+            await cache.invalidate(key)
+        except Exception as exc:
+            logger.warning("Failed to invalidate UA review cache %s: %s", key, exc)
+
+
+async def _get_user_language_safe(user_id: int) -> str:
+    try:
+        return await db.users.get_user_language(user_id) or 'fa'
+    except Exception as exc:
+        logger.warning("Failed to resolve attachment owner language for %s: %s", user_id, exc)
+        return 'fa'
+
+
+async def _send_attachment_owner_notification(
+    *,
+    context: CustomContext,
+    attachment: dict,
+    template_key: str,
+    reason: str | None = None,
+) -> None:
+    try:
+        user_lang = await _get_user_language_safe(attachment['user_id'])
+        mode_name = t(f"mode.{attachment['mode']}_short", user_lang)
+        weapon_display = attachment.get('custom_weapon_name') or attachment.get('weapon_name', t('common.unknown', user_lang))
+        att_name = attachment.get('name', attachment.get('attachment_name', t('attachment.name', user_lang)))
+        kwargs = {
+            'name': att_name,
+            'weapon': weapon_display,
+            'mode': mode_name,
+        }
+        if reason is not None:
+            kwargs['reason'] = reason
+        await context.bot.send_message(
+            chat_id=attachment['user_id'],
+            text=t(template_key, user_lang, **kwargs),
+            parse_mode='Markdown',
+        )
+    except Exception as exc:
+        logger.warning("Failed to send attachment decision notification for %s: %s", attachment.get('id'), exc)
+
+
+async def _delete_message_safely(message, *, log_context: str) -> None:
+    try:
+        await message.delete()
+    except Exception as exc:
+        logger.warning("Failed to delete %s: %s", log_context, exc)
+
+
+async def _get_pending_count_safe() -> int:
+    try:
+        return cast(int, await cache.get_paginated_count('pending'))
+    except Exception as exc:
+        logger.warning("Failed to get remaining pending attachments count: %s", exc)
+        return 0
 
 
 async def show_ua_admin_menu(update: Update, context: CustomContext):
-    """منوی اصلی مدیریت اتچمنت کاربران"""
+    """Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ Ù…Ø¯ÛŒØ±ÛŒØª Ø§ØªÚ†Ù…Ù†Øª Ú©Ø§Ø±Ø¨Ø±Ø§Ù†"""
     query = update.callback_query
     await query.answer()
     
@@ -57,11 +129,11 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
-    # دریافت آمار - OPTIMIZED VERSION
+    # Ø¯Ø±ÛŒØ§ÙØª Ø¢Ù…Ø§Ø± - OPTIMIZED VERSION
     try:
         start_time = time.time()
         
-        # روش 1: تلاش برای خواندن از ua_stats_realtime
+        # Ø±ÙˆØ´ 1: ØªÙ„Ø§Ø´ Ø¨Ø±Ø§ÛŒ Ø®ÙˆØ§Ù†Ø¯Ù† Ø§Ø² ua_stats_realtime
         async with db.get_connection() as conn:
             async with conn.cursor() as cursor:
                 try:
@@ -73,7 +145,7 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
                         rejected_count = int((result or {}).get('rejected_count') or 0)
                         deleted_count = int((result or {}).get('deleted_count') or 0)
                         banned_count = int((result or {}).get('banned_users') or 0)
-                        # محاسبه گزارش‌های معلق به صورت جداگانه
+                        # Ù…Ø­Ø§Ø³Ø¨Ù‡ Ú¯Ø²Ø§Ø±Ø´â€ŒÙ‡Ø§ÛŒ Ù…Ø¹Ù„Ù‚ Ø¨Ù‡ ØµÙˆØ±Øª Ø¬Ø¯Ø§Ú¯Ø§Ù†Ù‡
                         await cursor.execute("SELECT COUNT(*) AS cnt FROM user_attachment_reports WHERE status = 'pending'")
                         rc = await cursor.fetchone()
                         reports_count = int((rc or {}).get('cnt') or 0)
@@ -81,7 +153,7 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
                     else:
                         raise RuntimeError("ua_stats_realtime empty")
                 except Exception as realtime_err:
-                    # اگر جدول وجود ندارد یا خطا داشت، به cache و سپس fallback مستقیم برو
+                    # Ø§Ú¯Ø± Ø¬Ø¯ÙˆÙ„ ÙˆØ¬ÙˆØ¯ Ù†Ø¯Ø§Ø±Ø¯ ÛŒØ§ Ø®Ø·Ø§ Ø¯Ø§Ø´ØªØŒ Ø¨Ù‡ cache Ùˆ Ø³Ù¾Ø³ fallback Ù…Ø³ØªÙ‚ÛŒÙ… Ø¨Ø±Ùˆ
                     logger.debug(f"ua_stats_realtime unavailable: {realtime_err}")
                     stats = await cache.get_stats()
                     if stats:
@@ -114,7 +186,7 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
                         rejected_count = int(result.get('rejected_count', 0))
                         deleted_count = int(result.get('deleted_count', 0))
                         banned_count = int(result.get('banned_count', 0))
-                        # محاسبه تعداد گزارش‌ها در fallback مستقیم
+                        # Ù…Ø­Ø§Ø³Ø¨Ù‡ ØªØ¹Ø¯Ø§Ø¯ Ú¯Ø²Ø§Ø±Ø´â€ŒÙ‡Ø§ Ø¯Ø± fallback Ù…Ø³ØªÙ‚ÛŒÙ…
                         await cursor.execute("SELECT COUNT(*) AS cnt FROM user_attachment_reports WHERE status = 'pending'")
                         row = await cursor.fetchone()
                         reports_count = int(row.get('cnt', 0))
@@ -131,7 +203,7 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
         banned_count = 0
         reports_count = 0
     
-    # محاسبه تعداد کلی اتچمنت‌ها
+    # Ù…Ø­Ø§Ø³Ø¨Ù‡ ØªØ¹Ø¯Ø§Ø¯ Ú©Ù„ÛŒ Ø§ØªÚ†Ù…Ù†Øªâ€ŒÙ‡Ø§
     total_count = pending_count + approved_count + rejected_count
     
     lang = await get_user_lang(update, context, db) or 'fa'
@@ -149,14 +221,14 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
     
     keyboard = []
     
-    # دکمه‌های بررسی
+    # Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ø¨Ø±Ø±Ø³ÛŒ
     if pending_count > 0:
         keyboard.append([InlineKeyboardButton(
             t('admin.ua.buttons.review_pending', lang, n=pending_count),
             callback_data="ua_admin_pending"
         )])
     
-    # دکمه‌های مشاهده لیست‌ها
+    # Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù…Ø´Ø§Ù‡Ø¯Ù‡ Ù„ÛŒØ³Øªâ€ŒÙ‡Ø§
     keyboard.append([
         InlineKeyboardButton(t('admin.ua.buttons.approved', lang, n=approved_count), callback_data="ua_admin_approved"),
         InlineKeyboardButton(t('admin.ua.buttons.rejected', lang, n=rejected_count), callback_data="ua_admin_rejected")
@@ -166,10 +238,10 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
         InlineKeyboardButton(t('admin.ua.buttons.deleted', lang, n=deleted_count), callback_data="ua_admin_deleted")
     ])
     
-    # دکمه‌های مدیریتی
+    # Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù…Ø¯ÛŒØ±ÛŒØªÛŒ
     management_buttons = []
     
-    # نمایش دکمه گزارش‌ها همیشه با تعداد فعلی (حتی اگر صفر باشد)
+    # Ù†Ù…Ø§ÛŒØ´ Ø¯Ú©Ù…Ù‡ Ú¯Ø²Ø§Ø±Ø´â€ŒÙ‡Ø§ Ù‡Ù…ÛŒØ´Ù‡ Ø¨Ø§ ØªØ¹Ø¯Ø§Ø¯ ÙØ¹Ù„ÛŒ (Ø­ØªÛŒ Ø§Ú¯Ø± ØµÙØ± Ø¨Ø§Ø´Ø¯)
     management_buttons.append(InlineKeyboardButton(
         t('admin.ua.buttons.reports', lang, n=reports_count),
         callback_data="ua_admin_reports"
@@ -181,13 +253,13 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
             callback_data="ua_admin_banned"
         ))
     
-    # اضافه دکمه‌های مدیریتی به ترتیب در یک یا دو ردیف
+    # Ø§Ø¶Ø§ÙÙ‡ Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù…Ø¯ÛŒØ±ÛŒØªÛŒ Ø¨Ù‡ ØªØ±ØªÛŒØ¨ Ø¯Ø± ÛŒÚ© ÛŒØ§ Ø¯Ùˆ Ø±Ø¯ÛŒÙ
     if len(management_buttons) == 2:
         keyboard.append(management_buttons)
     elif len(management_buttons) == 1:
         keyboard.append(management_buttons)
     
-    # دکمه‌های آمار و تنظیمات
+    # Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ø¢Ù…Ø§Ø± Ùˆ ØªÙ†Ø¸ÛŒÙ…Ø§Øª
     keyboard.append([
         InlineKeyboardButton(t('admin.ua.buttons.stats', lang), callback_data="ua_admin_stats"),
         InlineKeyboardButton(t('admin.ua.buttons.settings', lang), callback_data="ua_admin_settings")
@@ -195,10 +267,10 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
     
     # Removed Manage button as integrated into lists
     # keyboard.append([
-    #     InlineKeyboardButton(t('admin.ua.buttons.manage', lang) + " 🛠️", callback_data="ua_admin_manage")
+    #     InlineKeyboardButton(t('admin.ua.buttons.manage', lang) + " ðŸ› ï¸", callback_data="ua_admin_manage")
     # ])
     
-    # دکمه بازگشت
+    # Ø¯Ú©Ù…Ù‡ Ø¨Ø§Ø²Ú¯Ø´Øª
     keyboard.append([InlineKeyboardButton(t('admin.ua.buttons.back_admin', lang), callback_data="admin_back")])
     
     try:
@@ -208,7 +280,7 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception:
-        # اگه پیام photo بود
+        # Ø§Ú¯Ù‡ Ù¾ÛŒØ§Ù… photo Ø¨ÙˆØ¯
         try:
             await query.message.delete()
         except Exception as e:
@@ -221,7 +293,7 @@ async def show_ua_admin_menu(update: Update, context: CustomContext):
 
 
 async def _show_attachment_list(update: Update, context: CustomContext, status: str):
-    """تابع کمکی برای نمایش لیست اتچمنت‌ها بر اساس وضعیت"""
+    """ØªØ§Ø¨Ø¹ Ú©Ù…Ú©ÛŒ Ø¨Ø±Ø§ÛŒ Ù†Ù…Ø§ÛŒØ´ Ù„ÛŒØ³Øª Ø§ØªÚ†Ù…Ù†Øªâ€ŒÙ‡Ø§ Ø¨Ø± Ø§Ø³Ø§Ø³ ÙˆØ¶Ø¹ÛŒØª"""
     query = update.callback_query
     await query.answer()
     
@@ -231,9 +303,9 @@ async def _show_attachment_list(update: Update, context: CustomContext, status: 
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
-    # دریافت صفحه
+    # Ø¯Ø±ÛŒØ§ÙØª ØµÙØ­Ù‡
     page = 1
-    # الگوی دیتا: ua_admin_{status}_page_{page} یا ua_admin_{status}
+    # Ø§Ù„Ú¯ÙˆÛŒ Ø¯ÛŒØªØ§: ua_admin_{status}_page_{page} ÛŒØ§ ua_admin_{status}
     data_parts = query.data.split('_')
     if 'page' in query.data:
         try:
@@ -241,13 +313,13 @@ async def _show_attachment_list(update: Update, context: CustomContext, status: 
         except (ValueError, IndexError):
             page = 1
             
-    limit = PENDING_PER_PAGE  # استفاده از همان LIMIT برای همه
+    limit = PENDING_PER_PAGE  # Ø§Ø³ØªÙØ§Ø¯Ù‡ Ø§Ø² Ù‡Ù…Ø§Ù† LIMIT Ø¨Ø±Ø§ÛŒ Ù‡Ù…Ù‡
     
     try:
         start_time = time.time()
         
-        # دریافت لیست و تعداد کل
-        attachments, total_count = await db.get_attachments_by_status(status, page=page, limit=limit)
+        # Ø¯Ø±ÛŒØ§ÙØª Ù„ÛŒØ³Øª Ùˆ ØªØ¹Ø¯Ø§Ø¯ Ú©Ù„
+        attachments, total_count = await db.users.get_attachments_by_status(status, page=page, limit=limit)
         
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"{status.capitalize()} list loaded in {elapsed:.2f}ms")
@@ -257,10 +329,9 @@ async def _show_attachment_list(update: Update, context: CustomContext, status: 
         total_count = 0
     
     if not attachments and page == 1:
-        # لیست خالی
-        msg_key = f'admin.ua.{status}.empty'
-        # اگر کلید خاص وضعیت نباشد، از pending استفاده می‌کنیم (یا باید کلید بسازیم)
-        # برای سادگی فعلا از pending برای همه استفاده نمی‌کنیم، متن جنریک می‌سازیم
+        # Ù„ÛŒØ³Øª Ø®Ø§Ù„ÛŒ
+        # Ø§Ú¯Ø± Ú©Ù„ÛŒØ¯ Ø®Ø§Øµ ÙˆØ¶Ø¹ÛŒØª Ù†Ø¨Ø§Ø´Ø¯ØŒ Ø§Ø² pending Ø§Ø³ØªÙØ§Ø¯Ù‡ Ù…ÛŒâ€ŒÚ©Ù†ÛŒÙ… (ÛŒØ§ Ø¨Ø§ÛŒØ¯ Ú©Ù„ÛŒØ¯ Ø¨Ø³Ø§Ø²ÛŒÙ…)
+        # Ø¨Ø±Ø§ÛŒ Ø³Ø§Ø¯Ú¯ÛŒ ÙØ¹Ù„Ø§ Ø§Ø² pending Ø¨Ø±Ø§ÛŒ Ù‡Ù…Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ù†Ù…ÛŒâ€ŒÚ©Ù†ÛŒÙ…ØŒ Ù…ØªÙ† Ø¬Ù†Ø±ÛŒÚ© Ù…ÛŒâ€ŒØ³Ø§Ø²ÛŒÙ…
         text = t(f'admin.ua.{status}.empty_desc', lang, default=t('admin.ua.list.empty', lang))
         
         keyboard = [[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")]]
@@ -281,23 +352,23 @@ async def _show_attachment_list(update: Update, context: CustomContext, status: 
 
     total_pages = (total_count - 1) // limit + 1
     
-    # عنوان لیست
+    # Ø¹Ù†ÙˆØ§Ù† Ù„ÛŒØ³Øª
     title = t(f'admin.ua.{status}.title', lang, default=status.capitalize())
     
     message = (
-        f"📂 *{title}*\n\n"
+        f"ðŸ“‚ *{title}*\n\n"
         + t('admin.ua.pending.header', lang, total=total_count, page=page, total_pages=total_pages) + "\n\n"
         + t('admin.ua.pending.prompt', lang)
     )
     
     keyboard = []
     for att in attachments:
-        mode_icon = "🎮" if att.get('mode') == 'mp' else "🪂"
+        mode_icon = "ðŸŽ®" if att.get('mode') == 'mp' else "ðŸª‚"
         username = att.get('username') or t('user.anonymous', lang)
         weapon_name = att.get('custom_weapon_name') or att.get('weapon_name') or t('common.unknown', lang)
         att_name = att.get('name') or att.get('attachment_name') or t('attachment.name', lang)
         
-        # Callback متفاوت برای pending vs بقیه
+        # Callback Ù…ØªÙØ§ÙˆØª Ø¨Ø±Ø§ÛŒ pending vs Ø¨Ù‚ÛŒÙ‡
         if status == 'pending':
             cb_data = f"ua_admin_review_{att['id']}"
         else:
@@ -310,7 +381,7 @@ async def _show_attachment_list(update: Update, context: CustomContext, status: 
         
         display_text = f"{mode_icon} [{weapon_name_safe}] {att_name_safe} - @{username_safe}"
         if status == 'deleted':
-             display_text = f"🗑️ {display_text}"
+             display_text = f"ðŸ—‘ï¸ {display_text}"
         
         keyboard.append([
             InlineKeyboardButton(
@@ -340,8 +411,8 @@ async def _show_attachment_list(update: Update, context: CustomContext, status: 
     except Exception:
         try:
             await query.message.delete()
-        except:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to delete UA attachment list source message: %s", exc)
         await update.effective_chat.send_message(
             message,
             parse_mode='Markdown',
@@ -349,25 +420,25 @@ async def _show_attachment_list(update: Update, context: CustomContext, status: 
         )
 
 async def show_pending_list(update: Update, context: CustomContext):
-    """نمایش لیست pending"""
+    """Ù†Ù…Ø§ÛŒØ´ Ù„ÛŒØ³Øª pending"""
     await _show_attachment_list(update, context, 'pending')
 
 async def show_approved_list(update: Update, context: CustomContext):
-    """نمایش لیست approved"""
+    """Ù†Ù…Ø§ÛŒØ´ Ù„ÛŒØ³Øª approved"""
     await _show_attachment_list(update, context, 'approved')
 
 async def show_rejected_list(update: Update, context: CustomContext):
-    """نمایش لیست rejected"""
+    """Ù†Ù…Ø§ÛŒØ´ Ù„ÛŒØ³Øª rejected"""
     await _show_attachment_list(update, context, 'rejected')
 
 async def show_deleted_list(update: Update, context: CustomContext):
-    """نمایش لیست deleted"""
+    """Ù†Ù…Ø§ÛŒØ´ Ù„ÛŒØ³Øª deleted"""
     await _show_attachment_list(update, context, 'deleted')
 
 
 
 async def show_attachment_review(update: Update, context: CustomContext):
-    """نمایش جزئیات اتچمنت برای بررسی"""
+    """Ù†Ù…Ø§ÛŒØ´ Ø¬Ø²Ø¦ÛŒØ§Øª Ø§ØªÚ†Ù…Ù†Øª Ø¨Ø±Ø§ÛŒ Ø¨Ø±Ø±Ø³ÛŒ"""
     query = update.callback_query
     await query.answer()
     
@@ -377,26 +448,26 @@ async def show_attachment_review(update: Update, context: CustomContext):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
-    # دریافت اتچمنت و آمار کاربر همزمان (optimize با JOIN در آینده)
+    # Ø¯Ø±ÛŒØ§ÙØª Ø§ØªÚ†Ù…Ù†Øª Ùˆ Ø¢Ù…Ø§Ø± Ú©Ø§Ø±Ø¨Ø± Ù‡Ù…Ø²Ù…Ø§Ù† (optimize Ø¨Ø§ JOIN Ø¯Ø± Ø¢ÛŒÙ†Ø¯Ù‡)
     start_time = time.time()
-    attachment = await db.get_user_attachment(int(query.data.replace('ua_admin_review_', '')))
+    attachment = await db.users.get_user_attachment(int(query.data.replace('ua_admin_review_', '')))
     
     if not attachment:
         await query.answer(t('attachment.not_found', lang), show_alert=True)
         return
     
-    # دریافت آمار کاربر
-    stats = await db.get_user_submission_stats(attachment['user_id'])
+    # Ø¯Ø±ÛŒØ§ÙØª Ø¢Ù…Ø§Ø± Ú©Ø§Ø±Ø¨Ø±
+    stats = await db.settings.get_user_submission_stats(attachment['user_id'])
     
     elapsed = (time.time() - start_time) * 1000
     logger.info(f"Attachment review loaded in {elapsed:.2f}ms")
     
-    # ساخت پیام
+    # Ø³Ø§Ø®Øª Ù¾ÛŒØ§Ù…
     mode_name = t(f"mode.{attachment['mode']}_short", lang)
     username = attachment.get('username', t('user.anonymous', lang))
     description = attachment.get('description') or t('common.no_description', lang)
     
-    # نمایش نام سلاح (custom یا از DB)
+    # Ù†Ù…Ø§ÛŒØ´ Ù†Ø§Ù… Ø³Ù„Ø§Ø­ (custom ÛŒØ§ Ø§Ø² DB)
     weapon_display = attachment.get('custom_weapon_name') or attachment.get('weapon_name', t('common.unknown', lang))
     category_raw = attachment.get('category', attachment.get('category_name', ''))
     # Force English for category names
@@ -406,7 +477,7 @@ async def show_attachment_review(update: Update, context: CustomContext):
         category_display = t('common.unknown', lang)
     att_name = attachment.get('name', attachment.get('attachment_name', t('attachment.name', lang)))
     
-    # Escape برای HTML
+    # Escape Ø¨Ø±Ø§ÛŒ HTML
     from html import escape as html_escape
     weapon_display = html_escape(str(weapon_display))
     att_name = html_escape(str(att_name))
@@ -429,11 +500,11 @@ async def show_attachment_review(update: Update, context: CustomContext):
     
     caption = (
         t('admin.ua.review.title', lang) + "\n\n"
-        + f"📎 <b>{t('attachment.name', lang)}:</b> {att_name}\n"
-        + f"🎮 <b>{t('mode.label', lang)}:</b> {mode_name}\n"
-        + f"🔫 <b>{t('weapon.label', lang)}:</b> {weapon_display}\n"
-        + f"📂 <b>{t('category.label', lang)}:</b> {category_display}\n"
-        + f"💬 <b>{t('description.label', lang)}:</b>\n{description}\n\n"
+        + f"ðŸ“Ž <b>{t('attachment.name', lang)}:</b> {att_name}\n"
+        + f"ðŸŽ® <b>{t('mode.label', lang)}:</b> {mode_name}\n"
+        + f"ðŸ”« <b>{t('weapon.label', lang)}:</b> {weapon_display}\n"
+        + f"ðŸ“‚ <b>{t('category.label', lang)}:</b> {category_display}\n"
+        + f"ðŸ’¬ <b>{t('description.label', lang)}:</b>\n{description}\n\n"
         + f"<b>{t('admin.ua.review.user_header', lang)}</b>\n"
         + f"@{username}\n"
         + t('admin.ua.review.user_id', lang, id=attachment['user_id']) + "\n"
@@ -447,20 +518,20 @@ async def show_attachment_review(update: Update, context: CustomContext):
     
     if stats['is_banned']:
         banned_reason = html_escape(stats.get('banned_reason', ''))
-        caption += f"\n🚫 <b>{t('admin.ua.review.banned', lang)}:</b> {banned_reason}"
+        caption += f"\nðŸš« <b>{t('admin.ua.review.banned', lang)}:</b> {banned_reason}"
     
     keyboard = [
         [
-            InlineKeyboardButton(t('admin.ua.buttons.approve', lang, default='✅ Approve'), callback_data=f"ua_admin_approve_{attachment['id']}"),
-            InlineKeyboardButton(t('admin.ua.buttons.reject', lang, default='❌ Reject'), callback_data=f"ua_admin_reject_{attachment['id']}")
+            InlineKeyboardButton(t('admin.ua.buttons.approve', lang, default='âœ… Approve'), callback_data=f"ua_admin_approve_{attachment['id']}"),
+            InlineKeyboardButton(t('admin.ua.buttons.reject', lang, default='âŒ Reject'), callback_data=f"ua_admin_reject_{attachment['id']}")
         ],
-        [InlineKeyboardButton(t('admin.ua.buttons.delete', lang, default='🗑️ Delete'), callback_data=f"ua_admin_delete_{attachment['id']}")],
+        [InlineKeyboardButton(t('admin.ua.buttons.delete', lang, default='ðŸ—‘ï¸ Delete'), callback_data=f"ua_admin_delete_{attachment['id']}")],
         [InlineKeyboardButton(t('admin.ua.buttons.edit_weapon_name', lang), callback_data=f"ua_admin_edit_weapon_{attachment['id']}")],
         [InlineKeyboardButton(t('admin.ua.buttons.ban_user', lang), callback_data=f"ua_admin_ban_{attachment['user_id']}")],
         [InlineKeyboardButton(t('admin.ua.buttons.back_to_list', lang), callback_data="ua_admin_pending")]
     ]
     
-    # ارسال تصویر
+    # Ø§Ø±Ø³Ø§Ù„ ØªØµÙˆÛŒØ±
     await query.message.reply_photo(
         photo=attachment['image_file_id'],
         caption=caption,
@@ -468,7 +539,7 @@ async def show_attachment_review(update: Update, context: CustomContext):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     
-    # حذف پیام قبلی
+    # Ø­Ø°Ù Ù¾ÛŒØ§Ù… Ù‚Ø¨Ù„ÛŒ
     try:
         await query.message.delete()
     except Exception as e:
@@ -476,7 +547,7 @@ async def show_attachment_review(update: Update, context: CustomContext):
 
 
 async def approve_attachment(update: Update, context: CustomContext):
-    """تایید اتچمنت"""
+    """ØªØ§ÛŒÛŒØ¯ Ø§ØªÚ†Ù…Ù†Øª"""
     query = update.callback_query
     
     user_id = update.effective_user.id
@@ -485,79 +556,45 @@ async def approve_attachment(update: Update, context: CustomContext):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return
     
-    attachment_id = int(query.data.replace('ua_admin_approve_', ''))
-    
-    # دریافت اتچمنت
-    attachment = await db.get_user_attachment(attachment_id)
-    
-    if not attachment or attachment['status'] != 'pending':
-        await query.answer(t('attachment.not_found', lang), show_alert=True)
-        return
-    
-    # تایید
-    success = await db.approve_user_attachment(attachment_id, user_id)
-    
-    if success:
-        # به‌روزرسانی آمار
-        await db.update_submission_stats(
-            user_id=attachment['user_id'],
-            increment_total=False  # قبلاً اضافه شده
+    try:
+        attachment_id = _parse_attachment_action_id(query.data, 'ua_admin_approve_')
+        attachment = await db.users.get_user_attachment(attachment_id)
+
+        if not attachment or attachment['status'] != 'pending':
+            await query.answer(t('attachment.not_found', lang), show_alert=True)
+            return
+
+        success = await db.users.approve_user_attachment(attachment_id, user_id)
+        if not success:
+            await query.answer(t('error.generic', lang), show_alert=True)
+            return
+
+        await _invalidate_review_cache('stats', 'count_pending', 'count_approved')
+        await _send_attachment_owner_notification(
+            context=context,
+            attachment=attachment,
+            template_key='user.ua.approved',
         )
-        
-        # Invalidate cache after approval
-        cache.invalidate('stats')
-        cache.invalidate('count_pending')
-        cache.invalidate('count_approved')
-        
-        # Notification به کاربر
-        try:
-            user_lang = None
-            try:
-                user_lang = await db.get_user_language(attachment['user_id']) or 'fa'
-            except Exception:
-                user_lang = 'fa'
-            mode_name = t(f"mode.{attachment['mode']}_short", user_lang)
-            
-            # استفاده از custom_weapon_name در صورت وجود، وگرنه weapon_name
-            weapon_display = attachment.get('custom_weapon_name') or attachment.get('weapon_name', t('common.unknown', user_lang))
-            att_name = attachment.get('name', attachment.get('attachment_name', t('attachment.name', user_lang)))
-            
-            await context.bot.send_message(
-                chat_id=attachment['user_id'],
-                text=t('user.ua.approved', user_lang, name=att_name, weapon=weapon_display, mode=mode_name),
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            logger.error(f"Error sending approval notification: {e}")
-        
+
         await query.answer(t('admin.ua.approve.success', lang), show_alert=True)
-        
-        # حذف تصویر
-        try:
-            await query.message.delete()
-        except Exception as e:
-            logger.warning(f"Failed to delete UA admin approved image message: {e}")
-        
-        # بررسی آیا هنوز اتچمنت pending دیگه‌ای هست
-        try:
-            remaining_count = await cache.get_paginated_count('pending')
-        except Exception as e:
-            logger.error(f"Failed to get remaining pending attachments count from cache: {e}")
-            remaining_count = 0
-        
+        await _delete_message_safely(query.message, log_context="UA admin approved image message")
+
+        remaining_count = await _get_pending_count_safe()
         if remaining_count > 0:
-            # بازگشت به لیست pending
             context.user_data['temp_query_data'] = 'ua_admin_pending'
             await show_pending_list(update, context)
         else:
-            # بازگشت به منوی اصلی
             await show_ua_admin_menu(update, context)
-    else:
+    except ValidationError:
         await query.answer(t('error.generic', lang), show_alert=True)
+    except Exception as e:
+        from utils.error_handler import error_handler
+        log_exception(logger, e, "ua_admin.approve_attachment")
+        await error_handler.handle_telegram_error(update, context, e)
 
 
 async def show_attachment_view(update: Update, context: CustomContext):
-    """نمایش جزئیات اتچمنت (برای وضعیت‌های غیر pending)"""
+    """Ù†Ù…Ø§ÛŒØ´ Ø¬Ø²Ø¦ÛŒØ§Øª Ø§ØªÚ†Ù…Ù†Øª (Ø¨Ø±Ø§ÛŒ ÙˆØ¶Ø¹ÛŒØªâ€ŒÙ‡Ø§ÛŒ ØºÛŒØ± pending)"""
     query = update.callback_query
     await query.answer()
     
@@ -568,14 +605,13 @@ async def show_attachment_view(update: Update, context: CustomContext):
         return
     
     try:
-        attachment_id = int(query.data.replace('ua_admin_view_', ''))
-        attachment = await db.get_user_attachment(attachment_id)
+        attachment_id = _parse_attachment_action_id(query.data, 'ua_admin_view_')
+        attachment = await db.users.get_user_attachment(attachment_id)
         
         if not attachment:
             await query.answer(t('attachment.not_found', lang), show_alert=True)
             return
             
-        stats = await db.get_user_submission_stats(attachment['user_id'])
         
         # Build Caption
         from html import escape as html_escape
@@ -589,19 +625,19 @@ async def show_attachment_view(update: Update, context: CustomContext):
         caption = (
             f"<b>{t('admin.ua.view.title', lang)}</b>\n"
             f"Status: <b>{status.upper()}</b>\n\n"
-            + f"📎 <b>{t('attachment.name', lang)}:</b> {att_name}\n"
-            + f"🎮 <b>{t('mode.label', lang)}:</b> {mode_name}\n"
-            + f"🔫 <b>{t('weapon.label', lang)}:</b> {weapon_display}\n"
-            + f"💬 <b>{t('description.label', lang)}:</b>\n{description}\n\n"
+            + f"ðŸ“Ž <b>{t('attachment.name', lang)}:</b> {att_name}\n"
+            + f"ðŸŽ® <b>{t('mode.label', lang)}:</b> {mode_name}\n"
+            + f"ðŸ”« <b>{t('weapon.label', lang)}:</b> {weapon_display}\n"
+            + f"ðŸ’¬ <b>{t('description.label', lang)}:</b>\n{description}\n\n"
             + f"<b>{t('admin.ua.review.user_header', lang)}</b> @{username} (`{attachment['user_id']}`)\n"
         )
         
         # Add status specific info
         if status == 'approved':
-             caption += f"✅ Approved at: {attachment.get('approved_at')}\n"
+             caption += f"âœ… Approved at: {attachment.get('approved_at')}\n"
         elif status == 'rejected':
-             caption += f"❌ Rejected at: {attachment.get('rejected_at')}\n"
-             caption += f"❓ Reason: {html_escape(str(attachment.get('rejection_reason') or ''))}\n"
+             caption += f"âŒ Rejected at: {attachment.get('rejected_at')}\n"
+             caption += f"â“ Reason: {html_escape(str(attachment.get('rejection_reason') or ''))}\n"
         elif status == 'deleted':
              del_at = attachment.get('deleted_at')
              if isinstance(del_at, datetime):
@@ -622,11 +658,11 @@ async def show_attachment_view(update: Update, context: CustomContext):
         
         # Restore button (for rejected/deleted)
         if status in ['rejected', 'deleted']:
-            keyboard.append([InlineKeyboardButton(t('admin.ua.buttons.restore', lang, default='♻️ Restore'), callback_data=f"ua_admin_restore_{attachment['id']}")])
+            keyboard.append([InlineKeyboardButton(t('admin.ua.buttons.restore', lang, default='â™»ï¸ Restore'), callback_data=f"ua_admin_restore_{attachment['id']}")])
             
         # Delete button (if not already deleted)
         if status != 'deleted':
-            keyboard.append([InlineKeyboardButton(t('admin.ua.buttons.delete', lang, default='🗑️ Delete'), callback_data=f"ua_admin_delete_{attachment['id']}")])
+            keyboard.append([InlineKeyboardButton(t('admin.ua.buttons.delete', lang, default='ðŸ—‘ï¸ Delete'), callback_data=f"ua_admin_delete_{attachment['id']}")])
         
         # Back button
         back_status = status if status in ['approved', 'rejected', 'deleted'] else 'pending'
@@ -638,18 +674,17 @@ async def show_attachment_view(update: Update, context: CustomContext):
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        try:
-            await query.message.delete()
-        except:
-            pass
-            
+        await _delete_message_safely(query.message, log_context="UA attachment view source message")
+    except ValidationError:
+        await query.answer(t('error.generic', lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+        log_exception(logger, e, "ua_admin.show_attachment_view")
         await error_handler.handle_telegram_error(update, context, e)
 
 
 async def delete_attachment_admin(update: Update, context: CustomContext):
-    """حذف اتچمنت توسط ادمین"""
+    """Ø­Ø°Ù Ø§ØªÚ†Ù…Ù†Øª ØªÙˆØ³Ø· Ø§Ø¯Ù…ÛŒÙ†"""
     query = update.callback_query
     # Don't answer yet, might need confirmation? No, simple delete for admin is fine usually.
     
@@ -660,11 +695,10 @@ async def delete_attachment_admin(update: Update, context: CustomContext):
         return
 
     try:
-        attachment_id = int(query.data.replace('ua_admin_delete_', ''))
+        attachment_id = _parse_attachment_action_id(query.data, 'ua_admin_delete_')
         
-        if await db.delete_user_attachment(attachment_id, deleted_by=user_id):
-            cache.invalidate('stats')
-            cache.invalidate('count') # Invalidate all counts
+        if await db.users.delete_user_attachment(attachment_id, deleted_by=user_id):
+            await _invalidate_review_cache('stats', 'count')
             await query.answer(t('admin.ua.delete.success', lang, default="Attachment deleted"), show_alert=True)
             
             # Go back to menu or deleted list? Deleted list seems appropriate to verify
@@ -673,13 +707,15 @@ async def delete_attachment_admin(update: Update, context: CustomContext):
             await show_deleted_list(update, context)
         else:
              await query.answer(t('error.generic', lang), show_alert=True)
-             
+    except ValidationError:
+        await query.answer(t('error.generic', lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+        log_exception(logger, e, "ua_admin.delete_attachment_admin")
         await error_handler.handle_telegram_error(update, context, e)
 
 async def restore_attachment_admin(update: Update, context: CustomContext):
-    """بازگردانی اتچمنت"""
+    """Ø¨Ø§Ø²Ú¯Ø±Ø¯Ø§Ù†ÛŒ Ø§ØªÚ†Ù…Ù†Øª"""
     query = update.callback_query
     
     user_id = update.effective_user.id
@@ -689,25 +725,26 @@ async def restore_attachment_admin(update: Update, context: CustomContext):
         return
 
     try:
-        attachment_id = int(query.data.replace('ua_admin_restore_', ''))
+        attachment_id = _parse_attachment_action_id(query.data, 'ua_admin_restore_')
         
-        if await db.restore_user_attachment(attachment_id):
-            cache.invalidate('stats')
-            cache.invalidate('count')
+        if await db.users.restore_user_attachment(attachment_id):
+            await _invalidate_review_cache('stats', 'count')
             await query.answer(t('admin.ua.restore.success', lang, default="Attachment restored to pending"), show_alert=True)
             
             # Go to Pending list to review it
             await show_pending_list(update, context)
         else:
              await query.answer(t('error.generic', lang), show_alert=True)
-             
+    except ValidationError:
+        await query.answer(t('error.generic', lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+        log_exception(logger, e, "ua_admin.restore_attachment_admin")
         await error_handler.handle_telegram_error(update, context, e)
 
 
 async def start_reject(update: Update, context: CustomContext):
-    """شروع فرآیند رد اتچمنت"""
+    """Ø´Ø±ÙˆØ¹ ÙØ±Ø¢ÛŒÙ†Ø¯ Ø±Ø¯ Ø§ØªÚ†Ù…Ù†Øª"""
     query = update.callback_query
     await query.answer()
     
@@ -734,7 +771,7 @@ async def start_reject(update: Update, context: CustomContext):
     except BadRequest as e:
         if "Message is not modified" not in str(e):
             raise
-    # پاک کردن ReplyKeyboard کاربر تا متن به همین مکالمه برسد
+    # Ù¾Ø§Ú© Ú©Ø±Ø¯Ù† ReplyKeyboard Ú©Ø§Ø±Ø¨Ø± ØªØ§ Ù…ØªÙ† Ø¨Ù‡ Ù‡Ù…ÛŒÙ† Ù…Ú©Ø§Ù„Ù…Ù‡ Ø¨Ø±Ø³Ø¯
     try:
         await query.message.reply_text(t('admin.ua.reject.type_reason', lang), reply_markup=ReplyKeyboardRemove())
     except Exception:
@@ -744,7 +781,7 @@ async def start_reject(update: Update, context: CustomContext):
 
 
 async def receive_reject_reason(update: Update, context: CustomContext):
-    """دریافت دلیل رد"""
+    """Ø¯Ø±ÛŒØ§ÙØª Ø¯Ù„ÛŒÙ„ Ø±Ø¯"""
     reason = update.message.text.strip()
     
     lang = await get_user_lang(update, context, db) or 'fa'
@@ -756,62 +793,47 @@ async def receive_reject_reason(update: Update, context: CustomContext):
     
     attachment_id = context.user_data.get('ua_reject_attachment_id')
     admin_id = update.effective_user.id
-    
-    # دریافت اتچمنت
-    attachment = await db.get_user_attachment(attachment_id)
-    
-    if not attachment:
-        await update.message.reply_text(t('attachment.not_found', lang))
-        return ConversationHandler.END
-    
-    # رد اتچمنت
-    success = await db.reject_user_attachment(attachment_id, admin_id, reason)
-    
-    # Invalidate cache after rejection
-    if success:
-        cache.invalidate('stats')
-        cache.invalidate('count_pending')
-        cache.invalidate('count_rejected')
-    
-    if success:
-        # Notification به کاربر
-        try:
-            user_lang = None
-            try:
-                user_lang = await db.get_user_language(attachment['user_id']) or 'fa'
-            except Exception:
-                user_lang = 'fa'
-            mode_name = t(f"mode.{attachment['mode']}_short", user_lang)
-            
-            # استفاده از custom_weapon_name در صورت وجود، وگرنه weapon_name
-            weapon_display = attachment.get('custom_weapon_name') or attachment.get('weapon_name', t('common.unknown', user_lang))
-            att_name = attachment.get('name', attachment.get('attachment_name', t('attachment.name', user_lang)))
-            
-            await context.bot.send_message(
-                chat_id=attachment['user_id'],
-                text=t('user.ua.rejected', user_lang, name=att_name, weapon=weapon_display, mode=mode_name, reason=reason),
-                parse_mode='Markdown'
+
+    try:
+        if not isinstance(attachment_id, int):
+            raise ValidationError("Missing reject attachment state.")
+
+        attachment = await db.users.get_user_attachment(attachment_id)
+        if not attachment:
+            await update.message.reply_text(t('attachment.not_found', lang))
+            return ConversationHandler.END
+
+        success = await db.users.reject_user_attachment(attachment_id, admin_id, reason)
+        if success:
+            await _invalidate_review_cache('stats', 'count_pending', 'count_rejected')
+            await _send_attachment_owner_notification(
+                context=context,
+                attachment=attachment,
+                template_key='user.ua.rejected',
+                reason=reason,
             )
-        except Exception as e:
-            logger.error(f"Error sending rejection notification: {e}")
-        
-        await update.message.reply_text(
-            t('admin.ua.reject.success', lang),
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_pending")
-            ]])
-        )
-    else:
-        await update.message.reply_text(t('admin.ua.reject.error', lang))
-    
-    # پاک کردن داده‌ها
-    context.user_data.pop('ua_reject_attachment_id', None)
-    
+            await update.message.reply_text(
+                t('admin.ua.reject.success', lang),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_pending")
+                ]])
+            )
+        else:
+            await update.message.reply_text(t('admin.ua.reject.error', lang))
+    except ValidationError:
+        await update.message.reply_text(t('error.generic', lang))
+    except Exception as e:
+        from utils.error_handler import error_handler
+        log_exception(logger, e, "ua_admin.receive_reject_reason")
+        await error_handler.handle_telegram_error(update, context, e)
+    finally:
+        context.user_data.pop('ua_reject_attachment_id', None)
+
     return ConversationHandler.END
 
 
 async def cancel_reject(update: Update, context: CustomContext):
-    """لغو فرآیند رد"""
+    """Ù„ØºÙˆ ÙØ±Ø¢ÛŒÙ†Ø¯ Ø±Ø¯"""
     lang = await get_user_lang(update, context, db) or 'fa'
     await update.message.reply_text(
         t('common.cancelled', lang),
@@ -825,20 +847,20 @@ async def cancel_reject(update: Update, context: CustomContext):
 
 
 async def start_edit_weapon(update: Update, context: CustomContext):
-    """شروع ویرایش نام سلاح"""
+    """Ø´Ø±ÙˆØ¹ ÙˆÛŒØ±Ø§ÛŒØ´ Ù†Ø§Ù… Ø³Ù„Ø§Ø­"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
     lang = await get_user_lang(update, context, db) or 'fa'
-    if not check_ua_admin_permission(user_id):
+    if not await check_ua_admin_permission(user_id):
         await query.answer(t('error.unauthorized', lang), show_alert=True)
         return ConversationHandler.END
     
     attachment_id = int(query.data.replace('ua_admin_edit_weapon_', ''))
     
-    # دریافت اتچمنت
-    attachment = db.get_user_attachment(attachment_id)
+    # Ø¯Ø±ÛŒØ§ÙØª Ø§ØªÚ†Ù…Ù†Øª
+    attachment = await db.users.get_user_attachment(attachment_id)
     
     if not attachment:
         await query.answer(t('attachment.not_found', lang), show_alert=True)
@@ -862,7 +884,7 @@ async def start_edit_weapon(update: Update, context: CustomContext):
     except BadRequest as e:
         if "Message is not modified" not in str(e):
             raise
-    # پاک کردن ReplyKeyboard کاربر تا متن به همین مکالمه برسد
+    # Ù¾Ø§Ú© Ú©Ø±Ø¯Ù† ReplyKeyboard Ú©Ø§Ø±Ø¨Ø± ØªØ§ Ù…ØªÙ† Ø¨Ù‡ Ù‡Ù…ÛŒÙ† Ù…Ú©Ø§Ù„Ù…Ù‡ Ø¨Ø±Ø³Ø¯
     try:
         await query.message.reply_text(t('admin.ua.edit_weapon.type_new', lang), reply_markup=ReplyKeyboardRemove())
     except Exception:
@@ -872,7 +894,7 @@ async def start_edit_weapon(update: Update, context: CustomContext):
 
 
 async def receive_new_weapon_name(update: Update, context: CustomContext):
-    """دریافت نام جدید سلاح"""
+    """Ø¯Ø±ÛŒØ§ÙØª Ù†Ø§Ù… Ø¬Ø¯ÛŒØ¯ Ø³Ù„Ø§Ø­"""
     weapon_name = update.message.text.strip()
     attachment_id = context.user_data.get('ua_edit_weapon_attachment_id')
     
@@ -901,11 +923,13 @@ async def receive_new_weapon_name(update: Update, context: CustomContext):
         )
         return UA_ADMIN_EDIT_WEAPON
     
-    # آپدیت در دیتابیس
+    # Ø¢Ù¾Ø¯ÛŒØª Ø¯Ø± Ø¯ÛŒØªØ§Ø¨ÛŒØ³
     try:
-        with db.transaction() as tconn:
+        if not isinstance(attachment_id, int):
+            raise ValidationError("Missing edit attachment state.")
+        async with db.transaction() as tconn:
             cur = tconn.cursor()
-            cur.execute(
+            await cur.execute(
                 """
                 UPDATE user_attachments 
                 SET custom_weapon_name = %s
@@ -913,6 +937,7 @@ async def receive_new_weapon_name(update: Update, context: CustomContext):
                 """,
                 (weapon_name, attachment_id),
             )
+            await cur.close()
         
         await update.message.reply_text(
             t('admin.ua.edit_weapon.updated', lang, new=weapon_name),
@@ -923,19 +948,19 @@ async def receive_new_weapon_name(update: Update, context: CustomContext):
         )
         
         logger.info(f"Weapon name updated for attachment {attachment_id}: {weapon_name}")
-    
+    except ValidationError:
+        await update.message.reply_text(t('error.generic', lang))
     except Exception as e:
-        logger.error(f"Error updating weapon name: {e}")
+        log_exception(logger, e, "ua_admin.receive_new_weapon_name")
         await update.message.reply_text(t('admin.ua.edit_weapon.error', lang))
-    
-    # پاک کردن داده‌ها
-    context.user_data.pop('ua_edit_weapon_attachment_id', None)
+    finally:
+        context.user_data.pop('ua_edit_weapon_attachment_id', None)
     
     return ConversationHandler.END
 
 
 async def cancel_edit_weapon(update: Update, context: CustomContext):
-    """لغو ویرایش نام سلاح"""
+    """Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´ Ù†Ø§Ù… Ø³Ù„Ø§Ø­"""
     attachment_id = context.user_data.get('ua_edit_weapon_attachment_id')
     
     lang = await get_user_lang(update, context, db) or 'fa'
@@ -962,11 +987,11 @@ reject_conv_handler = ConversationHandler(
     ],
     name="ua_admin_reject",
     persistent=False,
-    per_message=True,
+    per_message=False,
     allow_reentry=True
 )
 
-# ConversationHandler برای ویرایش نام سلاح
+# ConversationHandler Ø¨Ø±Ø§ÛŒ ÙˆÛŒØ±Ø§ÛŒØ´ Ù†Ø§Ù… Ø³Ù„Ø§Ø­
 edit_weapon_conv_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(start_edit_weapon, pattern="^ua_admin_edit_weapon_\\d+$")
@@ -981,7 +1006,7 @@ edit_weapon_conv_handler = ConversationHandler(
     ],
     name="ua_admin_edit_weapon",
     persistent=False,
-    per_message=True,
+    per_message=False,
     allow_reentry=True
 )
 

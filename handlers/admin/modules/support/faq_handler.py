@@ -27,9 +27,9 @@ class FAQHandler(BaseAdminHandler):
         current_time = time.time()
         cached_list = self._faq_cache_by_lang.get(lang)
         if cached_list is None or current_time - self._cache_time > self._cache_ttl:
-            faqs = await self.db.get_faqs(lang=lang)
+            faqs = await self.db.support.get_faqs(lang=lang)
             self._faq_cache_by_lang[lang] = faqs
-            self._stats_cache = await self.db.get_feedback_stats()
+            self._stats_cache = await self.db.analytics.get_feedback_stats()
             self._cache_time = current_time
         return (self._faq_cache_by_lang.get(lang, []), self._stats_cache)
 
@@ -52,6 +52,12 @@ class FAQHandler(BaseAdminHandler):
         ui_lang = await get_user_lang(update, context, self.db) or 'fa'
         faq_lang = context.user_data.get('faq_admin_lang') or ui_lang
         if not await self.role_manager.has_permission(user_id, Permission.MANAGE_FAQS):
+            await self.audit_permission_denied(
+                user_id,
+                route="admin_faqs_menu",
+                permission=Permission.MANAGE_FAQS,
+                source="admin_faqs_menu",
+            )
             await query.edit_message_text(t('common.no_permission', ui_lang))
             return ADMIN_MENU
         faqs, feedback_stats = await self._get_cached_faqs(faq_lang)
@@ -74,6 +80,12 @@ class FAQHandler(BaseAdminHandler):
         ui_lang = await get_user_lang(update, context, self.db) or 'fa'
         from core.security.role_manager import Permission
         if not await self.check_permission(user_id, Permission.MANAGE_FAQS):
+            await self.audit_permission_denied(
+                user_id,
+                route="admin_faq_list",
+                permission=Permission.MANAGE_FAQS,
+                source="admin_faq_list",
+            )
             await query.edit_message_text(t('common.no_permission', ui_lang))
             return ADMIN_MENU
 
@@ -104,6 +116,12 @@ class FAQHandler(BaseAdminHandler):
         ui_lang = await get_user_lang(update, context, self.db) or 'fa'
         from core.security.role_manager import Permission
         if not await self.check_permission(user_id, Permission.MANAGE_FAQS):
+            await self.audit_permission_denied(
+                user_id,
+                route="admin_faq_view",
+                permission=Permission.MANAGE_FAQS,
+                source="admin_faq_view",
+            )
             await query.edit_message_text(t('common.no_permission', ui_lang))
             return ADMIN_MENU
 
@@ -130,6 +148,12 @@ class FAQHandler(BaseAdminHandler):
         ui_lang = await get_user_lang(update, context, self.db) or 'fa'
         from core.security.role_manager import Permission
         if not await self.role_manager.has_permission(user_id, Permission.MANAGE_FAQS):
+            await self.audit_permission_denied(
+                user_id,
+                route="admin_faq_stats",
+                permission=Permission.MANAGE_FAQS,
+                source="admin_faq_stats",
+            )
             await query.edit_message_text(t('common.no_permission', ui_lang))
             return ADMIN_MENU
 
@@ -180,6 +204,12 @@ class FAQHandler(BaseAdminHandler):
         ui_lang = await get_user_lang(update, context, self.db) or 'fa'
         from core.security.role_manager import Permission
         if not await self.check_permission(user_id, Permission.MANAGE_FAQS):
+            await self.audit_permission_denied(
+                user_id,
+                route="admin_faq_add_start",
+                permission=Permission.MANAGE_FAQS,
+                source="admin_faq_add_start",
+            )
             await query.edit_message_text(t('common.no_permission', ui_lang))
             return ADMIN_MENU
 
@@ -222,7 +252,7 @@ class FAQHandler(BaseAdminHandler):
         question = context.user_data.get('faq_question', '')
         category = context.user_data.get('faq_category', 'general')
         faq_lang = context.user_data.get('faq_admin_lang') or ui_lang
-        success = await self.db.add_faq(question, answer, category, faq_lang)
+        success = await self.db.support.add_faq(question, answer, category, faq_lang)
         context.user_data.pop('faq_question', None)
         if success:
             self._invalidate_cache()
@@ -293,7 +323,7 @@ class FAQHandler(BaseAdminHandler):
         if not faq_id:
             await update.message.reply_text(t('common.not_found', ui_lang))
             return ADMIN_MENU
-        success = await self.db.update_faq(faq_id, question=new_question)
+        success = await self.db.support.update_faq(faq_id, question=new_question)
         if success:
             self._invalidate_cache()
         context.user_data.pop('edit_faq_id', None)
@@ -319,7 +349,7 @@ class FAQHandler(BaseAdminHandler):
         if not faq_id:
             await update.message.reply_text(t('common.not_found', ui_lang))
             return ADMIN_MENU
-        success = await self.db.update_faq(faq_id, answer=new_answer)
+        success = await self.db.support.update_faq(faq_id, answer=new_answer)
         if success:
             self._invalidate_cache()
         context.user_data.pop('edit_faq_id', None)
@@ -346,7 +376,7 @@ class FAQHandler(BaseAdminHandler):
             return ADMIN_MENU
 
         faq_id = int(query.data.split('_')[-1])
-        success = await self.db.delete_faq(faq_id)
+        success = await self.db.support.delete_faq(faq_id)
         if success:
             self._invalidate_cache()
             lang = await get_user_lang(update, context, self.db) or 'fa'

@@ -159,7 +159,7 @@ class WeaponHandler(BaseAdminHandler):
         mode_name = t(f"mode.{mode}_short", lang)
         
         # دریافت سلاح‌ها
-        weapons = await self.db.get_weapons_in_category(category, include_inactive=True)
+        weapons = await self.db.attachments.get_weapons_in_category(category, include_inactive=True)
         
         if not weapons:
             await safe_edit_message_text(
@@ -231,7 +231,7 @@ class WeaponHandler(BaseAdminHandler):
         context.user_data['weapon_mgmt_weapon'] = weapon
         
         # دریافت اطلاعات سلاح
-        info = await self.db.get_weapon_info(category, weapon)
+        info = await self.db.attachments.get_weapon_info(category, weapon)
         
         text = t("admin.weapons.path_weapon", lang, mode=mode_name, category=t(f"category.{category}", 'en'), weapon=weapon) + "\n\n"
         text += t("admin.weapons.weapon.header", lang, weapon=weapon) + "\n\n"
@@ -298,7 +298,7 @@ class WeaponHandler(BaseAdminHandler):
         
         if action == "toggle":
             # تغییر وضعیت (فعال/غیرفعال)
-            success = await self.db.toggle_weapon_status(category, weapon)
+            success = await self.db.attachments.toggle_weapon_status(category, weapon)
             if success:
                 # Invalidate caches
                 try:
@@ -367,13 +367,13 @@ class WeaponHandler(BaseAdminHandler):
         mode_name = t(f"mode.{mode}_btn", lang)
         
         # بکاپ قبل از حذف
-        backup_file = await self.db.backup_database()
+        backup_file = await self.db.settings.backup_database()
         
         if query.data == "wmconf_delete":
             # حذف کامل (دیگر استفاده نمی‌شود اما برای ایمنی نگه می‌داریم و خطا می‌دهیم)
             logger.warning(f"Legacy cleanup: Attempt to delete weapon blocked: {weapon}")
             msg = "⛔ Deletion of weapons is no longer supported."
-            # success = await self.db.delete_weapon(category, weapon, mode=None)
+            # success = await self.db.attachments.delete_weapon(category, weapon, mode=None)
             # if success:
             #     msg = t("admin.weapons.delete.success", lang, weapon=weapon) + "\n"
             #     logger.info(f"Weapon {weapon} deleted completely")
@@ -384,7 +384,7 @@ class WeaponHandler(BaseAdminHandler):
         elif query.data.startswith("wmconf_clear_"):
             clear_mode = query.data.replace("wmconf_clear_", "")
             clear_mode_name = t(f"mode.{clear_mode}_short", lang)
-            success = await self.db.delete_weapon(category, weapon, mode=clear_mode)
+            success = await self.db.attachments.delete_weapon(category, weapon, mode=clear_mode)
             if success:
                 msg = t("admin.weapons.clear.success", lang, mode=clear_mode_name, weapon=weapon) + "\n"
                 logger.info(f"Weapon {weapon} cleared for mode: {clear_mode}")

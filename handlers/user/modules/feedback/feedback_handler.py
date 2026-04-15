@@ -50,7 +50,7 @@ class FeedbackHandler(BaseUserHandler):
             return
         
         # ثبت رأی
-        result = await self.db.vote_attachment(user_id, attachment_id, vote=1)
+        result = await self.db.analytics.vote_attachment(user_id, attachment_id, vote=1)
         
         if not result.get('success'):
             await query.answer(t("feedback.error", lang), show_alert=True)
@@ -93,7 +93,7 @@ class FeedbackHandler(BaseUserHandler):
             return
         
         # ثبت رأی
-        result = await self.db.vote_attachment(user_id, attachment_id, vote=-1)
+        result = await self.db.analytics.vote_attachment(user_id, attachment_id, vote=-1)
         
         if not result.get('success'):
             await query.answer(t("feedback.error", lang), show_alert=True)
@@ -214,7 +214,7 @@ class FeedbackHandler(BaseUserHandler):
             return ConversationHandler.END
         
         # ثبت بازخورد
-        success = await self.db.submit_attachment_feedback(user_id, attachment_id, feedback_text)
+        success = await self.db.analytics.submit_attachment_feedback(user_id, attachment_id, feedback_text)
         
         if success:
             await update.message.reply_text(t('feedback.submit.success', lang))
@@ -309,7 +309,7 @@ class FeedbackHandler(BaseUserHandler):
             like_count = vote_result.get('like_count', 0)
             dislike_count = vote_result.get('dislike_count', 0)
             # دریافت اطلاعات اتچمنت برای تعیین mode و ساخت دکمه‌های لینک‌دار
-            att = await self.db.get_attachment_by_id(attachment_id) or {}
+            att = await self.db.attachments.get_attachment_by_id(attachment_id) or {}
             mode = (att.get('mode') or 'br').lower()
             # تعیین bot username
             try:
@@ -384,7 +384,7 @@ class FeedbackHandler(BaseUserHandler):
             code = None
             try:
                 if hasattr(self.db, 'get_attachment_code_by_id'):
-                    code = await self.db.get_attachment_code_by_id(attachment_id)
+                    code = await self.db.attachments.get_attachment_code_by_id(attachment_id)
             except Exception:
                 code = None
             if not code:

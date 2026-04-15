@@ -248,14 +248,14 @@ class SmartCacheManager:
             for category in categories:
                 # Cache weapon list
                 key = self._make_key('get_weapons_in_category', (category,), {}, 'weapon_list')
-                weapons = db.get_weapons_in_category(category)
+                weapons = db.attachments.get_weapons_in_category(category)
                 self.set(key, weapons, 'weapon_list')
                 
                 # Cache top attachments for popular weapons (first 3)
                 for weapon in weapons[:3]:
                     for mode in ['mp', 'br']:
                         key = self._make_key('get_top_attachments', (category, weapon, mode), {}, 'top_attachments')
-                        attachments = db.get_top_attachments(category, weapon, mode)
+                        attachments = db.attachments.get_top_attachments(category, weapon, mode)
                         self.set(key, attachments, 'top_attachments')
             
             logger.info(f"Cache warming completed. {len(self._cache)} entries pre-loaded")

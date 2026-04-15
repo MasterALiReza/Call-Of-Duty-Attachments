@@ -1,17 +1,17 @@
-from core.context import CustomContext
 """
 ماژول پشتیبان‌گیری دیتابیس
 مسئول: فقط مدیریت بکاپ (بدون بخش آمار ربات)
 """
 
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
-from handlers.admin.modules.base_handler import BaseAdminHandler
+
+from core.context import CustomContext
 from handlers.admin.admin_states import ADMIN_MENU
-from utils.logger import log_admin_action
-from utils.language import get_user_lang
+from handlers.admin.modules.base_handler import BaseAdminHandler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from utils.i18n import t
+from utils.language import get_user_lang
+from utils.logger import log_admin_action
 
 class StatsBackupHandler(BaseAdminHandler):
     """Handler برای پشتیبان‌گیری دیتابیس"""
@@ -28,10 +28,16 @@ class StatsBackupHandler(BaseAdminHandler):
         
         lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.BACKUP_DATA not in user_permissions:
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="stats_backup_create_backup",
+                permission=Permission.BACKUP_DATA,
+                source="create_backup",
+            )
             await query.answer(t("admin.backup.no_permission", lang), show_alert=True)
             return ADMIN_MENU
         
-        backup_file = await self.db.backup_database()
+        backup_file = await self.db.settings.backup_database()
         
         keyboard = [
             [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_data_management")]
@@ -58,4 +64,3 @@ class StatsBackupHandler(BaseAdminHandler):
             )
         
         return ADMIN_MENU
-

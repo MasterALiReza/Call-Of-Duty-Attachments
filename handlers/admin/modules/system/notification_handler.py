@@ -1,25 +1,21 @@
-from core.context import CustomContext
 """
 ماژول مدیریت اعلان‌ها (Notifications)
 مسئول: ارسال پیام به کاربران و مدیریت تنظیمات اعلان
 """
 
-import asyncio
 from datetime import datetime, timezone, timedelta
-import json
-import re
+
+from core.context import CustomContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
 from telegram.error import Forbidden, BadRequest
 from config.config import get_notification_settings, set_notification_settings
 from handlers.admin.modules.base_handler import BaseAdminHandler
-from handlers.admin.admin_states import NOTIFY_COMPOSE, NOTIFY_CONFIRM, ADMIN_MENU
+from handlers.admin.admin_states import NOTIFY_COMPOSE, NOTIFY_CONFIRM, NOTIFY_SCHEDULE_TIME, ADMIN_MENU
 from utils.subscribers_pg import SubscribersPostgres as Subscribers
 from utils.logger import log_admin_action, get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
-from core.models.admin_models import AdminNotificationRequest
 
 logger = get_logger('notification', 'admin.log')
 
@@ -32,10 +28,6 @@ class NotificationHandler(BaseAdminHandler):
         """ورود به بخش اعلان‌ها: منوی اصلی اعلان با دو گزینه"""
         query = update.callback_query
         await query.answer()
-        
-        # بررسی دسترسی
-        from core.security.role_manager import Permission
-        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         
         # نمایش منوی اصلی اعلان
         return await self.notify_home_menu(update, context)
@@ -51,6 +43,12 @@ class NotificationHandler(BaseAdminHandler):
         lang = await get_user_lang(update, context, self.db) or 'fa'
 
         if Permission.SEND_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_notify_home",
+                permission=Permission.SEND_NOTIFICATIONS,
+                source="notify_home_menu",
+            )
             await query.answer(t("admin.notify.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -65,7 +63,6 @@ class NotificationHandler(BaseAdminHandler):
 
         await safe_edit_message_text(query, text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-        from handlers.admin.admin_states import ADMIN_MENU
         return ADMIN_MENU
 
     @log_admin_action("schedule_edit_open")
@@ -78,6 +75,12 @@ class NotificationHandler(BaseAdminHandler):
         user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_schedule_edit_open",
+                permission=Permission.MANAGE_SCHEDULED_NOTIFICATIONS,
+                source="schedule_edit_open",
+            )
             await query.answer(t("common.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -87,13 +90,13 @@ class NotificationHandler(BaseAdminHandler):
         except Exception:
             return await self.schedules_menu(update, context)
 
-        row = await self.db.get_scheduled_notification_by_id(sid)
+        row = await self.db.cms.get_scheduled_notification_by_id(sid)
         if not row:
             await query.answer(t("common.not_found", lang), show_alert=True)
             return await self.schedules_menu(update, context)
 
         def status_text(enabled: bool) -> str:
-            return t("common.status.enabled", lang) if enabled else t("common.status.disabled", lang)
+            return str(t("common.status.enabled", lang) if enabled else t("common.status.disabled", lang))
 
         # Local datetime formatter (Tehran, no microseconds)
         def _fmt_dt_local(dt):
@@ -130,7 +133,6 @@ class NotificationHandler(BaseAdminHandler):
         m_kb.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_sched_notifications")])
         await safe_edit_message_text(query, text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(m_kb))
 
-        from handlers.admin.admin_states import ADMIN_MENU
         return ADMIN_MENU
 
     @log_admin_action("schedule_edit_text_start")
@@ -143,6 +145,12 @@ class NotificationHandler(BaseAdminHandler):
         user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_schedule_edit_text_start",
+                permission=Permission.MANAGE_SCHEDULED_NOTIFICATIONS,
+                source="schedule_edit_text_start",
+            )
             await query.answer(t("common.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -176,7 +184,7 @@ class NotificationHandler(BaseAdminHandler):
             return ADMIN_MENU
 
         new_text = update.message.text
-        ok = await self.db.update_scheduled_notification(
+        ok = await self.db.cms.update_scheduled_notification(
             schedule_id=int(sid),
             message_type='text',
             message_text=new_text,
@@ -192,7 +200,6 @@ class NotificationHandler(BaseAdminHandler):
             kb = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_sched_notifications")]]
             await update.message.reply_text(t("admin.notify.schedule.edit_text.error", lang), reply_markup=InlineKeyboardMarkup(kb))
 
-        from handlers.admin.admin_states import ADMIN_MENU
         return ADMIN_MENU
 
     @log_admin_action("notify_compose_start")
@@ -205,6 +212,12 @@ class NotificationHandler(BaseAdminHandler):
         user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.SEND_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_notify_compose_start",
+                permission=Permission.SEND_NOTIFICATIONS,
+                source="notify_compose_start",
+            )
             await query.answer(t("admin.notify.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
@@ -247,11 +260,17 @@ class NotificationHandler(BaseAdminHandler):
         user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_schedules_menu",
+                permission=Permission.MANAGE_SCHEDULED_NOTIFICATIONS,
+                source="schedules_menu",
+            )
             await query.answer(t("admin.notify.schedule.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
 
-        items = await self.db.list_scheduled_notifications() or []
+        items = await self.db.cms.list_scheduled_notifications() or []
 
         def fmt_bool(b):
             return "✅" if b else "❌"
@@ -327,7 +346,6 @@ class NotificationHandler(BaseAdminHandler):
             else:
                 raise
 
-        from handlers.admin.admin_states import ADMIN_MENU
         return ADMIN_MENU
 
     @log_admin_action("schedule_toggle")
@@ -339,16 +357,22 @@ class NotificationHandler(BaseAdminHandler):
         user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_schedule_toggle",
+                permission=Permission.MANAGE_SCHEDULED_NOTIFICATIONS,
+                source="schedule_toggle",
+            )
             await query.answer(t("common.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
 
         sid = int(query.data.replace("sched_toggle_", ""))
-        row = await self.db.get_scheduled_notification_by_id(sid)
+        row = await self.db.cms.get_scheduled_notification_by_id(sid)
         if not row:
             await query.answer(t("common.not_found", lang), show_alert=True)
             return await self.schedules_menu(update, context)
-        await self.db.set_schedule_enabled(sid, not row['enabled'])
+        await self.db.cms.set_schedule_enabled(sid, not row['enabled'])
         return await self.schedules_menu(update, context)
 
     @log_admin_action("schedule_delete")
@@ -360,12 +384,18 @@ class NotificationHandler(BaseAdminHandler):
         user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
         lang = await get_user_lang(update, context, self.db) or 'fa'
         if Permission.MANAGE_SCHEDULED_NOTIFICATIONS not in user_permissions and not await self.role_manager.is_super_admin(query.from_user.id):
+            await self.audit_permission_denied(
+                query.from_user.id,
+                route="admin_schedule_delete",
+                permission=Permission.MANAGE_SCHEDULED_NOTIFICATIONS,
+                source="schedule_delete",
+            )
             await query.answer(t("common.no_permission", lang), show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
             return ADMIN_MENU
 
         sid = int(query.data.replace("sched_delete_", ""))
-        await self.db.delete_scheduled_notification(sid)
+        await self.db.cms.delete_scheduled_notification(sid)
         await query.answer(t("common.deleted", lang))
         return await self.schedules_menu(update, context)
         
@@ -425,7 +455,7 @@ class NotificationHandler(BaseAdminHandler):
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
-            except Exception as e:
+            except Exception:
                 # اگر Markdown غلط بود، بدون parse_mode ارسال کن
                 await update.message.reply_photo(
                     photo=context.user_data['notif_photo'],
@@ -451,7 +481,7 @@ class NotificationHandler(BaseAdminHandler):
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
-            except Exception as e:
+            except Exception:
                 # اگر Markdown غلط بود، بدون parse_mode ارسال کن
                 await update.message.reply_text(
                     preview_text + "\n\n" + t("admin.notify.markdown_error", lang),
@@ -636,6 +666,7 @@ class NotificationHandler(BaseAdminHandler):
         """ایجاد رکورد زمان‌بندی با یکی از پریست‌ها"""
         query = update.callback_query
         await query.answer()
+        lang = await get_user_lang(update, context, self.db) or 'fa'
 
         data = query.data
         hours_map = {
@@ -658,7 +689,7 @@ class NotificationHandler(BaseAdminHandler):
         next_run_at = now_utc + timedelta(hours=interval_hours)
 
         try:
-            new_id = await self.db.create_scheduled_notification(
+            new_id = await self.db.cms.create_scheduled_notification(
                 message_type='photo' if (notif_type == 'photo' and notif_photo) else 'text',
                 message_text=notif_text if notif_type == 'text' else notif_text,
                 photo_file_id=notif_photo if notif_type == 'photo' else None,
@@ -735,7 +766,6 @@ class NotificationHandler(BaseAdminHandler):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
-        from handlers.admin.admin_states import ADMIN_MENU
         return ADMIN_MENU
     
     @log_admin_action("notify_toggle")
@@ -853,7 +883,6 @@ class NotificationHandler(BaseAdminHandler):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
-        from handlers.admin.admin_states import ADMIN_MENU
         return ADMIN_MENU
     
     @log_admin_action("notif_event_toggle")
@@ -891,8 +920,7 @@ class NotificationHandler(BaseAdminHandler):
         key = query.data.replace("tmpl_edit_", "")
         context.user_data['tmpl_key'] = key
         
-        settings = await get_notification_settings(self.db)
-        cur = settings.get('templates', {}).get(key, '')
+        await get_notification_settings(self.db)
         placeholders = "{category} {category_name} {weapon} {code} {name} {old_name} {new_name} {old_code} {new_code}"
         text = (
             t("admin.notify.templates.edit.title", lang, key=key) + "\n\n" +

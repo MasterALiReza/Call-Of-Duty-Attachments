@@ -414,11 +414,10 @@ class DataHealthChecker:
         try:
             logger.info('🛠️ Starting technical fix operation...')
             
-            # Re-ensure extensions and core schema (including indexes)
-            if hasattr(self.db, '_ensure_schema'):
-                # _ensure_schema is synchronous in the current implementation, but it calls connect()
-                # We can call it directly to rebuild indexes/extensions.
-                self.db._ensure_schema()
+            # Re-ensure additive runtime guards only; schema ownership remains with migrations.
+            runtime_guards = getattr(self.db, '_ensure_runtime_guards', None)
+            if callable(runtime_guards):
+                runtime_guards()
             
             # Specifically fix sequences
             async with self.db.transaction() as conn:

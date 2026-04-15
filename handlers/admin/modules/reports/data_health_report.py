@@ -1,31 +1,34 @@
-from core.context import CustomContext
 """
 Data Health Report Handler - Simple Version
 Admin interface for viewing and managing data health checks
-بدون استفاده از ConversationHandler برای سادگی
+???????? ?????????????? ???? ConversationHandler ???????? ??????????
 """
 
 import os
-import json
 import html
 import re
-import subprocess
 import shutil
+import subprocess
 import tempfile
+import zipfile
+from typing import cast
+from datetime import datetime
 from shutil import which
-from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 
-from handlers.admin.modules.base_handler import BaseAdminHandler
-from handlers.admin.admin_states import ADMIN_MENU, AWAITING_BACKUP_FILE
-from utils.data_health_check import DataHealthChecker
-from utils.logger import get_logger
+from core.context import CustomContext
+from core.errors import ExternalDependencyError, InfrastructureError, UserFacingError, ValidationError
 from core.security.role_manager import Permission
+from handlers.admin.admin_states import ADMIN_MENU, AWAITING_BACKUP_FILE
+from handlers.admin.modules.base_handler import BaseAdminHandler
+from utils.data_health_check import DataHealthChecker
 from utils.i18n import t
 from utils.language import get_user_lang
+from utils.logger import get_logger, log_exception
 from utils.telegram_safety import safe_edit_message_text
+
 
 logger = get_logger('data_health_report', 'admin.log')
 
@@ -45,7 +48,13 @@ class DataHealthReportHandler(BaseAdminHandler):
         # Check permissions
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_create_backup",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.create_backup",
+            )
             return
             
         # Init message
@@ -180,7 +189,13 @@ class DataHealthReportHandler(BaseAdminHandler):
         
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_run_check",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.run_health_check",
+            )
             return
             
         # Show progress message
@@ -267,9 +282,7 @@ class DataHealthReportHandler(BaseAdminHandler):
             for issue in critical_issues:
                 check_type = issue.get('check_type')
                 count = issue.get('issue_count')
-                details_json = issue.get('details')
                 created_at = issue.get('created_at')
-                details = json.loads(details_json) if isinstance(details_json, str) and details_json else {}
                 
                 if check_type == 'missing_images':
                     message += f"\U0001F5BC\uFE0F **{t('admin.health.type.missing_images', lang)}**: {count} {t('admin.health.issue.unit', lang)}\n"
@@ -330,7 +343,6 @@ class DataHealthReportHandler(BaseAdminHandler):
             for warning in warnings:
                 check_type = warning.get('check_type')
                 count = warning.get('issue_count')
-                details_json = warning.get('details')
                 created_at = warning.get('created_at')
                 
                 if check_type == 'empty_weapons':
@@ -589,7 +601,13 @@ class DataHealthReportHandler(BaseAdminHandler):
         
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_fix_issues_menu",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.fix_issues_menu",
+            )
             return
             
         message = t('admin.health.fix.menu.title', lang) + "\n\n" + t('admin.health.fix.menu.note', lang) + "\n\n" + t('admin.health.fix.menu.prompt', lang)
@@ -624,7 +642,13 @@ class DataHealthReportHandler(BaseAdminHandler):
         # Check permission
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_check_missing_images",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.check_missing_images",
+            )
             return
         
         # Get all attachments without images
@@ -660,7 +684,6 @@ class DataHealthReportHandler(BaseAdminHandler):
             
             current_category = None
             for row in missing_images:
-                att_id = row.get('id')
                 name = row.get('name')
                 code = row.get('code')
                 category = row.get('category')
@@ -702,7 +725,13 @@ class DataHealthReportHandler(BaseAdminHandler):
         # Check permission
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_check_duplicate_codes",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.check_duplicate_codes",
+            )
             return
         
         # Find duplicate codes
@@ -771,7 +800,13 @@ class DataHealthReportHandler(BaseAdminHandler):
         # Check permission
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_check_orphaned",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.check_orphaned_attachments",
+            )
             return
         
         # Find orphaned attachments (attachments with deleted weapon_id)
@@ -802,7 +837,6 @@ class DataHealthReportHandler(BaseAdminHandler):
             message += t('admin.health.list.total', lang, n=len(orphaned)) + "\n\n"
             
             for row in orphaned:
-                att_id = row.get('id')
                 name = html.escape(row.get('name', ''))
                 code = html.escape(row.get('code', ''))
                 weapon_id = row.get('weapon_id')
@@ -828,6 +862,128 @@ class DataHealthReportHandler(BaseAdminHandler):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
+    def _restore_back_markup(self, lang: str) -> InlineKeyboardMarkup:
+        """Return the canonical back button for restore-related flows."""
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="health_fix_issues_menu")]]
+        )
+
+    async def _reply_restore_message(
+        self,
+        update: Update,
+        context: CustomContext,
+        text: str,
+        *,
+        lang: str,
+        parse_mode: str | None = None,
+    ) -> None:
+        """Reply to restore flows even when the expected message object is missing."""
+        reply_markup = self._restore_back_markup(lang)
+        message = getattr(update, "message", None)
+        if message and hasattr(message, "reply_text"):
+            await message.reply_text(
+                text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+            return
+
+        effective_chat = getattr(update, "effective_chat", None)
+        chat_id = getattr(effective_chat, "id", None)
+        if chat_id is None:
+            logger.warning("Restore response could not be delivered because chat_id is missing")
+            return
+
+        await context.bot.send_message(
+            chat_id,
+            text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup,
+        )
+
+    def _build_restore_success_message(self, lang: str, safety_backup: str = "") -> str:
+        """Build a consistent success message for restore operations."""
+        message = t('admin.health.restore.success.title', lang) + "\n\n"
+        if safety_backup:
+            message += t('admin.health.restore.success.safety_backup', lang, file=safety_backup) + "\n\n"
+        message += t('admin.health.restore.success.restart', lang, cmd="sudo systemctl restart codm-bot")
+        return str(message)
+
+    def _is_local_sqlite_path(self, db_path: str | None) -> bool:
+        """Allow filesystem SQLite paths while rejecting DSN-style connection strings."""
+        if not db_path:
+            return False
+
+        normalized = db_path.strip()
+        if re.match(r"^(sqlite|postgres|postgresql|mysql)://", normalized, re.IGNORECASE):
+            return False
+        if normalized.startswith("file:") and not re.match(r"^[A-Za-z]:[\\/]", normalized):
+            return False
+        return True
+
+    def _uses_postgres_backend(self) -> bool:
+        """Treat local SQLite paths as the only non-PostgreSQL backend variant."""
+        db_path = getattr(self.health_checker, 'db_path', None)
+        return not self._is_local_sqlite_path(db_path)
+
+    def _parse_database_url_env(self) -> tuple[str | None, str | None, str | None, str | None]:
+        """Fill PostgreSQL env fields from DATABASE_URL when needed."""
+        pg_host = os.environ.get('POSTGRES_HOST')
+        pg_user = os.environ.get('POSTGRES_USER')
+        pg_db = os.environ.get('POSTGRES_DB')
+        pg_pass = os.environ.get('POSTGRES_PASSWORD')
+
+        if all([pg_host, pg_user, pg_db]):
+            return pg_host, pg_user, pg_db, pg_pass
+
+        db_url = os.environ.get('DATABASE_URL', '')
+        if db_url.startswith('postgresql://'):
+            pattern = r'postgresql://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/([^?]+)'
+            match = re.match(pattern, db_url)
+            if match:
+                user, password, host, _port, database = match.groups()
+                pg_user = pg_user or user
+                pg_pass = pg_pass or password
+                pg_host = pg_host or host
+                pg_db = pg_db or database
+
+        return pg_host, pg_user, pg_db, pg_pass
+
+    async def _download_restore_file(self, context: CustomContext, file_id: str, temp_path: str):
+        """Download the restore artifact and normalize expected network failures."""
+        try:
+            telegram_file = await context.bot.get_file(file_id)
+        except Exception as exc:
+            if "ConnectError" in str(exc) or "ConnectTimeout" in str(exc):
+                raise ExternalDependencyError(
+                    "Network Error: Could not connect to Telegram API. Check your proxy/VPN."
+                ) from exc
+            raise InfrastructureError("Failed to fetch file metadata from Telegram.") from exc
+
+        try:
+            await telegram_file.download_to_drive(temp_path)
+        except Exception as exc:
+            if "ConnectError" in str(exc):
+                raise ExternalDependencyError(
+                    "Network Error: Connection failed during download. This is likely a proxy/VPN issue."
+                ) from exc
+            raise InfrastructureError("Failed to download backup file from Telegram.") from exc
+
+        return telegram_file
+
+    def _cleanup_restore_artifacts(self, *paths: str | None) -> None:
+        """Best-effort cleanup for temporary restore artifacts."""
+        for path in paths:
+            if not path or not os.path.exists(path):
+                continue
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+            except OSError as exc:
+                logger.warning("Failed to cleanup restore artifact %s: %s", path, exc)
+
     def get_pg_tool_path(self, tool_name: str) -> str:
         """Find path to pg_dump or psql on common OS locations"""
         # First check if it's already in PATH
@@ -855,30 +1011,33 @@ class DataHealthReportHandler(BaseAdminHandler):
         # Check permission
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_create_backup",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.create_backup",
+            )
             return
         
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             temp_dir = tempfile.gettempdir()
             
-            # Check for PostgreSQL using different possible ways
-            is_postgres = False
-            if hasattr(self.db, 'is_postgres'):
-                is_postgres = await self.db.is_postgres()
+            is_postgres = self._uses_postgres_backend()
             
             if is_postgres:
-                # Use centralized backup manager for PostgreSQL
-                backup_path = await self.db.backup_manager.create_full_backup()
+                backup_path = await self.db.settings.backup_database(temp_dir)
                 if not backup_path:
-                    raise Exception("Failed to create PostgreSQL backup via BackupManager.")
+                    raise InfrastructureError("Failed to create PostgreSQL backup.")
                 backup_filename = os.path.basename(backup_path)
             else:
                 # SQLite Logic - Only if NOT postgres
                 db_path = getattr(self.health_checker, 'db_path', None)
-                if not db_path or ':' in db_path:
+                if not self._is_local_sqlite_path(db_path):
                     # If db_path looks like a connection string, we shouldn't use it as a file path
-                    raise Exception("SQLite database path not found or invalid for backup.")
+                    raise ValidationError("SQLite database path not found or invalid for backup.")
+                assert isinstance(db_path, str)
                 
                 backup_filename = f"codm_backup_{timestamp}.db"
                 backup_path = os.path.join(os.path.dirname(os.path.abspath(db_path)), backup_filename)
@@ -905,7 +1064,7 @@ class DataHealthReportHandler(BaseAdminHandler):
                 )
             
             # Cleanup temp file if PostgreSQL
-            if hasattr(self.db, 'is_postgres') and await self.db.is_postgres():
+            if is_postgres:
                 if os.path.exists(backup_path):
                     os.remove(backup_path)
             
@@ -916,9 +1075,12 @@ class DataHealthReportHandler(BaseAdminHandler):
             message += t('admin.health.backup.caption.size', lang, size=f"{size_mb:.2f}") + "\n\n"
             message += t('admin.health.backup.success.tip_restore', lang)
             
-        except Exception as e:
+        except (UserFacingError, OSError) as e:
             message = t('admin.health.backup.error', lang, err=html.escape(str(e)))
             logger.error(f"Backup error: {e}")
+        except Exception as e:
+            log_exception(logger, e, "data_health_report.create_backup")
+            message = t('admin.health.backup.error', lang, err=html.escape("Unexpected backup failure."))
             
         keyboard = [[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="health_fix_issues_menu")]]
         
@@ -932,14 +1094,21 @@ class DataHealthReportHandler(BaseAdminHandler):
     async def restore_backup_start(self, update: Update, context: CustomContext) -> int:
         """Start backup restoration process"""
         query = update.callback_query
-        await query.answer()
         lang = await get_user_lang(update, context, self.db) or 'fa'
+        if query:
+            await query.answer()
         
         # Check permission
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
-            return ADMIN_MENU
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_restore_backup",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.restore_backup_start",
+            )
+            return cast(int, ADMIN_MENU)
         
         message = (
             t('admin.health.restore.start.title', lang) + "\n\n" +
@@ -951,125 +1120,122 @@ class DataHealthReportHandler(BaseAdminHandler):
         )
         
         keyboard = [[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="health_fix_issues_menu")]]
+
+        if query:
+            await safe_edit_message_text(
+                query,
+                message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await context.bot.send_message(
+                update.effective_chat.id,
+                message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
         
-        await safe_edit_message_text(
-            query,
-            message,
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        return AWAITING_BACKUP_FILE
+        return cast(int, AWAITING_BACKUP_FILE)
         
     async def restore_backup_file(self, update: Update, context: CustomContext) -> int:
         """Handle received backup file and restore it"""
         user_id = update.effective_user.id
         lang = await get_user_lang(update, context, self.db) or 'fa'
+        message = getattr(update, "message", None)
         
         # Check permission
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await self.send_permission_denied(update, context)
-            return ADMIN_MENU
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_restore_backup_file",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.restore_backup_file",
+            )
+            return cast(int, ADMIN_MENU)
         
         # Check if document exists
-        if not update.message.document:
-            await update.message.reply_text(
-                t('admin.health.restore.file_required', lang) + "\n" + t('admin.health.restore.start.cancel', lang)
+        document = getattr(message, "document", None)
+        if not message or not document:
+            restore_prompt = t('admin.health.restore.file_required', lang) + "\n" + t('admin.health.restore.start.cancel', lang)
+            if message and hasattr(message, "reply_text"):
+                await message.reply_text(restore_prompt)
+            else:
+                await context.bot.send_message(update.effective_chat.id, restore_prompt)
+            return cast(int, AWAITING_BACKUP_FILE)
+        
+        file_name = getattr(document, "file_name", "") or ""
+        file_id = getattr(document, "file_id", "") or ""
+        if not file_name or not file_id:
+            await self._reply_restore_message(
+                update,
+                context,
+                t('admin.health.restore.file_required', lang) + "\n" + t('admin.health.restore.start.cancel', lang),
+                lang=lang,
             )
-            return AWAITING_BACKUP_FILE
-        
-        document = update.message.document
-        
+            return cast(int, AWAITING_BACKUP_FILE)
+
         # Check file extension
-        is_postgres = hasattr(self.db, 'is_postgres') and await self.db.is_postgres()
+        is_postgres = self._uses_postgres_backend()
         valid_exts = ('.sql', '.zip', '.dump') if is_postgres else ('.db',)
-        
-        if not any(document.file_name.lower().endswith(ext) for ext in valid_exts):
-            await update.message.reply_text(
-                t('admin.health.restore.invalid_format', lang) + "\n" + t('admin.health.restore.start.cancel', lang)
+
+        if not any(file_name.lower().endswith(ext) for ext in valid_exts):
+            await self._reply_restore_message(
+                update,
+                context,
+                t('admin.health.restore.invalid_format', lang) + "\n" + t('admin.health.restore.start.cancel', lang),
+                lang=lang,
             )
-            return AWAITING_BACKUP_FILE
+            return cast(int, AWAITING_BACKUP_FILE)
         
         try:
             # Download file
-            logger.info(f"💾 Starting backup restore from file_id: {document.file_id}")
-            logger.info("📡 Requesting file path from Telegram...")
-            
-            try:
-                file = await context.bot.get_file(document.file_id)
-            except Exception as e:
-                logger.error(f"❌ Failed to get file path: {e}")
-                if "ConnectError" in str(e) or "ConnectTimeout" in str(e):
-                    raise Exception("Network Error: Could not connect to Telegram API. Check your proxy/VPN.") from e
-                raise
-                
-            logger.info(f"📥 File path retrieved: {file.file_path}")
-            
+            logger.info("Starting backup restore from file_id=%s", file_id)
+            logger.info("Requesting file path from Telegram")
+
             ts_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-            file_ext = os.path.splitext(document.file_name)[1].lower()
+            file_ext = os.path.splitext(file_name)[1].lower()
             temp_path = os.path.join(tempfile.gettempdir(), f"restore_{ts_str}{file_ext}")
-            
-            logger.info(f"💾 Downloading file to: {temp_path}")
-            try:
-                await file.download_to_drive(temp_path)
-            except Exception as e:
-                logger.error(f"❌ Download failed: {e}")
-                if "ConnectError" in str(e):
-                     raise Exception("Network Error: Connection failed during download. This is likely a proxy/VPN issue.") from e
-                raise
-                
-            logger.info("✅ File downloaded successfully. Starting database restore...")
-            
+
+            logger.info("Downloading backup file to %s", temp_path)
+            file = await self._download_restore_file(context, file_id, temp_path)
+
+            logger.info("Telegram file path resolved: %s", getattr(file, "file_path", "<unknown>"))
+            logger.info("Backup file downloaded successfully; starting database restore")
+
             restore_file = temp_path
             temp_dir = None
             
             # ZIP Handling
             if file_ext == '.zip':
-                import zipfile
                 temp_dir = os.path.join(tempfile.gettempdir(), f"extract_{ts_str}")
                 os.makedirs(temp_dir, exist_ok=True)
+
+                try:
+                    with zipfile.ZipFile(temp_path, 'r') as zip_ref:
+                        zip_ref.extractall(temp_dir)
+                except zipfile.BadZipFile as exc:
+                    raise ValidationError("Invalid ZIP restore archive.") from exc
                 
-                with zipfile.ZipFile(temp_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                
-                # Look for .dump or .sql inside ZIP
-                found = False
+                # Look for exactly one .dump or .sql payload inside ZIP.
+                candidates: list[str] = []
                 for root, _, files in os.walk(temp_dir):
                     for f in files:
                         if f.lower().endswith(('.dump', '.sql')):
-                            restore_file = os.path.join(root, f)
-                            found = True
-                            break
-                    if found: break
+                            candidates.append(os.path.join(root, f))
                 
-                if not found:
-                    raise Exception("Valid backup file (.sql or .dump) not found inside ZIP.")
-                
-                logger.info(f"📦 Extracted and found backup file: {os.path.basename(restore_file)}")
+                if not candidates:
+                    raise ValidationError("Valid backup file (.sql or .dump) not found inside ZIP.")
+                if len(candidates) > 1:
+                    raise ValidationError("Multiple backup payloads found inside ZIP; keep exactly one .sql or .dump file.")
+
+                restore_file = candidates[0]
+                logger.info("Extracted backup payload: %s", os.path.basename(restore_file))
 
             if is_postgres:
                 # PostgreSQL Restore
-                pg_host = os.environ.get('POSTGRES_HOST')
-                pg_user = os.environ.get('POSTGRES_USER')
-                pg_db = os.environ.get('POSTGRES_DB')
-                pg_pass = os.environ.get('POSTGRES_PASSWORD')
-                
-                # Fetch settings if env vars are missing
-                if not all([pg_host, pg_user, pg_db]):
-                    db_url = os.environ.get('DATABASE_URL', '')
-                    if db_url.startswith('postgresql://'):
-                        try:
-                            import re
-                            pattern = r'postgresql://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/([^?]+)'
-                            match = re.match(pattern, db_url)
-                            if match:
-                                u, p, h, pt, d = match.groups()
-                                pg_user = pg_user or u
-                                pg_pass = pg_pass or p
-                                pg_host = pg_host or h
-                                pg_db = pg_db or d
-                        except Exception: pass
-
+                pg_host, pg_user, pg_db, pg_pass = self._parse_database_url_env()
                 pg_host = pg_host or 'localhost'
                 pg_user = pg_user or 'postgres'
                 pg_db = pg_db or 'postgres'
@@ -1092,28 +1258,43 @@ class DataHealthReportHandler(BaseAdminHandler):
                 
                 result = subprocess.run(args, env=env, capture_output=True, text=True)
                 
-                # Cleanup
-                try:
-                    if os.path.exists(temp_path): os.remove(temp_path)
-                    if temp_dir and os.path.exists(temp_dir): shutil.rmtree(temp_dir)
-                except Exception: pass
+                self._cleanup_restore_artifacts(temp_path, temp_dir)
 
+                stderr = result.stderr or ""
                 if result.returncode != 0:
-                    logger.error(f"❌ Restore failed: {result.stderr}")
+                    logger.error(f"Restore failed: {stderr}")
                     # Some data existing errors are expected if not using --clean, but we want to know
-                    if "already exists" in result.stderr:
-                        await update.message.reply_text(t('admin.health.restore.partial_success', lang))
-                        return ADMIN_MENU
-                    raise Exception(result.stderr)
-                
-                await update.message.reply_text(t('admin.health.restore.success', lang))
-                return ADMIN_MENU
-            
+                    if "already exists" in stderr:
+                        message = (
+                            t('admin.health.restore.partial_success', lang)
+                            + "\n\n"
+                            + t('admin.health.restore.success.restart', lang, cmd="sudo systemctl restart codm-bot")
+                        )
+                        await self._reply_restore_message(
+                            update,
+                            context,
+                            message,
+                            lang=lang,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return cast(int, ADMIN_MENU)
+                    raise InfrastructureError(stderr or "Restore command failed.")
+
+                await self._reply_restore_message(
+                    update,
+                    context,
+                    self._build_restore_success_message(lang),
+                    lang=lang,
+                    parse_mode=ParseMode.HTML,
+                )
+                return cast(int, ADMIN_MENU)
+
             else:
                 # SQLite Restore
                 db_path = getattr(self.health_checker, 'db_path', None)
-                if not db_path or ':' in db_path:
-                    raise Exception("SQLite database path not found or invalid for restore.")
+                if not self._is_local_sqlite_path(db_path):
+                    raise ValidationError("SQLite database path not found or invalid for restore.")
+                assert isinstance(db_path, str)
                 
                 # Sanitize safety backup name for Windows (ensure no colons)
                 ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -1122,36 +1303,40 @@ class DataHealthReportHandler(BaseAdminHandler):
                 shutil.copy2(temp_path, db_path)
             
             # Clean up temp file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+            self._cleanup_restore_artifacts(temp_path)
             
-            message = t('admin.health.restore.success.title', lang) + "\n\n"
-            message += t('admin.health.restore.success.safety_backup', lang, file=os.path.basename(safety_backup)) + "\n\n"
-            message += t('admin.health.restore.success.restart', lang, cmd="sudo systemctl restart codm-bot")
-            
-            keyboard = [[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="fix_issues_menu")]]
-            
-            await update.message.reply_text(
-                message,
+            await self._reply_restore_message(
+                update,
+                context,
+                self._build_restore_success_message(lang, os.path.basename(safety_backup)),
+                lang=lang,
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             logger.info(f"Database restored by admin {user_id}")
             
-        except Exception as e:
+        except UserFacingError as e:
             message = t('admin.health.restore.error', lang, err=html.escape(str(e)))
-            
-            keyboard = [[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="fix_issues_menu")]]
-            
-            await update.message.reply_text(
+
+            await self._reply_restore_message(
+                update,
+                context,
                 message,
+                lang=lang,
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            
+
             logger.error(f"Restore error: {e}")
+        except Exception as e:
+            log_exception(logger, e, 'data_health_report.restore_backup_file')
+            await self._reply_restore_message(
+                update,
+                context,
+                t('admin.health.restore.error', lang, err=html.escape('Unexpected restore failure.')),
+                lang=lang,
+                parse_mode=ParseMode.HTML,
+            )
         
-        return ADMIN_MENU
+        return cast(int, ADMIN_MENU)
 
     async def fix_technical(self, update: Update, context: CustomContext) -> None:
         """Execute technical fixes (indexes, sequences)"""
@@ -1161,7 +1346,13 @@ class DataHealthReportHandler(BaseAdminHandler):
         # Check permission
         user_id = update.effective_user.id
         if not await self.check_permission(user_id, Permission.MANAGE_SETTINGS):
-            await query.answer(t('errors.no_permission', lang), show_alert=True)
+            await self.send_permission_denied(
+                update,
+                context,
+                route="health_fix_technical",
+                permission=Permission.MANAGE_SETTINGS,
+                source="data_health_report.fix_technical",
+            )
             return
 
         await query.answer(t('admin.health.fix.technical.start', lang))

@@ -227,10 +227,12 @@ class CategoryValidator:
         if not cat_result.is_valid:
             return cat_result
         
-        # بررسی وجود سلاح در دیتابیس
+        # This validator is synchronous. Only use a synchronous lookup source if one is
+        # explicitly provided; otherwise leave existence validation to async handlers.
         try:
-            weapons = db.get_weapons(category)
-            if weapon not in weapons:
+            get_weapons = getattr(db, "get_weapons", None)
+            weapons = get_weapons(category) if callable(get_weapons) else None
+            if weapons is not None and weapon not in weapons:
                 return ValidationResult(
                     False,
                     "validation.weapon.not_found",

@@ -44,7 +44,9 @@ class AlertSystem:
                 # Check 3 times before alerting DB_DOWN
                 for attempt in range(3):
                     try:
-                        await self.db.execute_query("SELECT 1")
+                        async with self.db.get_connection() as conn:
+                            async with conn.cursor() as cursor:
+                                await cursor.execute("SELECT 1")
                         db_healthy = True
                         break
                     except Exception as e:

@@ -1,10 +1,11 @@
 from core.context import CustomContext
 
 import os
+from typing import cast
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
 from handlers.admin.modules.base_handler import BaseAdminHandler
 from handlers.admin.admin_states import ADMIN_MENU
+from core.security.role_manager import Permission
 from utils.logger import log_admin_action
 from utils.language import get_user_lang
 from utils.i18n import t
@@ -38,7 +39,7 @@ class DataManagementHandler(BaseAdminHandler):
         self.scheduler = scheduler
         return scheduler
 
-    async def data_management_menu(self, update: Update, context: CustomContext) -> None:
+    async def data_management_menu(self, update: Update, context: CustomContext) -> int:
         """Main Data Management Menu"""
         query = update.callback_query
         await query.answer()
@@ -48,8 +49,14 @@ class DataManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.role_manager.has_permission(user_id, Permission.BACKUP_DATA) and not await self.role_manager.is_super_admin(user_id):
-            await query.answer(t("common.no_permission", lang), show_alert=True)
-            return ADMIN_MENU
+            await self.send_permission_denied(
+                update,
+                context,
+                route="admin_data_management",
+                permission=Permission.BACKUP_DATA,
+                source="data_management_menu",
+            )
+            return cast(int, ADMIN_MENU)
         
         # Get last backup info
         last_backup_time = "N/A"
@@ -63,7 +70,7 @@ class DataManagementHandler(BaseAdminHandler):
                 # Format: 2023-10-27T10:30:00... -> display lighter
                 dt = last_info['created'].split('.')[0].replace('T', ' ')
                 last_backup_time = dt
-        except Exception as e:
+        except Exception:
             pass
 
         text = t("admin.data_mgmt.menu.title", lang) + "\n\n"
@@ -83,9 +90,9 @@ class DataManagementHandler(BaseAdminHandler):
         ]
         
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-        return ADMIN_MENU
+        return cast(int, ADMIN_MENU)
 
-    async def auto_backup_menu(self, update: Update, context: CustomContext) -> None:
+    async def auto_backup_menu(self, update: Update, context: CustomContext) -> int:
         """Auto Backup Settings Menu"""
         query = update.callback_query
         try:
@@ -98,13 +105,19 @@ class DataManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.role_manager.has_permission(user_id, Permission.BACKUP_DATA) and not await self.role_manager.is_super_admin(user_id):
-            await query.answer(t("common.no_permission", lang), show_alert=True)
-            return ADMIN_MENU
+            await self.send_permission_denied(
+                update,
+                context,
+                route="admin_auto_backup_menu",
+                permission=Permission.BACKUP_DATA,
+                source="auto_backup_menu",
+            )
+            return cast(int, ADMIN_MENU)
 
         try:
             # Get current settings
-            enabled = await self.db.get_setting("auto_backup_enabled", "0") == "1"
-            current_interval = await self.db.get_setting("auto_backup_interval", "24h")
+            enabled = await self.db.settings.get_setting("auto_backup_enabled", "0") == "1"
+            current_interval = await self.db.settings.get_setting("auto_backup_interval", "24h")
 
             status_emoji = "✅" if enabled else "❌"
             # FIX: Use correct keys common.status.enabled / disabled
@@ -140,7 +153,7 @@ class DataManagementHandler(BaseAdminHandler):
                 [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="admin_data_management")]
             ]))
             
-        return ADMIN_MENU
+        return cast(int, ADMIN_MENU)
 
     async def toggle_auto_backup(self, update: Update, context: CustomContext) -> None:
         """Toggle auto backup on/off"""
@@ -152,9 +165,9 @@ class DataManagementHandler(BaseAdminHandler):
             pass
             
         try:
-            enabled = await self.db.get_setting("auto_backup_enabled", "0") == "1"
+            enabled = await self.db.settings.get_setting("auto_backup_enabled", "0") == "1"
             new_state = not enabled
-            current_interval = await self.db.get_setting("auto_backup_interval", "24h")
+            current_interval = await self.db.settings.get_setting("auto_backup_interval", "24h")
             
             scheduler = await self._get_scheduler(context)
             await scheduler.update_schedule(context.application, new_state, current_interval)
@@ -169,7 +182,7 @@ class DataManagementHandler(BaseAdminHandler):
             # Try to show alert
             try:
                 await query.answer(f"Error: {str(e)}", show_alert=True)
-            except:
+            except Exception:
                 pass
             # Try to refresh menu anyway to show current state
             await self.auto_backup_menu(update, context)
@@ -185,7 +198,7 @@ class DataManagementHandler(BaseAdminHandler):
         try:
             # Extract interval from callback_data: set_ab_interval_24h
             new_interval = query.data.replace("set_ab_interval_", "")
-            enabled = await self.db.get_setting("auto_backup_enabled", "0") == "1"
+            enabled = await self.db.settings.get_setting("auto_backup_enabled", "0") == "1"
             
             scheduler = await self._get_scheduler(context)
             await scheduler.update_schedule(context.application, enabled, new_interval)
@@ -199,12 +212,12 @@ class DataManagementHandler(BaseAdminHandler):
             logger.error(f"Error in set_auto_backup_interval: {e}", exc_info=True)
             try:
                 await query.answer(f"Error: {str(e)}", show_alert=True)
-            except:
+            except Exception:
                 pass
             await self.auto_backup_menu(update, context)
 
     @log_admin_action("create_backup")
-    async def create_backup(self, update: Update, context: CustomContext):
+    async def create_backup(self, update: Update, context: CustomContext) -> int:
         """Manual Backup Creation"""
         query = update.callback_query
         user_id = update.effective_user.id
@@ -212,8 +225,14 @@ class DataManagementHandler(BaseAdminHandler):
 
         # بررسی دسترسی
         if not await self.role_manager.has_permission(user_id, Permission.BACKUP_DATA) and not await self.role_manager.is_super_admin(user_id):
-            await query.answer(t("common.no_permission", lang), show_alert=True)
-            return ADMIN_MENU
+            await self.send_permission_denied(
+                update,
+                context,
+                route="admin_create_backup",
+                permission=Permission.BACKUP_DATA,
+                source="create_backup",
+            )
+            return cast(int, ADMIN_MENU)
 
         await query.answer(t("admin.backup.processing", lang))
         await query.edit_message_text(t("admin.backup.processing", lang))
@@ -228,7 +247,7 @@ class DataManagementHandler(BaseAdminHandler):
         if backup_file:
             # Update last backup timestamp
             from datetime import datetime
-            await self.db.set_setting("last_backup_timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
+            await self.db.settings.set_setting("last_backup_timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
 
             # Send file FIRST
             with open(backup_file, 'rb') as f:
@@ -256,4 +275,4 @@ class DataManagementHandler(BaseAdminHandler):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
-        return ADMIN_MENU
+        return cast(int, ADMIN_MENU)

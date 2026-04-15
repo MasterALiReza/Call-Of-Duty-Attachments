@@ -643,20 +643,34 @@ reset_database() {
         load_env
         echo -e "${YELLOW}Resetting database...${NC}"
         
-        # Run setup script
-        if [ -f "$INSTALL_DIR/scripts/setup_database.sql" ]; then
-            # Extract connection details
-            if [[ "$DATABASE_URL" =~ postgresql://([^:]+):([^@]+)@([^/]+)/(.+) ]]; then
+        # Run the canonical setup runner.
+        if [ -f "$INSTALL_DIR/scripts/setup_database.py" ]; then
+            if [[ "$DATABASE_URL" =~ postgresql://([^:]+):([^@]+)@([^:/]+)(:([0-9]+))?/([^?]+) ]]; then
                 DB_USER="${BASH_REMATCH[1]}"
                 DB_PASS="${BASH_REMATCH[2]}"
                 DB_HOST="${BASH_REMATCH[3]}"
-                DB_NAME="${BASH_REMATCH[4]}"
-                
-                PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f "$INSTALL_DIR/scripts/setup_database.sql" 2>/dev/null
-                echo -e "${GREEN}✅ Database reset complete!${NC}"
+                DB_PORT="${BASH_REMATCH[5]:-5432}"
+                DB_NAME="${BASH_REMATCH[6]}"
+
+                if env \
+                    DB_NAME="$DB_NAME" \
+                    DB_USER="$DB_USER" \
+                    DB_PASSWORD="$DB_PASS" \
+                    DB_HOST="$DB_HOST" \
+                    DB_PORT="$DB_PORT" \
+                    POSTGRES_DB="$DB_NAME" \
+                    POSTGRES_USER="$DB_USER" \
+                    POSTGRES_PASSWORD="$DB_PASS" \
+                    python3 "$INSTALL_DIR/scripts/setup_database.py" --migrate-only >/tmp/wx-attach-db-reset.log 2>&1; then
+                    echo -e "${GREEN}??? Database reset complete!${NC}"
+                else
+                    echo -e "${RED}??? Database reset failed (see /tmp/wx-attach-db-reset.log)${NC}"
+                fi
+            else
+                echo -e "${RED}??? Could not parse DATABASE_URL${NC}"
             fi
         else
-            echo -e "${RED}❌ Setup script not found${NC}"
+            echo -e "${RED}??? Canonical setup runner not found${NC}"
         fi
     else
         echo -e "${YELLOW}Cancelled.${NC}"

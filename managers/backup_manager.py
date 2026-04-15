@@ -298,7 +298,7 @@ class BackupManager:
             categories = ['assault_rifle', 'smg', 'lmg', 'sniper', 'marksman', 'shotgun', 'pistol', 'launcher']
             for category in categories:
                 export_data["data"]["weapons"][category] = {}
-                weapons = await self.db.get_weapons_in_category(category)
+                weapons = await self.db.attachments.get_weapons_in_category(category)
                 
                 for weapon in weapons:
                     export_data["data"]["weapons"][category][weapon] = {
@@ -314,25 +314,25 @@ class BackupManager:
                     
                     for mode in ['br', 'mp']:
                         # Get top attachments
-                        top_atts = await self.db.get_top_attachments(category, weapon, mode)
+                        top_atts = await self.db.attachments.get_top_attachments(category, weapon, mode)
                         export_data["data"]["weapons"][category][weapon][mode]["top_attachments"] = top_atts
                         
                         # Get all attachments
-                        all_atts = await self.db.get_all_attachments(category, weapon, mode)
+                        all_atts = await self.db.attachments.get_all_attachments(category, weapon, mode)
                         export_data["data"]["weapons"][category][weapon][mode]["all_attachments"] = all_atts
             
             # Export guides
             for mode in ['br', 'mp']:
-                guides = await self.db.get_guides(mode)
+                guides = await self.db.cms.get_guides(mode)
                 export_data["data"]["guides"][mode] = guides
             
             # Export channels
-            channels = await self.db.get_required_channels()
+            channels = await self.db.cms.get_required_channels()
             export_data["data"]["channels"] = channels
             
             # Export users (if available)
             try:
-                users = await self.db.get_all_users()
+                users = await self.db.users.get_all_users()
                 export_data["data"]["users"] = users
             except Exception as e:
                 logger.warning(f"Failed to export users data: {e}")
@@ -367,11 +367,11 @@ class BackupManager:
                 
                 categories = ['assault_rifle', 'smg', 'lmg', 'sniper', 'marksman', 'shotgun', 'pistol', 'launcher']
                 for category in categories:
-                    weapons = await self.db.get_weapons_in_category(category)
+                    weapons = await self.db.attachments.get_weapons_in_category(category)
                     for weapon in weapons:
                         for mode in ['br', 'mp']:
-                            all_atts = await self.db.get_all_attachments(category, weapon, mode)
-                            top_atts = await self.db.get_top_attachments(category, weapon, mode)
+                            all_atts = await self.db.attachments.get_all_attachments(category, weapon, mode)
+                            top_atts = await self.db.attachments.get_top_attachments(category, weapon, mode)
                             top_codes = {att['code'] for att in top_atts}
                             
                             for att in all_atts:
@@ -391,7 +391,7 @@ class BackupManager:
                 writer = csv.writer(f)
                 writer.writerow(['Channel_ID', 'Title', 'URL'])
                 
-                channels = await self.db.get_required_channels()
+                channels = await self.db.cms.get_required_channels()
                 for ch in channels:
                     writer.writerow([ch.get('channel_id'), ch.get('title'), ch.get('url')])
             
@@ -435,7 +435,7 @@ class BackupManager:
                     
                     for weapon_name, weapon_data in weapons.items():
                         # Add weapon if not exists
-                        await self.db.add_weapon(category, weapon_name)
+                        await self.db.attachments.add_weapon(category, weapon_name)
                         
                         # Process modes
                         if 'br' in weapon_data or 'mp' in weapon_data:
@@ -450,7 +450,7 @@ class BackupManager:
                                 if 'all_attachments' in mode_data:
                                     for att in mode_data['all_attachments']:
                                         if isinstance(att, dict):
-                                            await self.db.add_attachment(
+                                            await self.db.attachments.add_attachment(
                                                 category, weapon_name,
                                                 att.get('code', ''),
                                                 att.get('name', ''),
@@ -468,13 +468,13 @@ class BackupManager:
                                         if isinstance(att, dict):
                                             top_codes.append(att.get('code', ''))
                                     if top_codes:
-                                        await self.db.set_top_attachments(category, weapon_name, top_codes, mode)
+                                        await self.db.attachments.set_top_attachments(category, weapon_name, top_codes, mode)
                         else:
                             # Old format without modes (assume BR)
                             if 'all_attachments' in weapon_data:
                                 for att in weapon_data['all_attachments']:
                                     if isinstance(att, dict):
-                                        await self.db.add_attachment(
+                                        await self.db.attachments.add_attachment(
                                             category, weapon_name,
                                             att.get('code', ''),
                                             att.get('name', ''),
@@ -491,13 +491,13 @@ class BackupManager:
                                     if isinstance(att, dict):
                                         top_codes.append(att.get('code', ''))
                                 if top_codes:
-                                    await self.db.set_top_attachments(category, weapon_name, top_codes, 'br')
+                                    await self.db.attachments.set_top_attachments(category, weapon_name, top_codes, 'br')
             
             # Import channels
             if 'channels' in data:
                 for ch in data['channels']:
                     if isinstance(ch, dict):
-                        await self.db.add_required_channel(
+                        await self.db.cms.add_required_channel(
                             ch.get('channel_id', ''),
                             ch.get('title', ''),
                             ch.get('url', '')

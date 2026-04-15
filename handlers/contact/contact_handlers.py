@@ -1,13 +1,14 @@
-from core.context import CustomContext
 """
 Handlers برای سیستم تماس با ما
 """
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
-from managers.contact_system import ContactSystem, TicketCategory, TicketPriority
-from utils.logger import get_logger, log_user_action
+
+from core.context import CustomContext
+from managers.contact_system import ContactSystem
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ConversationHandler
 from utils.i18n import t
 from utils.language import get_user_lang
+from utils.logger import get_logger, log_user_action
 
 logger = get_logger('contact_handlers', 'contact.log')
 
@@ -25,7 +26,6 @@ class ContactHandlers:
     
     async def search_cancel_and_contact(self, update: Update, context: CustomContext):
         """لغو بی‌صدا جستجو و نمایش منوی تماس"""
-        from telegram.ext import ConversationHandler
         await self.contact_menu(update, context)
         return ConversationHandler.END
     
@@ -59,10 +59,10 @@ class ContactHandlers:
         ]
         
         # اضافه کردن دکمه تماس مستقیم اگر فعال باشد
-        direct_contact_enabled = await self.db.get_setting('direct_contact_enabled', 'true')
+        direct_contact_enabled = await self.db.settings.get_setting('direct_contact_enabled', 'true')
         if direct_contact_enabled.lower() == 'true':
-            contact_link = await self.db.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
-            contact_name = await self.db.get_setting('direct_contact_name', '💬 تماس مستقیم')
+            contact_link = await self.db.settings.get_setting('direct_contact_link', 'https://t.me/YourSupportChannel')
+            contact_name = await self.db.settings.get_setting('direct_contact_name', '💬 تماس مستقیم')
             keyboard.append([InlineKeyboardButton(contact_name, url=contact_link)])
         
         keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="main_menu")])
@@ -154,7 +154,7 @@ class ContactHandlers:
         suggested_faqs = await self.contact_system.get_suggested_faqs(subject, limit=3, lang=lang)
         
         if suggested_faqs:
-            text = f"💡 **سوالات مشابه**\n\nقبل از ادامه، شاید این سوالات به شما کمک کنند:\n\n"
+            text = "💡 **سوالات مشابه**\n\nقبل از ادامه، شاید این سوالات به شما کمک کنند:\n\n"
 
             keyboard = []
             for i, faq in enumerate(suggested_faqs, 1):
@@ -635,7 +635,7 @@ class ContactHandlers:
             role_manager = RoleManager(self.db)
             
             # دریافت تمام ادمین‌ها
-            admins = await self.db.get_all_admins()
+            admins = await self.db.users.get_all_admins()
             
             # Escape کردن محتوا
             subject_safe = escape_markdown(subject)
