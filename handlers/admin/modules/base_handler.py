@@ -209,10 +209,13 @@ class BaseAdminHandler:
 
         # تعیین تعداد ستون‌ها
         # برای دسته‌های AR و SMG همیشه 3 ستون
+        # برای شاتگان همیشه 2 ستون
         if category:
             category_lower = str(category).lower().strip()
             if category_lower in ["assault_rifle", "smg", "ar"]:
                 columns = 3
+            elif category_lower in ["shotgun"]:
+                columns = 2
             elif len(weapons) > 0:
                 # بر اساس طول نام سلاح‌ها
                 max_name_length = max([len(w) for w in weapons], default=0)
