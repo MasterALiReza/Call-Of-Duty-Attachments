@@ -525,7 +525,7 @@ install_nginx_certbot() {
     print_header "Installing Nginx + Certbot"
     case "$pkg" in
         apt)
-            apt update -qq
+            apt-get update -qq --allow-releaseinfo-change
             apt install -y nginx certbot >/dev/null 2>&1
             ;;
         dnf)
@@ -713,7 +713,7 @@ install_system_dependencies() {
     print_header "Installing System Dependencies"
     
     print_step "Updating package list..."
-    apt update -qq
+    apt-get update -qq --allow-releaseinfo-change
     print_success "Package list updated"
     
     print_step "Installing Python and development tools..."
