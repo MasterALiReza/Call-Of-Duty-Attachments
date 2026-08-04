@@ -844,7 +844,7 @@ class NotificationHandler(BaseAdminHandler):
                         await context.bot.send_message(chat_id=uid, text=notif_text)
                 sent += 1
             except Forbidden:
-                if subs.remove(uid):
+                if await subs.remove(uid):
                     removed += 1
                 failed += 1
             except Exception:

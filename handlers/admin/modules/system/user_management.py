@@ -441,7 +441,6 @@ class UserManagementHandler(BaseAdminHandler):
         context.user_data["um_page"] = 1
         context.user_data.pop("um_search", None)
         return await self.user_list(update, context)
-        return await self.user_list(update, context)
 
     # ========== جزئیات کاربر ==========
 
@@ -495,10 +494,10 @@ class UserManagementHandler(BaseAdminHandler):
         text += f"📢 **{t('admin.user_mgmt.detail.subscribed', lang)}:** {'✅' if is_sub else '❌'}\n"
 
         if is_banned:
-            text += f"\n🚫 **{t('admin.user_mgmt.detail.banned', lang)}**\n"
+            text += f"\n🚫 *{t('admin.user_mgmt.detail.banned', lang)}*\n"
             if ban_reason:
                 text += (
-                    f"📝 {t('admin.user_mgmt.detail.ban_reason', lang)}: {ban_reason}\n"
+                    f"📝 {t('admin.user_mgmt.detail.ban_reason', lang)}: {self._escape(ban_reason)}\n"
                 )
 
         # آمار ارسال‌ها
