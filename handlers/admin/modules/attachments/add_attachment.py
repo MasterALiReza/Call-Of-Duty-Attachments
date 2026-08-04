@@ -656,6 +656,10 @@ class AddAttachmentHandler(BaseAdminHandler):
             if is_season_top:
                 status_lines.append(t("admin.attach.status.season_top", lang))
 
+            # دکمه بازگشت به منوی ادمین
+            keyboard = [
+                [InlineKeyboardButton(t("menu.buttons.admin", lang), callback_data="admin_main")]
+            ]
             await safe_edit_message_text(
                 query,
                 t("admin.attach.success.title", lang, name=name)
@@ -670,6 +674,7 @@ class AddAttachmentHandler(BaseAdminHandler):
                 + f": {mode_name}\n"
                 + t("admin.attach.summary.status_label", lang)
                 + f": {' | '.join(status_lines)}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
             )
 
             # ثبت اکشن ادمین در فایل‌های Audit Logger
@@ -718,7 +723,9 @@ class AddAttachmentHandler(BaseAdminHandler):
 
         # پاکسازی user_data
         context.user_data.pop("add_att_is_top", None)
-        return await self.admin_menu_return(update, context)
+        
+        from handlers.admin.admin_states import ADMIN_MENU
+        return ADMIN_MENU
 
     # ========= Ignore stray text during callback-only steps =========
     @log_admin_action("add_attachment_top_ignore_text")

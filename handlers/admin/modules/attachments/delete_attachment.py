@@ -183,6 +183,9 @@ class DeleteAttachmentHandler(BaseAdminHandler):
 
         if not weapons:
             try:
+                keyboard = [
+                    [InlineKeyboardButton(t("menu.buttons.admin", lang), callback_data="admin_main")]
+                ]
                 await safe_edit_message_text(
                     query,
                     t(
@@ -193,6 +196,7 @@ class DeleteAttachmentHandler(BaseAdminHandler):
                     )
                     + "\n\n"
                     + t("admin.weapons.none_in_category", lang),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
             except BadRequest as e:
                 if "Message is not modified" in str(e):
@@ -202,7 +206,9 @@ class DeleteAttachmentHandler(BaseAdminHandler):
                         pass
                 else:
                     raise
-            return await self.admin_menu_return(update, context)
+            
+            from handlers.admin.admin_states import ADMIN_MENU
+            return ADMIN_MENU
 
         # ساخت keyboard با تعداد ستون‌های متغیر برای سلاح‌ها
         keyboard = self._make_weapon_keyboard(weapons, "dwpn_", category)
@@ -422,13 +428,18 @@ class DeleteAttachmentHandler(BaseAdminHandler):
         if not att_to_delete:
             await query.answer()
             try:
-                await safe_edit_message_text(query, t("attachment.not_found", lang))
+                keyboard = [
+                    [InlineKeyboardButton(t("menu.buttons.admin", lang), callback_data="admin_main")]
+                ]
+                await safe_edit_message_text(query, t("attachment.not_found", lang), reply_markup=InlineKeyboardMarkup(keyboard))
             except BadRequest as e:
                 if "Message is not modified" in str(e):
                     pass
                 else:
                     raise
-            return await self.admin_menu_return(update, context)
+                    
+            from handlers.admin.admin_states import ADMIN_MENU
+            return ADMIN_MENU
 
         code = att_to_delete["code"]
         name = att_to_delete["name"]

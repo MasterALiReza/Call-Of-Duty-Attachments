@@ -727,6 +727,18 @@ class EditAttachmentHandler(BaseAdminHandler):
                 mode=mode
             )
             if ok:
+                # ✅ DB Audit Logging
+                await self.audit.log_action(
+                    admin_id=update.effective_user.id,
+                    action="UPDATE_ATTACHMENT_IMAGE",
+                    target_id=str(code),
+                    details={
+                        "target_type": "attachment",
+                        "code": code,
+                        "weapon": weapon,
+                        "mode": mode,
+                    },
+                )
                 # پاک کردن cache
                 try:
                     from core.cache.cache_manager import invalidate_attachment_caches
@@ -804,6 +816,19 @@ class EditAttachmentHandler(BaseAdminHandler):
                 category, weapon, old_code, new_code, mode
             )
             if ok:
+                # ✅ DB Audit Logging
+                await self.audit.log_action(
+                    admin_id=update.effective_user.id,
+                    action="UPDATE_ATTACHMENT_CODE",
+                    target_id=str(old_code),
+                    details={
+                        "target_type": "attachment",
+                        "old_code": old_code,
+                        "new_code": new_code,
+                        "weapon": weapon,
+                        "mode": mode,
+                    },
+                )
                 # پاک کردن cache
                 try:
                     from core.cache.cache_manager import invalidate_attachment_caches

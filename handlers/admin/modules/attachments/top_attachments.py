@@ -506,6 +506,10 @@ class TopAttachmentsHandler(BaseAdminHandler):
         if await self.db.attachments.set_top_attachments(
             category, weapon, codes, mode=mode
         ):
+            # دکمه بازگشت به منوی ادمین
+            keyboard = [
+                [InlineKeyboardButton(t("menu.buttons.admin", lang), callback_data="admin_main")]
+            ]
             try:
                 await safe_edit_message_text(
                     query,
@@ -516,6 +520,7 @@ class TopAttachmentsHandler(BaseAdminHandler):
                     + t("admin.top.save.list_header", lang)
                     + "\n"
                     + "\n".join([f"{i}. {name}" for i, name in enumerate(names, 1)]),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
             except BadRequest as e:
                 if "Message is not modified" in str(e):
@@ -547,7 +552,8 @@ class TopAttachmentsHandler(BaseAdminHandler):
         context.user_data.pop("selected_tops", None)
         context.user_data.pop("pending_top_att", None)
 
-        return await self.admin_menu_return(update, context)
+        from handlers.admin.admin_states import ADMIN_MENU
+        return ADMIN_MENU
 
     async def _rebuild_state_screen(
         self, update: Update, context: CustomContext, state: int
