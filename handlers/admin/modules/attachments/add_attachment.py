@@ -602,7 +602,7 @@ class AddAttachmentHandler(BaseAdminHandler):
 
             # First, check if weapon exists to get ID
             all_weapons = await self.db.attachments.get_weapons_in_category(category)
-            weapon_obj = await self.db.attachments.get_weapon_by_name(weapon)
+            weapon_obj = await self.db.attachments.get_weapon_by_name(category, weapon)
             w_id = weapon_obj["id"] if weapon_obj else 0
 
             validated_data = AttachmentCreate(
