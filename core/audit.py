@@ -3,15 +3,27 @@ from typing import Optional, Dict, Any
 from core.database.database_adapter import get_database_adapter
 from utils.logger import log_exception
 
-logger = logging.getLogger('audit')
+logger = logging.getLogger("audit")
+
+_audit_logger_instance = None
+
+
+def get_audit_logger():
+    global _audit_logger_instance
+    if _audit_logger_instance is None:
+        _audit_logger_instance = AuditLogger()
+    return _audit_logger_instance
+
 
 class AuditLogger:
     """Manages the creation and insertion of administrative audit logs."""
-    
+
     def __init__(self):
         self.db = get_database_adapter()
 
-    async def _execute(self, query: str, params: tuple[object, ...] | None = None) -> None:
+    async def _execute(
+        self, query: str, params: tuple[object, ...] | None = None
+    ) -> None:
         """Run audit SQL without relying on deprecated direct adapter query helpers."""
         async with self.db.get_connection() as conn:
             async with conn.cursor() as cursor:
@@ -38,10 +50,16 @@ class AuditLogger:
         except Exception as e:
             log_exception(logger, e, "create_audit_table")
 
-    async def log_action(self, admin_id: int, action: str, target_id: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+    async def log_action(
+        self,
+        admin_id: int,
+        action: str,
+        target_id: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ):
         """
         Records an action taken by an admin.
-        
+
         Args:
             admin_id: Telegram ID of the administrator
             action: Action string identifier (e.g., 'ADD_WEAPON', 'BAN_USER')
@@ -49,16 +67,18 @@ class AuditLogger:
             details: JSON-serializable dictionary of additional context
         """
         import json
-        
+
         query = """
             INSERT INTO audit_logs (admin_id, action, target_id, details)
             VALUES (%s, %s, %s, %s)
         """
         details_json = json.dumps(details, ensure_ascii=False) if details else None
-        
+
         try:
             await self._execute(query, (admin_id, action, target_id, details_json))
-            logger.debug(f"[Audit] Recorded block: Admin {admin_id} did {action} -> {target_id}")
+            logger.debug(
+                f"[Audit] Recorded block: Admin {admin_id} did {action} -> {target_id}"
+            )
         except Exception as e:
             log_exception(logger, e, f"log_audit_action({admin_id}, {action})")
 

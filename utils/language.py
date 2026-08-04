@@ -1,17 +1,15 @@
 from core.context import CustomContext
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
 from utils.logger import get_logger
-from config.config import DEFAULT_LANG, SUPPORTED_LANGS
+from config.config import SUPPORTED_LANGS
 from .i18n import t
 
-logger = get_logger('language', 'app.log')
-
+logger = get_logger("language", "app.log")
 
 
 async def get_user_lang(update: Update, context: CustomContext, db) -> Optional[str]:
-    if context and hasattr(context, 'user_data') and context.user_data.get("_lang"):
+    if context and hasattr(context, "user_data") and context.user_data.get("_lang"):
         return context.user_data.get("_lang")
     try:
         user_id = update.effective_user.id if update and update.effective_user else None
@@ -32,17 +30,19 @@ async def ensure_language(update: Update, context: CustomContext, db) -> bool:
         return True
 
     # bilingual prompt (no parse_mode to keep simple)
-    message = t("lang.choose_bilingual", 'fa')
+    message = t("lang.choose_bilingual", "fa")
     keyboard = [
         [
-            InlineKeyboardButton(t("lang.fa", 'fa'), callback_data="set_lang_fa"),
-            InlineKeyboardButton(t("lang.en", 'fa'), callback_data="set_lang_en"),
+            InlineKeyboardButton(t("lang.fa", "fa"), callback_data="set_lang_fa"),
+            InlineKeyboardButton(t("lang.en", "fa"), callback_data="set_lang_en"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if update.callback_query:
-        await update.callback_query.message.reply_text(message, reply_markup=reply_markup)
+        await update.callback_query.message.reply_text(
+            message, reply_markup=reply_markup
+        )
     elif update.message:
         await update.message.reply_text(message, reply_markup=reply_markup)
     return False

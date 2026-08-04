@@ -9,8 +9,8 @@ from .data_management_handler import DataManagementHandler
 from .admin_management import AdminManagementHandler
 
 __all__ = [
-    'NotificationHandler',
-    'ImportExportHandler',
-    'DataManagementHandler',
-    'AdminManagementHandler',
+    "NotificationHandler",
+    "ImportExportHandler",
+    "DataManagementHandler",
+    "AdminManagementHandler",
 ]

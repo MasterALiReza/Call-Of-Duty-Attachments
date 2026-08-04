@@ -53,7 +53,9 @@ async def return_to_admin_menu_impl(
     translate: Callable[..., str],
 ):
     """Leave channel conversation and return to main admin panel."""
-    logger.info("[channel] Return to admin clicked by user=%s", update.effective_user.id)
+    logger.info(
+        "[channel] Return to admin clicked by user=%s", update.effective_user.id
+    )
     query = update.callback_query
     await query.answer()
 
@@ -66,7 +68,9 @@ async def return_to_admin_menu_impl(
     db = context.bot_data["database"]
     admin_handler = admin_handlers_cls(db)
     lang = await get_lang(update, context, db) or "fa"
-    keyboard = await admin_handler._get_admin_main_keyboard(update.effective_user.id, lang)
+    keyboard = await admin_handler._get_admin_main_keyboard(
+        update.effective_user.id, lang
+    )
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await query.edit_message_text(

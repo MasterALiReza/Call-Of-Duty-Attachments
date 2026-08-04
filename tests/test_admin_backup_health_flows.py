@@ -52,7 +52,9 @@ def _build_message_update(file_name: str, file_id: str = "file-1") -> SimpleName
     )
 
 
-def _new_data_management_handler(db: object) -> data_management_handler.DataManagementHandler:
+def _new_data_management_handler(
+    db: object,
+) -> data_management_handler.DataManagementHandler:
     handler = object.__new__(data_management_handler.DataManagementHandler)
     handler.db = db
     handler.scheduler = None
@@ -77,23 +79,27 @@ def _new_health_handler(
     return handler
 
 
-async def test_data_management_menu_renders_backup_and_restore_actions(monkeypatch) -> None:
+async def test_data_management_menu_renders_backup_and_restore_actions(
+    monkeypatch,
+) -> None:
     update = _build_callback_update("admin_data_management")
     context = _build_context()
     db = SimpleNamespace()
     handler = _new_data_management_handler(db)
 
-    monkeypatch.setattr(data_management_handler, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_management_handler, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_management_handler, "t", _fake_t)
 
     result = await handler.data_management_menu(update, context)
 
     assert result == ADMIN_MENU
-    reply_markup = update.callback_query.edit_message_text.await_args.kwargs["reply_markup"]
+    reply_markup = update.callback_query.edit_message_text.await_args.kwargs[
+        "reply_markup"
+    ]
     callback_data = [
-        button.callback_data
-        for row in reply_markup.inline_keyboard
-        for button in row
+        button.callback_data for row in reply_markup.inline_keyboard for button in row
     ]
     assert "admin_create_backup" in callback_data
     assert "restore_backup" in callback_data
@@ -107,7 +113,7 @@ async def test_data_management_create_backup_sends_file_and_back_button(
 ) -> None:
     update = _build_callback_update("admin_create_backup")
     context = _build_context()
-    backup_file = tmp_path / "codm-backup.zip"
+    backup_file = tmp_path / "ox_loadout-backup.zip"
     backup_file.write_bytes(b"backup")
 
     db = SimpleNamespace(settings=SimpleNamespace(set_setting=AsyncMock()))
@@ -116,26 +122,30 @@ async def test_data_management_create_backup_sends_file_and_back_button(
         handler,
         "_get_scheduler",
         AsyncMock(
-        return_value=SimpleNamespace(
-            backup_manager=SimpleNamespace(
-                create_full_backup=AsyncMock(return_value=str(backup_file))
+            return_value=SimpleNamespace(
+                backup_manager=SimpleNamespace(
+                    create_full_backup=AsyncMock(return_value=str(backup_file))
+                )
             )
-        )
         ),
     )
 
-    monkeypatch.setattr(data_management_handler, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_management_handler, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_management_handler, "t", _fake_t)
 
     result = await handler.create_backup(update, context)
 
     assert result == ADMIN_MENU
     update.callback_query.answer.assert_awaited_once_with("admin.backup.processing")
-    update.callback_query.edit_message_text.assert_awaited_once_with("admin.backup.processing")
+    update.callback_query.edit_message_text.assert_awaited_once_with(
+        "admin.backup.processing"
+    )
     db.settings.set_setting.assert_awaited_once()
     update.callback_query.message.reply_document.assert_awaited_once()
     reply_call = update.callback_query.message.reply_document.await_args.kwargs
-    assert reply_call["filename"] == "codm-backup.zip"
+    assert reply_call["filename"] == "ox_loadout-backup.zip"
     update.callback_query.message.delete.assert_awaited_once()
     context.bot.send_message.assert_awaited_once()
     reply_markup = context.bot.send_message.await_args.kwargs["reply_markup"]
@@ -152,7 +162,9 @@ async def test_data_management_create_backup_denied_uses_permission_contract(
     handler.role_manager.has_permission = AsyncMock(return_value=False)
     handler.role_manager.is_super_admin = AsyncMock(return_value=False)
 
-    monkeypatch.setattr(data_management_handler, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_management_handler, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_management_handler, "t", _fake_t)
 
     result = await handler.create_backup(update, context)
@@ -168,14 +180,18 @@ async def test_data_management_create_backup_denied_uses_permission_contract(
     update.callback_query.answer.assert_not_awaited()
 
 
-async def test_health_fix_issues_menu_exposes_backup_and_restore_actions(monkeypatch) -> None:
+async def test_health_fix_issues_menu_exposes_backup_and_restore_actions(
+    monkeypatch,
+) -> None:
     update = _build_callback_update("health_fix_issues_menu")
     context = _build_context()
     db = SimpleNamespace()
     handler = _new_health_handler(db)
     safe_edit = AsyncMock()
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report, "safe_edit_message_text", safe_edit)
 
@@ -186,23 +202,25 @@ async def test_health_fix_issues_menu_exposes_backup_and_restore_actions(monkeyp
     safe_call = safe_edit.await_args.kwargs
     reply_markup = safe_call["reply_markup"]
     callback_data = [
-        button.callback_data
-        for row in reply_markup.inline_keyboard
-        for button in row
+        button.callback_data for row in reply_markup.inline_keyboard for button in row
     ]
     assert "health_create_backup" in callback_data
     assert "health_restore_backup" in callback_data
     assert "health_data_health" in callback_data
 
 
-async def test_health_fix_issues_menu_denied_uses_permission_contract(monkeypatch) -> None:
+async def test_health_fix_issues_menu_denied_uses_permission_contract(
+    monkeypatch,
+) -> None:
     update = _build_callback_update("health_fix_issues_menu")
     context = _build_context()
     db = SimpleNamespace()
     handler = _new_health_handler(db)
     handler.check_permission = AsyncMock(return_value=False)
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     await handler.fix_issues_menu(update, context)
@@ -233,7 +251,9 @@ async def test_health_create_backup_sends_file_and_returns_fix_menu(
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
     safe_edit = AsyncMock()
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report, "safe_edit_message_text", safe_edit)
 
@@ -249,14 +269,18 @@ async def test_health_create_backup_sends_file_and_returns_fix_menu(
     assert reply_markup.inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
 
 
-async def test_health_create_backup_denied_uses_permission_contract(monkeypatch) -> None:
+async def test_health_create_backup_denied_uses_permission_contract(
+    monkeypatch,
+) -> None:
     update = _build_callback_update("health_create_backup")
     context = _build_context()
     db = SimpleNamespace()
     handler = _new_health_handler(db)
     handler.check_permission = AsyncMock(return_value=False)
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     await handler.create_backup(update, context)
@@ -277,7 +301,9 @@ async def test_health_restore_backup_start_sets_expected_state(monkeypatch) -> N
     handler = _new_health_handler(db)
     safe_edit = AsyncMock()
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report, "safe_edit_message_text", safe_edit)
 
@@ -290,14 +316,18 @@ async def test_health_restore_backup_start_sets_expected_state(monkeypatch) -> N
     assert reply_markup.inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
 
 
-async def test_health_restore_backup_start_denied_uses_permission_contract(monkeypatch) -> None:
+async def test_health_restore_backup_start_denied_uses_permission_contract(
+    monkeypatch,
+) -> None:
     update = _build_callback_update("health_restore_backup")
     context = _build_context()
     db = SimpleNamespace()
     handler = _new_health_handler(db)
     handler.check_permission = AsyncMock(return_value=False)
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_start(update, context)
@@ -312,7 +342,9 @@ async def test_health_restore_backup_start_denied_uses_permission_contract(monke
     )
 
 
-async def test_health_restore_backup_start_without_callback_falls_back_to_bot(monkeypatch) -> None:
+async def test_health_restore_backup_start_without_callback_falls_back_to_bot(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=1001),
         effective_chat=SimpleNamespace(id=2002),
@@ -322,7 +354,9 @@ async def test_health_restore_backup_start_without_callback_falls_back_to_bot(mo
     db = SimpleNamespace()
     handler = _new_health_handler(db)
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_start(update, context)
@@ -333,16 +367,23 @@ async def test_health_restore_backup_start_without_callback_falls_back_to_bot(mo
     assert send_args.args[0] == 2002
     assert "admin.health.restore.start.title" in send_args.args[1]
     assert send_args.kwargs["parse_mode"] == ParseMode.HTML
-    assert send_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        send_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
-async def test_health_restore_backup_file_rejects_invalid_postgres_extension(monkeypatch) -> None:
+async def test_health_restore_backup_file_rejects_invalid_postgres_extension(
+    monkeypatch,
+) -> None:
     update = _build_message_update("bad.txt")
     context = _build_context()
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_file(update, context)
@@ -350,18 +391,28 @@ async def test_health_restore_backup_file_rejects_invalid_postgres_extension(mon
     assert result == AWAITING_BACKUP_FILE
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
-    assert reply_args.args[0] == "admin.health.restore.invalid_format\nadmin.health.restore.start.cancel"
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.args[0]
+        == "admin.health.restore.invalid_format\nadmin.health.restore.start.cancel"
+    )
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
-async def test_health_restore_backup_file_denied_uses_permission_contract(monkeypatch) -> None:
+async def test_health_restore_backup_file_denied_uses_permission_contract(
+    monkeypatch,
+) -> None:
     update = _build_message_update("restore.sql")
     context = _build_context()
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
     handler.check_permission = AsyncMock(return_value=False)
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_file(update, context)
@@ -376,7 +427,9 @@ async def test_health_restore_backup_file_denied_uses_permission_contract(monkey
     )
 
 
-async def test_health_restore_backup_file_without_message_reprompts_via_bot(monkeypatch) -> None:
+async def test_health_restore_backup_file_without_message_reprompts_via_bot(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=1001),
         effective_chat=SimpleNamespace(id=2002),
@@ -386,7 +439,9 @@ async def test_health_restore_backup_file_without_message_reprompts_via_bot(monk
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_file(update, context)
@@ -398,7 +453,9 @@ async def test_health_restore_backup_file_without_message_reprompts_via_bot(monk
     )
 
 
-async def test_health_restore_backup_file_without_document_reprompts_via_message(monkeypatch) -> None:
+async def test_health_restore_backup_file_without_document_reprompts_via_message(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=1001),
         message=SimpleNamespace(document=None, reply_text=AsyncMock()),
@@ -407,7 +464,9 @@ async def test_health_restore_backup_file_without_document_reprompts_via_message
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_file(update, context)
@@ -418,7 +477,9 @@ async def test_health_restore_backup_file_without_document_reprompts_via_message
     )
 
 
-async def test_health_restore_backup_file_without_file_name_reprompts_via_message(monkeypatch) -> None:
+async def test_health_restore_backup_file_without_file_name_reprompts_via_message(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=1001),
         message=SimpleNamespace(
@@ -430,7 +491,9 @@ async def test_health_restore_backup_file_without_file_name_reprompts_via_messag
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_file(update, context)
@@ -439,11 +502,19 @@ async def test_health_restore_backup_file_without_file_name_reprompts_via_messag
     update.message.reply_text.assert_awaited_once()
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
-    assert reply_args.args[0] == "admin.health.restore.file_required\nadmin.health.restore.start.cancel"
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.args[0]
+        == "admin.health.restore.file_required\nadmin.health.restore.start.cancel"
+    )
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
-async def test_health_restore_backup_file_without_file_id_reprompts_via_message(monkeypatch) -> None:
+async def test_health_restore_backup_file_without_file_id_reprompts_via_message(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=1001),
         message=SimpleNamespace(
@@ -455,7 +526,9 @@ async def test_health_restore_backup_file_without_file_id_reprompts_via_message(
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_file(update, context)
@@ -464,24 +537,38 @@ async def test_health_restore_backup_file_without_file_id_reprompts_via_message(
     update.message.reply_text.assert_awaited_once()
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
-    assert reply_args.args[0] == "admin.health.restore.file_required\nadmin.health.restore.start.cancel"
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.args[0]
+        == "admin.health.restore.file_required\nadmin.health.restore.start.cancel"
+    )
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
-async def test_health_restore_backup_file_error_without_reply_text_falls_back_to_bot(monkeypatch) -> None:
+async def test_health_restore_backup_file_error_without_reply_text_falls_back_to_bot(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=1001),
         effective_chat=SimpleNamespace(id=2002),
         message=SimpleNamespace(
-            document=SimpleNamespace(file_name="restore.sql", file_id="tg-fallback-error"),
+            document=SimpleNamespace(
+                file_name="restore.sql", file_id="tg-fallback-error"
+            ),
         ),
     )
     context = _build_context()
-    context.bot.get_file = AsyncMock(side_effect=RuntimeError("ConnectError: telegram unavailable"))
+    context.bot.get_file = AsyncMock(
+        side_effect=RuntimeError("ConnectError: telegram unavailable")
+    )
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_file(update, context)
@@ -492,7 +579,10 @@ async def test_health_restore_backup_file_error_without_reply_text_falls_back_to
     assert send_args.args[0] == 2002
     assert send_args.args[1] == "admin.health.restore.error"
     assert send_args.kwargs["parse_mode"] == ParseMode.HTML
-    assert send_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        send_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
 async def test_health_restore_backup_file_postgres_success_uses_canonical_reply(
@@ -521,14 +611,18 @@ async def test_health_restore_backup_file_postgres_success_uses_canonical_reply(
         captured["env"] = kwargs["env"]
         return SimpleNamespace(returncode=0, stderr="")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report.subprocess, "run", _fake_run)
     monkeypatch.setenv("POSTGRES_HOST", "db-host")
     monkeypatch.setenv("POSTGRES_USER", "db-user")
     monkeypatch.setenv("POSTGRES_DB", "db-name")
     monkeypatch.setenv("POSTGRES_PASSWORD", "db-pass")
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
@@ -544,14 +638,18 @@ async def test_health_restore_backup_file_postgres_success_uses_canonical_reply(
     assert not restore_path.exists()
     env = captured["env"]
     assert isinstance(env, dict)
-    assert env["PGPASSWORD"] == "db-pass"
+    assert "PGPASSWORD" not in env
+    assert "PGPASSFILE" in env
     update.message.reply_text.assert_awaited_once()
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
     assert reply_args.kwargs["parse_mode"] == ParseMode.HTML
     reply_markup = reply_args.kwargs["reply_markup"]
     assert reply_markup.inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
-    assert reply_args.args[0] == "admin.health.restore.success.title\n\nadmin.health.restore.success.restart"
+    assert (
+        reply_args.args[0]
+        == "admin.health.restore.success.title\n\nadmin.health.restore.success.restart"
+    )
 
 
 async def test_health_restore_backup_file_postgres_partial_success_is_handled(
@@ -576,14 +674,18 @@ async def test_health_restore_backup_file_postgres_partial_success_is_handled(
     def _fake_run(args: list[str], **kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(returncode=1, stderr="relation already exists")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report.subprocess, "run", _fake_run)
     monkeypatch.setenv("POSTGRES_HOST", "db-host")
     monkeypatch.setenv("POSTGRES_USER", "db-user")
     monkeypatch.setenv("POSTGRES_DB", "db-name")
     monkeypatch.setenv("POSTGRES_PASSWORD", "db-pass")
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
@@ -598,7 +700,6 @@ async def test_health_restore_backup_file_postgres_partial_success_is_handled(
         reply_args.args[0]
         == "admin.health.restore.partial_success\n\nadmin.health.restore.success.restart"
     )
-
 
 
 async def test_health_restore_backup_file_zip_dump_uses_pg_restore(
@@ -631,14 +732,18 @@ async def test_health_restore_backup_file_zip_dump_uses_pg_restore(
         captured["env"] = kwargs["env"]
         return SimpleNamespace(returncode=0, stderr="")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report.subprocess, "run", _fake_run)
     monkeypatch.setenv("POSTGRES_HOST", "db-host")
     monkeypatch.setenv("POSTGRES_USER", "db-user")
     monkeypatch.setenv("POSTGRES_DB", "db-name")
     monkeypatch.setenv("POSTGRES_PASSWORD", "db-pass")
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
@@ -664,14 +769,17 @@ async def test_health_restore_backup_file_zip_dump_uses_pg_restore(
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
     assert reply_args.kwargs["parse_mode"] == ParseMode.HTML
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
 async def test_health_restore_backup_file_sqlite_success_creates_safety_backup(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    sqlite_db = tmp_path / "codm.sqlite3"
+    sqlite_db = tmp_path / "ox_loadout.sqlite3"
     sqlite_db.write_bytes(b"original-db")
 
     async def _download_to_drive(destination: str) -> None:
@@ -688,21 +796,28 @@ async def test_health_restore_backup_file_sqlite_success_creates_safety_backup(
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path=str(sqlite_db))
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
     assert result == ADMIN_MENU
     assert sqlite_db.read_bytes() == b"restored-db"
-    safety_backups = list(tmp_path.glob("codm.sqlite3.before_restore_*.bak"))
+    safety_backups = list(tmp_path.glob("ox_loadout.sqlite3.before_restore_*.bak"))
     assert len(safety_backups) == 1
     assert safety_backups[0].read_bytes() == b"original-db"
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
     assert reply_args.kwargs["parse_mode"] == ParseMode.HTML
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
     assert (
         reply_args.args[0]
         == "admin.health.restore.success.title\n\nadmin.health.restore.success.safety_backup\n\nadmin.health.restore.success.restart"
@@ -714,11 +829,15 @@ async def test_health_restore_backup_file_handles_get_file_connect_error(
 ) -> None:
     update = _build_message_update("restore.sql", file_id="tg-get-file-error")
     context = _build_context()
-    context.bot.get_file = AsyncMock(side_effect=RuntimeError("ConnectError: telegram unavailable"))
+    context.bot.get_file = AsyncMock(
+        side_effect=RuntimeError("ConnectError: telegram unavailable")
+    )
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
 
     result = await handler.restore_backup_file(update, context)
@@ -728,7 +847,10 @@ async def test_health_restore_backup_file_handles_get_file_connect_error(
     assert reply_args is not None
     assert reply_args.args[0] == "admin.health.restore.error"
     assert reply_args.kwargs["parse_mode"] == ParseMode.HTML
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
 async def test_health_restore_backup_file_zip_without_backup_payload_returns_error(
@@ -753,9 +875,13 @@ async def test_health_restore_backup_file_zip_without_backup_payload_returns_err
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
@@ -763,7 +889,10 @@ async def test_health_restore_backup_file_zip_without_backup_payload_returns_err
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
     assert reply_args.args[0] == "admin.health.restore.error"
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
 async def test_health_restore_backup_file_zip_with_multiple_payloads_returns_error(
@@ -789,9 +918,13 @@ async def test_health_restore_backup_file_zip_with_multiple_payloads_returns_err
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
@@ -799,7 +932,10 @@ async def test_health_restore_backup_file_zip_with_multiple_payloads_returns_err
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
     assert reply_args.args[0] == "admin.health.restore.error"
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
 async def test_health_restore_backup_file_invalid_zip_returns_error(
@@ -823,9 +959,13 @@ async def test_health_restore_backup_file_invalid_zip_returns_error(
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
@@ -833,7 +973,10 @@ async def test_health_restore_backup_file_invalid_zip_returns_error(
     reply_args = update.message.reply_text.await_args
     assert reply_args is not None
     assert reply_args.args[0] == "admin.health.restore.error"
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
 async def test_health_restore_backup_file_handles_download_connect_error(
@@ -845,15 +988,21 @@ async def test_health_restore_backup_file_handles_download_connect_error(
     context.bot.get_file = AsyncMock(
         return_value=SimpleNamespace(
             file_path="telegram/restore.sql",
-            download_to_drive=AsyncMock(side_effect=RuntimeError("ConnectError: download failed")),
+            download_to_drive=AsyncMock(
+                side_effect=RuntimeError("ConnectError: download failed")
+            ),
         )
     )
     db = SimpleNamespace()
     handler = _new_health_handler(db, db_path="postgresql://stub/db")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
@@ -862,7 +1011,10 @@ async def test_health_restore_backup_file_handles_download_connect_error(
     assert reply_args is not None
     assert reply_args.args[0] == "admin.health.restore.error"
     assert reply_args.kwargs["parse_mode"] == ParseMode.HTML
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
 async def test_health_restore_backup_file_handles_subprocess_failure(
@@ -887,14 +1039,18 @@ async def test_health_restore_backup_file_handles_subprocess_failure(
     def _fake_run(args: list[str], **kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(returncode=1, stderr="fatal restore failure")
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report.subprocess, "run", _fake_run)
     monkeypatch.setenv("POSTGRES_HOST", "db-host")
     monkeypatch.setenv("POSTGRES_USER", "db-user")
     monkeypatch.setenv("POSTGRES_DB", "db-name")
     monkeypatch.setenv("POSTGRES_PASSWORD", "db-pass")
-    monkeypatch.setattr(data_health_report.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        data_health_report.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     result = await handler.restore_backup_file(update, context)
 
@@ -903,7 +1059,10 @@ async def test_health_restore_backup_file_handles_subprocess_failure(
     assert reply_args is not None
     assert reply_args.args[0] == "admin.health.restore.error"
     assert reply_args.kwargs["parse_mode"] == ParseMode.HTML
-    assert reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_fix_issues_menu"
+    assert (
+        reply_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_fix_issues_menu"
+    )
 
 
 async def test_run_health_check_success_sends_report_and_updates_message(
@@ -928,7 +1087,9 @@ async def test_run_health_check_success_sends_report_and_updates_message(
     )
     safe_edit = AsyncMock()
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report, "safe_edit_message_text", safe_edit)
 
@@ -942,7 +1103,10 @@ async def test_run_health_check_success_sends_report_and_updates_message(
     assert progress_call.args[1] == "admin.health.run.progress"
     assert "admin.health.run.completed.title" in final_call.args[1]
     assert "admin.health.run.completed.saved" in final_call.args[1]
-    assert final_call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_data_health"
+    assert (
+        final_call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_data_health"
+    )
     context.bot.send_document.assert_awaited_once()
     send_call = context.bot.send_document.await_args
     assert send_call is not None
@@ -950,7 +1114,9 @@ async def test_run_health_check_success_sends_report_and_updates_message(
     assert send_call.kwargs["caption"] == "admin.health.run.report_caption"
 
 
-async def test_run_health_check_error_updates_message_without_report(monkeypatch) -> None:
+async def test_run_health_check_error_updates_message_without_report(
+    monkeypatch,
+) -> None:
     update = _build_callback_update("health_run_check")
     context = _build_context()
     handler = _new_health_handler(SimpleNamespace())
@@ -959,7 +1125,9 @@ async def test_run_health_check_error_updates_message_without_report(monkeypatch
     )
     safe_edit = AsyncMock()
 
-    monkeypatch.setattr(data_health_report, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        data_health_report, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(data_health_report, "t", _fake_t)
     monkeypatch.setattr(data_health_report, "safe_edit_message_text", safe_edit)
 
@@ -970,9 +1138,8 @@ async def test_run_health_check_error_updates_message_without_report(monkeypatch
     assert safe_edit.await_count == 2
     final_call = safe_edit.await_args_list[1]
     assert final_call.args[1] == "admin.health.run.error"
-    assert final_call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "health_data_health"
+    assert (
+        final_call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == "health_data_health"
+    )
     context.bot.send_document.assert_not_awaited()
-
-
-
-

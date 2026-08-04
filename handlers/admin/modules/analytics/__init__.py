@@ -9,4 +9,4 @@ Analytics and reporting handlers for admin panel:
 
 from .attachments_dashboard import AttachmentsDashboardHandler
 
-__all__ = ['AttachmentsDashboardHandler']
+__all__ = ["AttachmentsDashboardHandler"]

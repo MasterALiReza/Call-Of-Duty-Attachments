@@ -3,6 +3,7 @@
 Only suppresses the harmless "Message is not modified" BadRequest to avoid noisy errors
 when the new content equals the current one. All other exceptions are propagated.
 """
+
 from __future__ import annotations
 
 from typing import Any

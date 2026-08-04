@@ -147,7 +147,9 @@ async def test_route_data_management_actions_handles_backup_alias() -> None:
         import_start=AsyncMock(),
         export_start=AsyncMock(),
     )
-    routes = admin_menu_routing.build_data_management_action_routes(data_handler, import_export_handler)
+    routes = admin_menu_routing.build_data_management_action_routes(
+        data_handler, import_export_handler
+    )
 
     result = await admin_menu_routing.route_data_management_actions(
         "admin_create_backup",
@@ -172,7 +174,9 @@ async def test_route_data_management_actions_handles_import() -> None:
         import_start=AsyncMock(return_value="import"),
         export_start=AsyncMock(),
     )
-    routes = admin_menu_routing.build_data_management_action_routes(data_handler, import_export_handler)
+    routes = admin_menu_routing.build_data_management_action_routes(
+        data_handler, import_export_handler
+    )
 
     result = await admin_menu_routing.route_data_management_actions(
         "admin_import",

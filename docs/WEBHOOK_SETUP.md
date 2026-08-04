@@ -1,4 +1,4 @@
-# راهنمای Webhook در CODM Attachments Bot
+# راهنمای Webhook در OX_LOADOUT Attachments Bot
 
 ## 📋 پیش‌نیازها
 

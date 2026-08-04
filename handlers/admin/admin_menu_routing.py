@@ -9,7 +9,9 @@ from telegram import Update
 from core.context import CustomContext
 
 AdminRouteResult: TypeAlias = object | int | None
-AdminActionHandler: TypeAlias = Callable[[Update, CustomContext], Awaitable[AdminRouteResult]]
+AdminActionHandler: TypeAlias = Callable[
+    [Update, CustomContext], Awaitable[AdminRouteResult]
+]
 AdminActionMap: TypeAlias = Mapping[str, AdminActionHandler]
 
 DEFAULT_ROUTE_KEY = "__default__"
@@ -212,7 +214,9 @@ def build_notification_action_routes(handler: Any) -> AdminActionMap:
     }
 
 
-def build_data_management_action_routes(data_handler: Any, import_export_handler: Any) -> AdminActionMap:
+def build_data_management_action_routes(
+    data_handler: Any, import_export_handler: Any
+) -> AdminActionMap:
     return {
         "admin_data_management": data_handler.data_management_menu,
         "admin_backup": data_handler.create_backup,
@@ -278,7 +282,9 @@ def build_content_action_routes(
     return routes
 
 
-def build_analytics_action_routes(handler: Any, analytics_menu: AdminActionHandler) -> AdminActionMap:
+def build_analytics_action_routes(
+    handler: Any, analytics_menu: AdminActionHandler
+) -> AdminActionMap:
     return {
         "analytics_view_trending": handler.view_trending,
         "analytics_view_underperforming": handler.view_underperforming,
@@ -293,7 +299,9 @@ def build_analytics_action_routes(handler: Any, analytics_menu: AdminActionHandl
     }
 
 
-def build_health_action_routes(handler: Any, data_health_menu: AdminActionHandler) -> AdminActionMap:
+def build_health_action_routes(
+    handler: Any, data_health_menu: AdminActionHandler
+) -> AdminActionMap:
     return {
         "health_run_check": handler.run_health_check,
         "health_view_full_report": handler.view_full_report,

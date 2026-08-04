@@ -6,4 +6,4 @@ Handler Registry Package
 
 from .base_registry import BaseHandlerRegistry
 
-__all__ = ['BaseHandlerRegistry']
+__all__ = ["BaseHandlerRegistry"]

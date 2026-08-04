@@ -21,7 +21,11 @@ async def has_manage_user_attachments_permission(
     try:
         if await role_manager.is_super_admin(user_id):
             return True
-        allowed = bool(await role_manager.has_permission(user_id, Permission.MANAGE_USER_ATTACHMENTS))
+        allowed = bool(
+            await role_manager.has_permission(
+                user_id, Permission.MANAGE_USER_ATTACHMENTS
+            )
+        )
         if not allowed and audit_logger is not None:
             await audit_logger.log_permission_decision(
                 actor_id=user_id,

@@ -22,14 +22,19 @@ logger = logging.getLogger(__name__)
 
 async def _resolve_lang(update: Update, context: CustomContext) -> str:
     try:
-        return await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        return (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception as exc:
         logger.warning("[channel] Failed to resolve language: %s", exc)
         return "fa"
 
 
 def _build_back_markup(label: str, callback_data: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=callback_data)]])
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(label, callback_data=callback_data)]]
+    )
 
 
 def _format_added_at(added_at: object) -> str:
@@ -80,18 +85,49 @@ async def show_single_channel_stats_impl(
             return await channel_management_menu(update, context)
 
         stats = await analytics.get_channel_stats(channel_id)
-        message = t("admin.channels.stats.single.title", lang, title=channel["title"]) + "\n\n"
+        message = (
+            t("admin.channels.stats.single.title", lang, title=channel["title"])
+            + "\n\n"
+        )
 
         if not stats:
             message += t("admin.channels.stats.single.no_data", lang)
         else:
-            message += t("admin.channels.stats.single.joins", lang, n=stats.get("total_joins", 0)) + "\n"
-            message += t("admin.channels.stats.single.attempts", lang, n=stats.get("total_join_attempts", 0)) + "\n"
-            message += t("admin.channels.stats.single.conversion", lang, rate=stats.get("conversion_rate", 0)) + "\n\n"
+            message += (
+                t(
+                    "admin.channels.stats.single.joins",
+                    lang,
+                    n=stats.get("total_joins", 0),
+                )
+                + "\n"
+            )
+            message += (
+                t(
+                    "admin.channels.stats.single.attempts",
+                    lang,
+                    n=stats.get("total_join_attempts", 0),
+                )
+                + "\n"
+            )
+            message += (
+                t(
+                    "admin.channels.stats.single.conversion",
+                    lang,
+                    rate=stats.get("conversion_rate", 0),
+                )
+                + "\n\n"
+            )
 
             added_at = stats.get("added_at")
             if added_at:
-                message += t("admin.channels.stats.single.added_date", lang, date=_format_added_at(added_at)) + "\n"
+                message += (
+                    t(
+                        "admin.channels.stats.single.added_date",
+                        lang,
+                        date=_format_added_at(added_at),
+                    )
+                    + "\n"
+                )
 
             status = stats.get("status", "active")
             status_text = (
@@ -100,13 +136,23 @@ async def show_single_channel_stats_impl(
                 else t("admin.channels.status.deleted", lang)
             )
             status_emoji = "?" if status == "active" else "?"
-            message += t("admin.channels.details.status", lang, emoji=status_emoji, status=status_text) + "\n"
+            message += (
+                t(
+                    "admin.channels.details.status",
+                    lang,
+                    emoji=status_emoji,
+                    status=status_text,
+                )
+                + "\n"
+            )
 
         await safe_edit_message_text(
             query,
             message,
             parse_mode="HTML",
-            reply_markup=_build_back_markup(t("menu.buttons.back", lang), f"view_channel_{channel_id}"),
+            reply_markup=_build_back_markup(
+                t("menu.buttons.back", lang), f"view_channel_{channel_id}"
+            ),
         )
     except Exception as exc:
         logger.error("[channel] Error showing single channel stats: %s", exc)
@@ -123,7 +169,9 @@ async def show_single_channel_stats_impl(
     return channel_menu_state
 
 
-async def show_channel_stats_impl(update: Update, context: CustomContext, channel_menu_state: str):
+async def show_channel_stats_impl(
+    update: Update, context: CustomContext, channel_menu_state: str
+):
     """Display aggregated dashboard for all required channels."""
     query = update.callback_query
     await query.answer()
@@ -133,11 +181,35 @@ async def show_channel_stats_impl(update: Update, context: CustomContext, channe
         dashboard_text = await analytics.generate_admin_dashboard()
         lang = await _resolve_lang(update, context)
         keyboard = [
-            [InlineKeyboardButton(t("admin.channels.stats.buttons.funnel", lang), callback_data="channel_funnel")],
-            [InlineKeyboardButton(t("admin.channels.stats.buttons.period_report", lang), callback_data="channel_period_report")],
-            [InlineKeyboardButton(t("admin.channels.stats.buttons.export_csv", lang), callback_data="channel_export_csv")],
-            [InlineKeyboardButton(t("admin.channels.stats.buttons.history", lang), callback_data="channel_history")],
-            [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="channel_menu")],
+            [
+                InlineKeyboardButton(
+                    t("admin.channels.stats.buttons.funnel", lang),
+                    callback_data="channel_funnel",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    t("admin.channels.stats.buttons.period_report", lang),
+                    callback_data="channel_period_report",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    t("admin.channels.stats.buttons.export_csv", lang),
+                    callback_data="channel_export_csv",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    t("admin.channels.stats.buttons.history", lang),
+                    callback_data="channel_history",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.back", lang), callback_data="channel_menu"
+                )
+            ],
         ]
 
         await safe_edit_message_text(
@@ -161,7 +233,9 @@ async def show_channel_stats_impl(update: Update, context: CustomContext, channe
     return channel_menu_state
 
 
-async def show_funnel_analysis_impl(update: Update, context: CustomContext, channel_menu_state: str):
+async def show_funnel_analysis_impl(
+    update: Update, context: CustomContext, channel_menu_state: str
+):
     """Display conversion funnel analytics."""
     query = update.callback_query
     await query.answer()
@@ -174,7 +248,9 @@ async def show_funnel_analysis_impl(update: Update, context: CustomContext, chan
             query,
             funnel_text,
             parse_mode="HTML",
-            reply_markup=_build_back_markup(t("admin.channels.history.back_to_stats", lang), "channel_stats"),
+            reply_markup=_build_back_markup(
+                t("admin.channels.history.back_to_stats", lang), "channel_stats"
+            ),
         )
     except Exception as exc:
         logger.error("[channel] Error showing funnel: %s", exc)
@@ -191,7 +267,9 @@ async def show_funnel_analysis_impl(update: Update, context: CustomContext, chan
     return channel_menu_state
 
 
-async def show_period_report_impl(update: Update, context: CustomContext, channel_menu_state: str):
+async def show_period_report_impl(
+    update: Update, context: CustomContext, channel_menu_state: str
+):
     """Display last-period analytics report."""
     query = update.callback_query
     await query.answer()
@@ -204,7 +282,9 @@ async def show_period_report_impl(update: Update, context: CustomContext, channe
             query,
             report_text,
             parse_mode="HTML",
-            reply_markup=_build_back_markup(t("admin.channels.history.back_to_stats", lang), "channel_stats"),
+            reply_markup=_build_back_markup(
+                t("admin.channels.history.back_to_stats", lang), "channel_stats"
+            ),
         )
     except Exception as exc:
         logger.error("[channel] Error showing period report: %s", exc)
@@ -221,7 +301,9 @@ async def show_period_report_impl(update: Update, context: CustomContext, channe
     return channel_menu_state
 
 
-async def export_analytics_csv_impl(update: Update, context: CustomContext, channel_menu_state: str):
+async def export_analytics_csv_impl(
+    update: Update, context: CustomContext, channel_menu_state: str
+):
     """Export analytics as CSV files and send to admin."""
     query = update.callback_query
     lang = await _resolve_lang(update, context)
@@ -235,11 +317,15 @@ async def export_analytics_csv_impl(update: Update, context: CustomContext, chan
             await safe_edit_message_text(
                 query,
                 t("admin.channels.export.no_files", lang),
-                reply_markup=_build_back_markup(t("admin.channels.history.back_to_stats", lang), "channel_stats"),
+                reply_markup=_build_back_markup(
+                    t("admin.channels.history.back_to_stats", lang), "channel_stats"
+                ),
             )
             return channel_menu_state
 
-        await safe_edit_message_text(query, t("admin.channels.export.sending", lang, count=len(files)))
+        await safe_edit_message_text(
+            query, t("admin.channels.export.sending", lang, count=len(files))
+        )
 
         for file_path in files:
             try:
@@ -250,11 +336,15 @@ async def export_analytics_csv_impl(update: Update, context: CustomContext, chan
                         caption=f"CSV {os.path.basename(file_path)}",
                     )
             except OSError as exc:
-                raise InfrastructureError(f"Unable to read analytics export file: {file_path}") from exc
+                raise InfrastructureError(
+                    f"Unable to read analytics export file: {file_path}"
+                ) from exc
 
         await query.message.reply_text(
             t("admin.channels.export.success", lang),
-            reply_markup=_build_back_markup(t("admin.channels.history.back_to_stats", lang), "channel_stats"),
+            reply_markup=_build_back_markup(
+                t("admin.channels.history.back_to_stats", lang), "channel_stats"
+            ),
         )
     except Exception as exc:
         logger.error("[channel] Error exporting CSV: %s", exc)
@@ -270,7 +360,9 @@ async def export_analytics_csv_impl(update: Update, context: CustomContext, chan
     return channel_menu_state
 
 
-async def show_channel_history_impl(update: Update, context: CustomContext, channel_menu_state: str):
+async def show_channel_history_impl(
+    update: Update, context: CustomContext, channel_menu_state: str
+):
     """Display removed-channel history report."""
     query = update.callback_query
     await query.answer()
@@ -283,7 +375,9 @@ async def show_channel_history_impl(update: Update, context: CustomContext, chan
             query,
             history_text,
             parse_mode="HTML",
-            reply_markup=_build_back_markup(t("admin.channels.history.back_to_stats", lang), "channel_stats"),
+            reply_markup=_build_back_markup(
+                t("admin.channels.history.back_to_stats", lang), "channel_stats"
+            ),
         )
     except Exception as exc:
         logger.error("[channel] Error showing channel history: %s", exc)

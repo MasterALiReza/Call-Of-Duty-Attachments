@@ -11,32 +11,52 @@ import re
 
 # === Whitelist Constants ===
 
-ALLOWED_MODES: Set[str] = {'br', 'mp', 'zombies'}
-ALLOWED_STATUSES: Set[str] = {'pending', 'approved', 'rejected', 'deleted'}
-ALLOWED_SORTS: Set[str] = {'created_at', 'last_seen', 'username', 'user_id', 'submitted_at', 'approved_at', 'rejected_at'}
+ALLOWED_MODES: Set[str] = {"br", "mp", "zombies"}
+ALLOWED_STATUSES: Set[str] = {"pending", "approved", "rejected", "deleted"}
+ALLOWED_SORTS: Set[str] = {
+    "created_at",
+    "last_seen",
+    "username",
+    "user_id",
+    "submitted_at",
+    "approved_at",
+    "rejected_at",
+}
 ALLOWED_CATEGORIES: Set[str] = {
-    'assault_rifle', 'smg', 'lmg', 'sniper', 
-    'marksman', 'shotgun', 'pistol', 'launcher'
+    "assault_rifle",
+    "smg",
+    "lmg",
+    "sniper",
+    "marksman",
+    "shotgun",
+    "pistol",
+    "launcher",
 }
 ALLOWED_EVENT_TYPES: Set[str] = {
-    'add_attachment', 'edit_name', 'edit_image', 
-    'delete_attachment', 'set_top', 'view', 'copy'
+    "add_attachment",
+    "edit_name",
+    "edit_image",
+    "delete_attachment",
+    "set_top",
+    "view",
+    "copy",
 }
-ALLOWED_LANGUAGES: Set[str] = {'fa', 'en'}
+ALLOWED_LANGUAGES: Set[str] = {"fa", "en"}
 
 
 # === Validation Functions ===
 
+
 def validate_mode(mode: str) -> str:
     """
     اعتبارسنجی mode بازی
-    
+
     Args:
         mode: مود بازی (br, mp, zombies)
-        
+
     Returns:
         str: mode تایید شده
-        
+
     Raises:
         ValueError: اگر mode نامعتبر باشد
     """
@@ -51,13 +71,13 @@ def validate_mode(mode: str) -> str:
 def validate_status(status: str) -> str:
     """
     اعتبارسنجی وضعیت attachment
-    
+
     Args:
         status: وضعیت (pending, approved, rejected, deleted)
-        
+
     Returns:
         str: status تایید شده
-        
+
     Raises:
         ValueError: اگر status نامعتبر باشد
     """
@@ -72,39 +92,39 @@ def validate_status(status: str) -> str:
 def validate_sort_column(sort_by: str, allowed: Optional[Set[str]] = None) -> str:
     """
     اعتبارسنجی ستون مرتب‌سازی
-    
+
     Args:
         sort_by: نام ستون
         allowed: مجموعه مجاز (پیش‌فرض ALLOWED_SORTS)
-        
+
     Returns:
         str: ستون تایید شده یا 'created_at' به عنوان پیش‌فرض
     """
     if allowed is None:
         allowed = ALLOWED_SORTS
-    
+
     if not sort_by:
-        return 'created_at'
-    
+        return "created_at"
+
     sort_lower = sort_by.lower().strip()
-    
+
     # جلوگیری از SQL Injection در ORDER BY
     if sort_lower in allowed:
         return sort_lower
-    
-    return 'created_at'
+
+    return "created_at"
 
 
 def validate_category(category: str) -> str:
     """
     اعتبارسنجی دسته سلاح
-    
+
     Args:
         category: نام دسته
-        
+
     Returns:
         str: category تایید شده
-        
+
     Raises:
         ValueError: اگر category نامعتبر باشد
     """
@@ -112,38 +132,40 @@ def validate_category(category: str) -> str:
         raise ValueError("Category cannot be empty")
     category_lower = category.lower().strip()
     if category_lower not in ALLOWED_CATEGORIES:
-        raise ValueError(f"Invalid category: '{category}'. Allowed: {ALLOWED_CATEGORIES}")
+        raise ValueError(
+            f"Invalid category: '{category}'. Allowed: {ALLOWED_CATEGORIES}"
+        )
     return category_lower
 
 
 def validate_language(lang: str) -> str:
     """
     اعتبارسنجی کد زبان
-    
+
     Args:
         lang: کد زبان (fa, en)
-        
+
     Returns:
         str: کد زبان تایید شده
     """
     if not lang:
-        return 'fa'  # پیش‌فرض
+        return "fa"  # پیش‌فرض
     lang_lower = lang.lower().strip()
     if lang_lower not in ALLOWED_LANGUAGES:
-        return 'fa'  # fallback به فارسی
+        return "fa"  # fallback به فارسی
     return lang_lower
 
 
 def validate_user_id(user_id: int) -> int:
     """
     اعتبارسنجی Telegram User ID
-    
+
     Args:
         user_id: شناسه کاربر
-        
+
     Returns:
         int: user_id تایید شده
-        
+
     Raises:
         ValueError: اگر user_id نامعتبر باشد
     """
@@ -155,38 +177,40 @@ def validate_user_id(user_id: int) -> int:
 def validate_attachment_id(attachment_id: int) -> int:
     """
     اعتبارسنجی Attachment ID
-    
+
     Args:
         attachment_id: شناسه اتچمنت
-        
+
     Returns:
         int: attachment_id تایید شده
-        
+
     Raises:
         ValueError: اگر attachment_id نامعتبر باشد
     """
     if not isinstance(attachment_id, int) or attachment_id <= 0:
-        raise ValueError(f"Invalid attachment_id: {attachment_id}. Must be positive integer")
+        raise ValueError(
+            f"Invalid attachment_id: {attachment_id}. Must be positive integer"
+        )
     return attachment_id
 
 
 def sanitize_search_query(query: str, max_length: int = 100) -> str:
     """
     پاکسازی عبارت جستجو
-    
+
     Args:
         query: عبارت جستجو
         max_length: حداکثر طول مجاز
-        
+
     Returns:
         str: عبارت پاک شده
     """
     if not query:
-        return ''
-    
+        return ""
+
     # حذف کاراکترهای خطرناک
-    sanitized = re.sub(r"[;'\"]", '', query.strip())
-    
+    sanitized = re.sub(r"[;'\"]", "", query.strip())
+
     # محدود کردن طول
     return sanitized[:max_length]
 
@@ -194,32 +218,34 @@ def sanitize_search_query(query: str, max_length: int = 100) -> str:
 def sanitize_string(value: str, max_length: int = 500) -> str:
     """
     پاکسازی رشته عمومی
-    
+
     Args:
         value: رشته ورودی
         max_length: حداکثر طول مجاز
-        
+
     Returns:
         str: رشته پاک شده
     """
     if not value:
-        return ''
-    
+        return ""
+
     # حذف null bytes و کنترل کاراکترها
-    sanitized = ''.join(c for c in value if c.isprintable() or c in '\n\r\t')
-    
+    sanitized = "".join(c for c in value if c.isprintable() or c in "\n\r\t")
+
     return sanitized.strip()[:max_length]
 
 
-def validate_limit_offset(limit: Optional[int], offset: Optional[int], max_limit: int = 100) -> tuple:
+def validate_limit_offset(
+    limit: Optional[int], offset: Optional[int], max_limit: int = 100
+) -> tuple:
     """
     اعتبارسنجی پارامترهای صفحه‌بندی
-    
+
     Args:
         limit: تعداد آیتم‌ها در هر صفحه
         offset: شروع از آیتم
         max_limit: حداکثر limit مجاز
-        
+
     Returns:
         tuple: (limit, offset) تایید شده
     """
@@ -230,53 +256,56 @@ def validate_limit_offset(limit: Optional[int], offset: Optional[int], max_limit
         limit = 10
     elif limit > max_limit:
         limit = max_limit
-    
+
     # اعتبارسنجی offset
     if offset is None:
         offset = 0
     elif not isinstance(offset, int) or offset < 0:
         offset = 0
-    
+
     return limit, offset
 
 
-def validate_int(value: int, min_val: int = None, max_val: int = None, default: int = 0) -> int:
+def validate_int(
+    value: int, min_val: int = None, max_val: int = None, default: int = 0
+) -> int:
     """
     اعتبارسنجی عدد صحیح
-    
+
     Args:
         value: مقدار ورودی
         min_val: حداقل مجاز
         max_val: حداکثر مجاز
         default: مقدار پیش‌فرض
-        
+
     Returns:
         int: مقدار تایید شده
     """
     if not isinstance(value, int):
         return default
-    
+
     if min_val is not None and value < min_val:
         return min_val
-    
+
     if max_val is not None and value > max_val:
         return max_val
-    
+
     return value
 
 
 # === Safe Value Functions (برای استفاده در f-strings) ===
 
+
 def safe_sort_column(sort_by: str, allowed: Optional[Set[str]] = None) -> str:
     """
     ستون مرتب‌سازی امن برای استفاده در SQL
-    
+
     این تابع همیشه یک مقدار امن برمی‌گرداند و exception نمی‌زند
     """
     try:
         return validate_sort_column(sort_by, allowed)
     except (ValueError, TypeError, AttributeError):
-        return 'created_at'
+        return "created_at"
 
 
 def safe_mode(mode: str) -> str:
@@ -284,7 +313,7 @@ def safe_mode(mode: str) -> str:
     try:
         return validate_mode(mode)
     except (ValueError, TypeError, AttributeError):
-        return 'br'  # پیش‌فرض
+        return "br"  # پیش‌فرض
 
 
 def safe_status(status: str) -> str:
@@ -292,4 +321,4 @@ def safe_status(status: str) -> str:
     try:
         return validate_status(status)
     except (ValueError, TypeError, AttributeError):
-        return 'pending'  # پیش‌فرض
+        return "pending"  # پیش‌فرض

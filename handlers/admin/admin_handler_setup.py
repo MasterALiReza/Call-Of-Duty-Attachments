@@ -32,9 +32,18 @@ from handlers.admin.modules.attachments import (
     SuggestedAttachmentsHandler,
     TopAttachmentsHandler,
 )
-from handlers.admin.modules.content import CategoryHandler, GuidesHandler, TextHandler, WeaponHandler
+from handlers.admin.modules.content import (
+    CategoryHandler,
+    GuidesHandler,
+    TextHandler,
+    WeaponHandler,
+)
 from handlers.admin.modules.reports import DataHealthReportHandler
-from handlers.admin.modules.support import DirectContactHandler, FAQHandler, TicketHandler
+from handlers.admin.modules.support import (
+    DirectContactHandler,
+    FAQHandler,
+    TicketHandler,
+)
 from handlers.admin.modules.system import (
     AdminManagementHandler,
     DataManagementHandler,
@@ -51,11 +60,15 @@ def init_attachment_handlers(handler) -> None:
     handler.suggested_attachments_handler = SuggestedAttachmentsHandler(handler.db)
     handler.attachment_mgmt_handler = AttachmentManagementHandler(handler.db)
 
-    from handlers.admin.modules.feedback.feedback_admin_handler import FeedbackAdminHandler
+    from handlers.admin.modules.feedback.feedback_admin_handler import (
+        FeedbackAdminHandler,
+    )
 
     handler.feedback_admin = FeedbackAdminHandler(handler.db)
 
-    handler._bind_handler_methods(handler.attachment_mgmt_handler, ("attachment_management_menu",))
+    handler._bind_handler_methods(
+        handler.attachment_mgmt_handler, ("attachment_management_menu",)
+    )
     handler._bind_handler_methods(
         handler.add_attachment_handler,
         (
@@ -441,9 +454,15 @@ def init_action_routes(handler) -> None:
         handler.health_handler,
         handler.data_health_menu,
     )
-    handler._feedback_action_routes = build_feedback_action_routes(handler.feedback_admin)
-    handler._admin_management_action_routes = build_admin_management_action_routes(handler)
-    handler._user_management_action_routes = build_user_management_action_routes(handler)
+    handler._feedback_action_routes = build_feedback_action_routes(
+        handler.feedback_admin
+    )
+    handler._admin_management_action_routes = build_admin_management_action_routes(
+        handler
+    )
+    handler._user_management_action_routes = build_user_management_action_routes(
+        handler
+    )
     handler._admin_menu_route_groups = (
         (route_notification_actions, handler._notification_action_routes),
         (route_data_management_actions, handler._data_management_action_routes),

@@ -19,7 +19,7 @@ from utils.logger import get_logger, log_exception
 
 from .permissions import has_manage_user_attachments_permission
 
-logger = get_logger('ua_stats', 'admin.log')
+logger = get_logger("ua_stats", "admin.log")
 db = get_database_adapter()
 cache = get_ua_cache(db, ttl_seconds=300)  # 5 minutes cache
 audit_logger = AuditLogger()
@@ -27,16 +27,19 @@ audit_logger = AuditLogger()
 # RBAC helper
 role_manager = RoleManager(db)
 
+
 async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
-    return bool(await has_manage_user_attachments_permission(
-        user_id,
-        db=db,
-        role_manager=role_manager,
-        audit_logger=audit_logger,
-        route="ua_admin_stats",
-        source="stats_handler",
-    ))
+    return bool(
+        await has_manage_user_attachments_permission(
+            user_id,
+            db=db,
+            role_manager=role_manager,
+            audit_logger=audit_logger,
+            route="ua_admin_stats",
+            source="stats_handler",
+        )
+    )
 
 
 async def _handle_boundary_error(
@@ -53,62 +56,64 @@ async def show_ua_stats(update: Update, context: CustomContext):
     """نمایش آمار کامل سیستم اتچمنت کاربران"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = update.effective_user.id
-    lang = await get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or "fa"
     if not await has_ua_perm(user_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
+
     try:
         # دریافت آمار از cache (با یک query CTE بهینه)
         start_time = time.time()
-        
+
         # بررسی اگر کاربر refresh خواسته
-        force_refresh = 'refresh' in query.data if query.data else False
-        
+        force_refresh = "refresh" in query.data if query.data else False
+
         # دریافت آمار اصلی از cache
         stats = await cache.get_stats(force_refresh=force_refresh)
         if not stats:
             logger.error("Failed to get stats from cache")
-            await query.answer(t('error.generic', lang), show_alert=True)
+            await query.answer(t("error.generic", lang), show_alert=True)
             return
-        
+
         # Extract values
-        total_attachments = stats.get('total_attachments', 0)
-        pending_count = stats.get('pending_count', 0)
-        approved_count = stats.get('approved_count', 0)
-        rejected_count = stats.get('rejected_count', 0)
-        total_users = stats.get('total_users', 0)
-        active_users = stats.get('active_users', 0)
-        banned_users = stats.get('banned_users', 0)
-        br_count = stats.get('br_count', 0)
-        mp_count = stats.get('mp_count', 0)
-        total_likes = stats.get('total_likes', 0)
-        total_reports = stats.get('total_reports', 0)
-        pending_reports = stats.get('pending_reports', 0)
-        recent_submissions = stats.get('last_week_submissions', 0)
-        recent_approvals = stats.get('last_week_approvals', 0)
-        
+        total_attachments = stats.get("total_attachments", 0)
+        pending_count = stats.get("pending_count", 0)
+        approved_count = stats.get("approved_count", 0)
+        rejected_count = stats.get("rejected_count", 0)
+        total_users = stats.get("total_users", 0)
+        active_users = stats.get("active_users", 0)
+        banned_users = stats.get("banned_users", 0)
+        br_count = stats.get("br_count", 0)
+        mp_count = stats.get("mp_count", 0)
+        total_likes = stats.get("total_likes", 0)
+        total_reports = stats.get("total_reports", 0)
+        pending_reports = stats.get("pending_reports", 0)
+        recent_submissions = stats.get("last_week_submissions", 0)
+        recent_approvals = stats.get("last_week_approvals", 0)
+
         # نرخ تایید
         approval_rate = 0
         if total_attachments > 0:
             approval_rate = (approved_count / total_attachments) * 100
-        
+
         # دریافت top weapons از cache
         top_weapons = await cache.get_top_weapons(limit=10, force_refresh=force_refresh)
-        
+
         # دریافت top users از cache
         top_users = await cache.get_top_users(limit=5, force_refresh=force_refresh)
-        
+
         # محاسبه زمان اجرا
         elapsed_time = (time.time() - start_time) * 1000
-        logger.info(f"Stats loaded in {elapsed_time:.2f}ms (from {'fresh calculation' if force_refresh else 'cache'})")
-        
+        logger.info(
+            f"Stats loaded in {elapsed_time:.2f}ms (from {'fresh calculation' if force_refresh else 'cache'})"
+        )
+
     except Exception as exc:
         await _handle_boundary_error(update, context, exc, "ua_stats.show_ua_stats")
         return
-    
+
     # ساخت پیام
     message = (
         f"{t('admin.ua.stats.title', lang)}\n\n"
@@ -125,25 +130,43 @@ async def show_ua_stats(update: Update, context: CustomContext):
         f"{t('admin.ua.stats.modes.br', lang, n=br_count)}\n"
         f"{t('admin.ua.stats.modes.mp', lang, n=mp_count)}\n\n"
     )
-    
+
     if top_weapons:
-        message += t('admin.ua.stats.top_weapons.title', lang) + "\n"
+        message += t("admin.ua.stats.top_weapons.title", lang) + "\n"
         for i, weapon in enumerate(top_weapons, 1):
-            weapon_name = weapon.get('weapon_name', t('common.unknown', lang))
-            count = weapon.get('attachment_count', 0)
-            message += t('admin.ua.stats.top_weapons.line', lang, i=i, weapon=weapon_name, count=count) + "\n"
+            weapon_name = weapon.get("weapon_name", t("common.unknown", lang))
+            count = weapon.get("attachment_count", 0)
+            message += (
+                t(
+                    "admin.ua.stats.top_weapons.line",
+                    lang,
+                    i=i,
+                    weapon=weapon_name,
+                    count=count,
+                )
+                + "\n"
+            )
         message += "\n"
-    
+
     if top_users:
-        message += t('admin.ua.stats.top_users.title', lang) + "\n"
+        message += t("admin.ua.stats.top_users.title", lang) + "\n"
         for i, user in enumerate(top_users, 1):
-            user_id = user.get('user_id', 0)
-            username = user.get('username')
-            count = user.get('approved_count', 0)
+            user_id = user.get("user_id", 0)
+            username = user.get("username")
+            count = user.get("approved_count", 0)
             display_name = f"@{username}" if username else f"#{user_id}"
-            message += t('admin.ua.stats.top_users.line', lang, i=i, user=display_name, count=count) + "\n"
+            message += (
+                t(
+                    "admin.ua.stats.top_users.line",
+                    lang,
+                    i=i,
+                    user=display_name,
+                    count=count,
+                )
+                + "\n"
+            )
         message += "\n"
-    
+
     message += (
         f"{t('admin.ua.stats.last7days.title', lang)}\n"
         f"{t('admin.ua.stats.last7days.submissions', lang, n=recent_submissions)}\n"
@@ -153,11 +176,11 @@ async def show_ua_stats(update: Update, context: CustomContext):
         f"{t('admin.ua.stats.interaction.reports_total', lang, n=total_reports)}\n"
         f"{t('admin.ua.stats.interaction.reports_pending', lang, n=pending_reports)}"
     )
-    
+
     # نمایش زمان آخرین به‌روزرسانی
     cache_age = ""
     if not force_refresh:
-        updated_at = stats.get('updated_at')
+        updated_at = stats.get("updated_at")
         if updated_at:
             try:
                 update_time = datetime.fromisoformat(updated_at)
@@ -165,21 +188,39 @@ async def show_ua_stats(update: Update, context: CustomContext):
                 if age_seconds < 60:
                     cache_age = f" ({t('time.seconds_ago', lang, n=int(age_seconds))})"
                 else:
-                    cache_age = f" ({t('time.minutes_ago', lang, n=int(age_seconds/60))})"
+                    cache_age = (
+                        f" ({t('time.minutes_ago', lang, n=int(age_seconds / 60))})"
+                    )
             except (TypeError, ValueError) as exc:
                 log_exception(logger, exc, "ua_stats.show_ua_stats.updated_at")
-    
-    message += "\n_" + t('admin.ua.stats.footer.loaded_in', lang, ms=f"{elapsed_time:.0f}", cache_age=cache_age) + "_"
-    
+
+    message += (
+        "\n_"
+        + t(
+            "admin.ua.stats.footer.loaded_in",
+            lang,
+            ms=f"{elapsed_time:.0f}",
+            cache_age=cache_age,
+        )
+        + "_"
+    )
+
     keyboard = [
-        [InlineKeyboardButton(t('admin.ua.stats.buttons.refresh', lang), callback_data="ua_admin_stats_refresh")],
-        [InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")]
+        [
+            InlineKeyboardButton(
+                t("admin.ua.stats.buttons.refresh", lang),
+                callback_data="ua_admin_stats_refresh",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="ua_admin_menu"
+            )
+        ],
     ]
-    
+
     await query.edit_message_text(
-        message,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
@@ -187,90 +228,124 @@ async def show_approved_list(update: Update, context: CustomContext):
     """نمایش لیست اتچمنت‌های تایید شده"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = update.effective_user.id
-    lang = await get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or "fa"
     if not await has_ua_perm(user_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
+
     # دریافت صفحه
     page = 0
-    if 'page_' in query.data:
-        page = int(query.data.split('_')[-1])
-    
+    if "page_" in query.data:
+        page = int(query.data.split("_")[-1])
+
     ITEMS_PER_PAGE = 10
-    
+
     try:
         # استفاده از cache برای COUNT
         start_time = time.time()
-        total = await cache.get_paginated_count('approved')
-        
+        total = await cache.get_paginated_count("approved")
+
         # دریافت لیست (این یکی cache نداره چون pagination داره)
-        approved = await db.users.get_user_attachments_by_status('approved', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
-        
+        approved = await db.users.get_user_attachments_by_status(
+            "approved", limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE
+        )
+
         # Batch load usernames برای جلوگیری از N+1
         if approved:
-            user_ids = [att['user_id'] for att in approved]
+            user_ids = [att["user_id"] for att in approved]
             users_data = await cache.batch_get_users(user_ids)
             for att in approved:
-                user_info = users_data.get(att['user_id'], {})
-                if not att.get('username'):
-                    att['username'] = user_info.get('username', None)
-        
+                user_info = users_data.get(att["user_id"], {})
+                if not att.get("username"):
+                    att["username"] = user_info.get("username", None)
+
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Approved list loaded in {elapsed:.2f}ms")
     except Exception as exc:
         log_exception(logger, exc, "ua_stats.show_approved_list.fetch")
         approved = []
         total = 0
-    
+
     if not approved:
         await query.edit_message_text(
-            t('admin.ua.approved.empty.title', lang) + "\n\n" + t('admin.ua.approved.empty.desc', lang),
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")]])
+            t("admin.ua.approved.empty.title", lang)
+            + "\n\n"
+            + t("admin.ua.approved.empty.desc", lang),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            t("menu.buttons.back", lang), callback_data="ua_admin_menu"
+                        )
+                    ]
+                ]
+            ),
         )
         return
-    
+
     total_pages = (total - 1) // ITEMS_PER_PAGE + 1
-    
+
     message = (
-        t('admin.ua.approved.list.title', lang) + "\n\n" +
-        t('admin.ua.approved.list.header', lang, total=total, page=page + 1, total_pages=total_pages) + "\n\n"
+        t("admin.ua.approved.list.title", lang)
+        + "\n\n"
+        + t(
+            "admin.ua.approved.list.header",
+            lang,
+            total=total,
+            page=page + 1,
+            total_pages=total_pages,
+        )
+        + "\n\n"
     )
-    
+
     keyboard = []
     for att in approved:
-        mode_icon = "🎮" if att['mode'] == 'mp' else "🪂"
-        username = att.get('username')
-        display_user = f"@{username}" if username else t('user.anonymous', lang)
-        likes = att.get('like_count', 0)
-        
-        keyboard.append([
-            InlineKeyboardButton(
-                f"{mode_icon} {att['attachment_name'][:25]} - {display_user} (💙{likes})",
-                callback_data=f"ua_admin_view_approved_{att['id']}"
-            )
-        ])
-    
+        mode_icon = "🎮" if att["mode"] == "mp" else "🪂"
+        username = att.get("username")
+        display_user = f"@{username}" if username else t("user.anonymous", lang)
+        likes = att.get("like_count", 0)
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"{mode_icon} {att['attachment_name'][:25]} - {display_user} (💙{likes})",
+                    callback_data=f"ua_admin_view_approved_{att['id']}",
+                )
+            ]
+        )
+
     # Pagination
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton(t('nav.prev', lang), callback_data=f"ua_admin_approved_page_{page-1}"))
+        nav_buttons.append(
+            InlineKeyboardButton(
+                t("nav.prev", lang), callback_data=f"ua_admin_approved_page_{page - 1}"
+            )
+        )
     if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton(t('nav.next', lang), callback_data=f"ua_admin_approved_page_{page+1}"))
-    
+        nav_buttons.append(
+            InlineKeyboardButton(
+                t("nav.next", lang), callback_data=f"ua_admin_approved_page_{page + 1}"
+            )
+        )
+
     if nav_buttons:
         keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")])
-    
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="ua_admin_menu"
+            )
+        ]
+    )
+
     try:
         await query.edit_message_text(
-            message,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as exc:
         log_exception(logger, exc, "ua_stats.show_approved_list.edit_message")
@@ -278,11 +353,11 @@ async def show_approved_list(update: Update, context: CustomContext):
         try:
             await query.message.delete()
         except Exception as delete_exc:
-            log_exception(logger, delete_exc, "ua_stats.show_approved_list.delete_source")
+            log_exception(
+                logger, delete_exc, "ua_stats.show_approved_list.delete_source"
+            )
         await update.effective_chat.send_message(
-            message,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
 
@@ -290,90 +365,136 @@ async def show_rejected_list(update: Update, context: CustomContext):
     """نمایش لیست اتچمنت‌های رد شده"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = update.effective_user.id
-    lang = await get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or "fa"
     if not await has_ua_perm(user_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
+
     # دریافت صفحه
     page = 0
-    if 'page_' in query.data:
-        page = int(query.data.split('_')[-1])
-    
+    if "page_" in query.data:
+        page = int(query.data.split("_")[-1])
+
     ITEMS_PER_PAGE = 10
-    
+
     try:
         # استفاده از cache برای COUNT
         start_time = time.time()
-        total = await cache.get_paginated_count('rejected')
-        
+        total = await cache.get_paginated_count("rejected")
+
         # دریافت لیست
-        rejected = await db.users.get_user_attachments_by_status('rejected', limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE)
-        
+        rejected = await db.users.get_user_attachments_by_status(
+            "rejected", limit=ITEMS_PER_PAGE, offset=page * ITEMS_PER_PAGE
+        )
+
         # Batch load usernames
         if rejected:
-            user_ids = [att['user_id'] for att in rejected]
+            user_ids = [att["user_id"] for att in rejected]
             users_data = await cache.batch_get_users(user_ids)
             for att in rejected:
-                user_info = users_data.get(att['user_id'], {})
-                if not att.get('username'):
-                    att['username'] = user_info.get('username', None)
-        
+                user_info = users_data.get(att["user_id"], {})
+                if not att.get("username"):
+                    att["username"] = user_info.get("username", None)
+
         elapsed = (time.time() - start_time) * 1000
         logger.info(f"Rejected list loaded in {elapsed:.2f}ms")
     except Exception as exc:
         log_exception(logger, exc, "ua_stats.show_rejected_list.fetch")
         rejected = []
         total = 0
-    
+
     if not rejected:
         await query.edit_message_text(
-            t('admin.ua.rejected.empty.title', lang) + "\n\n" + t('admin.ua.rejected.empty.desc', lang),
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")]])
+            t("admin.ua.rejected.empty.title", lang)
+            + "\n\n"
+            + t("admin.ua.rejected.empty.desc", lang),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            t("menu.buttons.back", lang), callback_data="ua_admin_menu"
+                        )
+                    ]
+                ]
+            ),
         )
         return
-    
+
     total_pages = (total - 1) // ITEMS_PER_PAGE + 1
-    
+
     message = (
-        t('admin.ua.rejected.list.title', lang) + "\n\n" +
-        t('admin.ua.rejected.list.header', lang, total=total, page=page + 1, total_pages=total_pages) + "\n\n"
+        t("admin.ua.rejected.list.title", lang)
+        + "\n\n"
+        + t(
+            "admin.ua.rejected.list.header",
+            lang,
+            total=total,
+            page=page + 1,
+            total_pages=total_pages,
+        )
+        + "\n\n"
     )
-    
+
     keyboard = []
     for att in rejected:
-        mode_icon = "🎮" if att['mode'] == 'mp' else "🪂"
+        mode_icon = "🎮" if att["mode"] == "mp" else "🪂"
         # Escape markdown characters to prevent parsing errors
-        reason = (att.get('rejection_reason') or t('common.no_reason', lang)).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')[:25]
-        name = att['attachment_name'].replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')[:20]
-        
-        keyboard.append([
-            InlineKeyboardButton(
-                f"{mode_icon} {name} - {reason}",
-                callback_data=f"ua_admin_view_rejected_{att['id']}"
-            )
-        ])
-    
+        reason = (
+            (att.get("rejection_reason") or t("common.no_reason", lang))
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("[", "\\[")
+            .replace("`", "\\`")[:25]
+        )
+        name = (
+            att["attachment_name"]
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("[", "\\[")
+            .replace("`", "\\`")[:20]
+        )
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"{mode_icon} {name} - {reason}",
+                    callback_data=f"ua_admin_view_rejected_{att['id']}",
+                )
+            ]
+        )
+
     # Pagination
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton(t('nav.prev', lang), callback_data=f"ua_admin_rejected_page_{page-1}"))
+        nav_buttons.append(
+            InlineKeyboardButton(
+                t("nav.prev", lang), callback_data=f"ua_admin_rejected_page_{page - 1}"
+            )
+        )
     if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton(t('nav.next', lang), callback_data=f"ua_admin_rejected_page_{page+1}"))
-    
+        nav_buttons.append(
+            InlineKeyboardButton(
+                t("nav.next", lang), callback_data=f"ua_admin_rejected_page_{page + 1}"
+            )
+        )
+
     if nav_buttons:
         keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")])
-    
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="ua_admin_menu"
+            )
+        ]
+    )
+
     try:
         await query.edit_message_text(
-            message,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as exc:
         log_exception(logger, exc, "ua_stats.show_rejected_list.edit_message")
@@ -381,11 +502,11 @@ async def show_rejected_list(update: Update, context: CustomContext):
         try:
             await query.message.delete()
         except Exception as delete_exc:
-            log_exception(logger, delete_exc, "ua_stats.show_rejected_list.delete_source")
+            log_exception(
+                logger, delete_exc, "ua_stats.show_rejected_list.delete_source"
+            )
         await update.effective_chat.send_message(
-            message,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
 
@@ -393,38 +514,40 @@ async def view_approved_attachment(update: Update, context: CustomContext):
     """نمایش جزئیات اتچمنت تایید شده"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = update.effective_user.id
-    lang = await get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or "fa"
     if not await has_ua_perm(user_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
-    attachment_id = int(query.data.replace('ua_admin_view_approved_', ''))
-    
+
+    attachment_id = int(query.data.replace("ua_admin_view_approved_", ""))
+
     # دریافت اتچمنت
     attachment = await db.users.get_user_attachment(attachment_id)
-    
+
     if not attachment:
-        await query.answer(t('attachment.not_found', lang), show_alert=True)
+        await query.answer(t("attachment.not_found", lang), show_alert=True)
         return
-    
+
     # ساخت caption
     from telegram.helpers import escape_markdown
-    
+
     mode_name = t(f"mode.{attachment['mode']}_short", lang)
-    category_name = t(f"category.{attachment['category']}", 'en')
-    weapon_name = attachment.get('custom_weapon_name', attachment.get('weapon_name', t('common.unknown', lang)))
-    username = attachment.get('username') or t('user.anonymous', lang)
-    description = attachment.get('description') or t('common.no_description', lang)
-    
+    category_name = t(f"category.{attachment['category']}", "en")
+    weapon_name = attachment.get(
+        "custom_weapon_name", attachment.get("weapon_name", t("common.unknown", lang))
+    )
+    username = attachment.get("username") or t("user.anonymous", lang)
+    description = attachment.get("description") or t("common.no_description", lang)
+
     # Escape for MarkdownV2
-    att_name = escape_markdown(str(attachment['attachment_name']), version=2)
+    att_name = escape_markdown(str(attachment["attachment_name"]), version=2)
     mode_name_esc = escape_markdown(str(mode_name), version=2)
     weapon_esc = escape_markdown(str(weapon_name), version=2)
     category_esc = escape_markdown(str(category_name), version=2)
     desc_esc = escape_markdown(str(description), version=2)
-    
+
     caption = (
         f"{t('admin.ua.approved.view.title', lang)}\n\n"
         f"{t('admin.ua.approved.view.name', lang)}: {att_name}\n"
@@ -438,29 +561,35 @@ async def view_approved_attachment(update: Update, context: CustomContext):
         f"{t('admin.ua.approved.view.likes', lang, n=attachment.get('like_count', 0))}\n"
         f"{t('admin.ua.approved.view.reports', lang, n=attachment.get('report_count', 0))}\n"
     )
-    
+
     keyboard = [
-        [InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_approved")]
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="ua_admin_approved"
+            )
+        ]
     ]
-    
+
     # ارسال تصویر
     try:
         await query.message.delete()
     except Exception as exc:
         log_exception(logger, exc, "ua_stats.view_approved_attachment.delete_source")
-    
+
     await update.effective_chat.send_photo(
-        photo=attachment['image_file_id'],
+        photo=attachment["image_file_id"],
         caption=caption,
-        parse_mode='MarkdownV2',
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
 # Export handlers
 stats_handlers = [
     CallbackQueryHandler(show_ua_stats, pattern="^ua_admin_stats"),  # includes refresh
-    CallbackQueryHandler(view_approved_attachment, pattern="^ua_admin_view_approved_\\d+$"),
+    CallbackQueryHandler(
+        view_approved_attachment, pattern="^ua_admin_view_approved_\\d+$"
+    ),
     CallbackQueryHandler(show_approved_list, pattern="^ua_admin_approved"),
     CallbackQueryHandler(show_rejected_list, pattern="^ua_admin_rejected"),
 ]

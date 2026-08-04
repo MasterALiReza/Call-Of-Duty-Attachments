@@ -13,22 +13,25 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from utils.logger import get_logger, log_admin_action, log_exception
 from utils.telegram_safety import safe_edit_message_text
 
-logger = get_logger('import_export', 'admin.log')
+logger = get_logger("import_export", "admin.log")
 
 
 class ImportExportHandler(BaseAdminHandler):
     """Handler برای Import/Export داده"""
-    
+
     @log_admin_action("import_start")
     async def import_start(self, update: Update, context: CustomContext):
         """شروع import دیتا"""
         query = update.callback_query
         await query.answer()
-        
+
         # بررسی دسترسی
         from core.security.role_manager import Permission
-        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
-        
+
+        user_permissions = await self.role_manager.get_user_permissions(
+            query.from_user.id
+        )
+
         if Permission.IMPORT_EXPORT not in user_permissions:
             await self.audit_permission_denied(
                 query.from_user.id,
@@ -38,29 +41,33 @@ class ImportExportHandler(BaseAdminHandler):
             )
             await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
+
             return ADMIN_MENU
-        
+
         keyboard = [
             [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_data_management")]
         ]
-        
+
         await safe_edit_message_text(
             query,
             "📥 **Import دیتا**\n\n"
             "فایل JSON، ZIP یا SQL حاوی دیتای جدید را ارسال کنید:",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+            parse_mode="Markdown",
         )
-        
+
         return IMPORT_FILE
-    
+
     @log_admin_action("import_file_received")
     async def import_file_received(self, update: Update, context: CustomContext):
         """دریافت فایل import"""
         user_id = update.effective_user.id
         # بررسی دسترسی
         from core.security.role_manager import Permission
-        if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+
+        if not await self.role_manager.has_permission(
+            user_id, Permission.IMPORT_EXPORT
+        ) and not await self.role_manager.is_super_admin(user_id):
             await self.audit_permission_denied(
                 user_id,
                 route="admin_import_file_received",
@@ -73,39 +80,46 @@ class ImportExportHandler(BaseAdminHandler):
         if not update.message.document:
             await update.message.reply_text("❌ لطفاً یک فایل ارسال کنید.")
             return await self.admin_menu_return(update, context)
-        
+
         # بررسی نوع فایل
         file_name = update.message.document.file_name
-        if not file_name.endswith(('.json', '.zip', '.sql')):
-            await update.message.reply_text("❌ فقط فایل‌های JSON، ZIP یا SQL پشتیبانی می‌شوند.")
+        if not file_name.endswith((".json", ".zip", ".sql")):
+            await update.message.reply_text(
+                "❌ فقط فایل‌های JSON، ZIP یا SQL پشتیبانی می‌شوند."
+            )
             return await self.admin_menu_return(update, context)
-        
+
         await update.message.reply_text("⏳ در حال پردازش فایل...")
-        
+
         file = await update.message.document.get_file()
         import tempfile
-        temp_file = os.path.join(tempfile.gettempdir(), f"import_{datetime.now().strftime('%Y%m%d_%H%M%S')}{os.path.splitext(file_name)[1]}")
+
+        temp_file = os.path.join(
+            tempfile.gettempdir(),
+            f"import_{datetime.now().strftime('%Y%m%d_%H%M%S')}{os.path.splitext(file_name)[1]}",
+        )
         await file.download_to_drive(temp_file)
-        
+
         try:
             from managers.backup_manager import BackupManager
+
             backup_mgr = BackupManager(self.db)
-            
+
             # اگر فایل SQL است، از ماژول سلامت برای بازیابی ایمن استفاده کنید
-            if temp_file.endswith('.sql'):
+            if temp_file.endswith(".sql"):
                 await update.message.reply_text(
                     "💾 **بازیابی دیتابیس شناسایی شد**\n\n"
                     "برای بازیابی ایمن و سازگار با ویندوز، لطفاً از منوی:\n"
                     "**سلامت داده -> رفع مشکلات فنی -> بازگردانی بکاپ**\n"
                     "استفاده کنید. این بخش (Import) برای فایل‌های JSON/ZIP طراحی شده است.",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
                 return await self.admin_menu_return(update, context)
-            
+
             # اگر فایل ZIP است، restore کن
-            elif temp_file.endswith('.zip'):
+            elif temp_file.endswith(".zip"):
                 result = await backup_mgr.restore_from_backup(temp_file)
                 if result:
                     await update.message.reply_text(
@@ -117,28 +131,36 @@ class ImportExportHandler(BaseAdminHandler):
             # اگر فایل JSON است، import کن
             else:
                 keyboard = [
-                    [InlineKeyboardButton("➕ افزودن به دیتای موجود", callback_data="import_merge")],
-                    [InlineKeyboardButton("🔄 جایگزینی کامل", callback_data="import_replace")],
-                    [InlineKeyboardButton("❌ لغو", callback_data="admin_cancel")]
+                    [
+                        InlineKeyboardButton(
+                            "➕ افزودن به دیتای موجود", callback_data="import_merge"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🔄 جایگزینی کامل", callback_data="import_replace"
+                        )
+                    ],
+                    [InlineKeyboardButton("❌ لغو", callback_data="admin_cancel")],
                 ]
-                context.user_data['import_temp_file'] = temp_file
+                context.user_data["import_temp_file"] = temp_file
                 await update.message.reply_text(
                     "⚠️ نحوه import را انتخاب کنید:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
                 return IMPORT_MODE
-                
+
         except Exception as e:
             logger.error(f"Import error: {e}")
             log_exception(logger, e, "context")
             await update.message.reply_text(f"❌ خطا در import: {str(e)}")
-        
+
         # حذف فایل موقت
-        if os.path.exists(temp_file) and 'import_temp_file' not in context.user_data:
+        if os.path.exists(temp_file) and "import_temp_file" not in context.user_data:
             os.remove(temp_file)
-        
+
         return await self.admin_menu_return(update, context)
-    
+
     @log_admin_action("import_mode_selected")
     async def import_mode_selected(self, update: Update, context: CustomContext):
         """انتخاب نحوه import"""
@@ -147,7 +169,10 @@ class ImportExportHandler(BaseAdminHandler):
 
         user_id = update.effective_user.id
         from core.security.role_manager import Permission
-        if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+
+        if not await self.role_manager.has_permission(
+            user_id, Permission.IMPORT_EXPORT
+        ) and not await self.role_manager.is_super_admin(user_id):
             await self.audit_permission_denied(
                 user_id,
                 route="admin_import_mode_selected",
@@ -158,54 +183,60 @@ class ImportExportHandler(BaseAdminHandler):
             return await self.admin_menu_return(update, context)
 
         if query.data == "admin_cancel":
-            temp_file = context.user_data.pop('import_temp_file', None)
+            temp_file = context.user_data.pop("import_temp_file", None)
             if temp_file and os.path.exists(temp_file):
                 os.remove(temp_file)
             return await self.admin_menu_return(update, context)
-        
-        temp_file = context.user_data.get('import_temp_file')
+
+        temp_file = context.user_data.get("import_temp_file")
         if not temp_file or not os.path.exists(temp_file):
             await safe_edit_message_text(query, "❌ فایل import یافت نشد.")
             return await self.admin_menu_return(update, context)
-        
-        merge = (query.data == "import_merge")
-        
+
+        merge = query.data == "import_merge"
+
         try:
             from managers.backup_manager import BackupManager
+
             backup_mgr = BackupManager(self.db)
-            
+
             await safe_edit_message_text(query, "⏳ در حال import دیتا...")
-            
+
             result = await backup_mgr.import_from_json(temp_file, merge=merge)
-            
+
             if result:
                 mode = "افزودن" if merge else "جایگزینی"
-                await safe_edit_message_text(query, f"✅ دیتا با موفقیت به صورت {mode} import شد.")
+                await safe_edit_message_text(
+                    query, f"✅ دیتا با موفقیت به صورت {mode} import شد."
+                )
             else:
                 await safe_edit_message_text(query, "❌ خطا در import دیتا.")
-                
+
         except Exception as e:
             logger.error(f"Import mode error: {e}")
             log_exception(logger, e, "context")
             await safe_edit_message_text(query, f"❌ خطا: {str(e)}")
-        
+
         # حذف فایل موقت
-        context.user_data.pop('import_temp_file', None)
+        context.user_data.pop("import_temp_file", None)
         if os.path.exists(temp_file):
             os.remove(temp_file)
-        
+
         return await self.admin_menu_return(update, context)
-    
+
     @log_admin_action("export_start")
     async def export_start(self, update: Update, context: CustomContext):
         """شروع export دیتا با گزینه‌های مختلف"""
         query = update.callback_query
         await query.answer()
-        
+
         # بررسی دسترسی
         from core.security.role_manager import Permission
-        user_permissions = await self.role_manager.get_user_permissions(query.from_user.id)
-        
+
+        user_permissions = await self.role_manager.get_user_permissions(
+            query.from_user.id
+        )
+
         if Permission.IMPORT_EXPORT not in user_permissions:
             await self.audit_permission_denied(
                 query.from_user.id,
@@ -215,15 +246,24 @@ class ImportExportHandler(BaseAdminHandler):
             )
             await query.answer("❌ شما دسترسی Import/Export ندارید.", show_alert=True)
             from handlers.admin.admin_states import ADMIN_MENU
+
             return ADMIN_MENU
-        
+
         keyboard = [
-            [InlineKeyboardButton("📦 Export کامل (JSON)", callback_data="export_json")],
+            [
+                InlineKeyboardButton(
+                    "📦 Export کامل (JSON)", callback_data="export_json"
+                )
+            ],
             [InlineKeyboardButton("📊 Export به CSV", callback_data="export_csv")],
-            [InlineKeyboardButton("🗄️ Backup کامل (ZIP)", callback_data="export_backup")],
-            [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_data_management")]
+            [
+                InlineKeyboardButton(
+                    "🗄️ Backup کامل (ZIP)", callback_data="export_backup"
+                )
+            ],
+            [InlineKeyboardButton("⬅️ بازگشت", callback_data="admin_data_management")],
         ]
-        
+
         await safe_edit_message_text(
             query,
             "📤 **Export دیتا**\n\n"
@@ -232,11 +272,11 @@ class ImportExportHandler(BaseAdminHandler):
             "• **CSV**: برای Excel و تحلیل‌های آماری\n"
             "• **ZIP**: بکاپ کامل همه فایل‌ها",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+            parse_mode="Markdown",
         )
-        
+
         return EXPORT_START
-    
+
     @log_admin_action("export_type_selected")
     async def export_type_selected(self, update: Update, context: CustomContext):
         """انتخاب نوع export"""
@@ -245,7 +285,10 @@ class ImportExportHandler(BaseAdminHandler):
 
         user_id = update.effective_user.id
         from core.security.role_manager import Permission
-        if not await self.role_manager.has_permission(user_id, Permission.IMPORT_EXPORT) and not await self.role_manager.is_super_admin(user_id):
+
+        if not await self.role_manager.has_permission(
+            user_id, Permission.IMPORT_EXPORT
+        ) and not await self.role_manager.is_super_admin(user_id):
             await self.audit_permission_denied(
                 user_id,
                 route="admin_export_type_selected",
@@ -257,70 +300,71 @@ class ImportExportHandler(BaseAdminHandler):
 
         if query.data == "admin_cancel":
             return await self.admin_menu_return(update, context)
-        
+
         await safe_edit_message_text(query, "⏳ در حال آماده‌سازی export...")
-        
+
         try:
             from managers.backup_manager import BackupManager
+
             backup_mgr = BackupManager(self.db)
-            
+
             export_file = None
             caption = ""
-            
+
             if query.data == "export_json":
                 export_file = await backup_mgr.export_to_json()
                 caption = "📦 Export دیتابیس (JSON)\n\n✅ قابل import مجدد در ربات"
-                
+
             elif query.data == "export_csv":
                 export_dir = await backup_mgr.export_to_csv()
                 if export_dir:
                     # Create ZIP from CSV files
                     import zipfile
+
                     export_file = export_dir + ".zip"
-                    with zipfile.ZipFile(export_file, 'w') as zf:
+                    with zipfile.ZipFile(export_file, "w") as zf:
                         for root, dirs, files in os.walk(export_dir):
                             for file in files:
                                 file_path = os.path.join(root, file)
                                 zf.write(file_path, os.path.basename(file_path))
                     # Clean up CSV directory
                     import shutil
+
                     shutil.rmtree(export_dir)
                     caption = "📊 Export دیتابیس (CSV)\n\n✅ قابل استفاده در Excel"
-                
+
             elif query.data == "export_backup":
                 export_file = await backup_mgr.create_full_backup()
                 caption = "🗄️ Backup کامل دیتابیس\n\n✅ شامل همه فایل‌ها و تنظیمات"
-            
+
             if export_file and os.path.exists(export_file):
-                with open(export_file, 'rb') as f:
+                with open(export_file, "rb") as f:
                     await query.message.reply_document(
                         document=f,
                         filename=os.path.basename(export_file),
-                        caption=caption
+                        caption=caption,
                     )
-                
+
                 # Get file size
                 file_size_kb = os.path.getsize(export_file) / 1024  # KB
                 if file_size_kb > 1024:
-                    file_size = f"{file_size_kb/1024:.2f} MB"
+                    file_size = f"{file_size_kb / 1024:.2f} MB"
                 else:
                     file_size = f"{file_size_kb:.2f} KB"
-                
+
                 await safe_edit_message_text(
-                    query,
-                    f"✅ Export با موفقیت انجام شد.\n"
-                    f"📁 حجم فایل: {file_size}"
+                    query, f"✅ Export با موفقیت انجام شد.\n📁 حجم فایل: {file_size}"
                 )
-                
+
                 # Clean up after sending
                 if os.path.exists(export_file):
                     os.remove(export_file)
             else:
                 await safe_edit_message_text(query, "❌ خطا در Export دیتا.")
-                
+
         except Exception as e:
             logger.error(f"Export error: {e}")
             log_exception(logger, e, "context")
             await safe_edit_message_text(query, f"❌ خطا در Export: {str(e)}")
-        
+
         return await self.admin_menu_return(update, context)

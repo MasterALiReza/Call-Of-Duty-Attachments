@@ -1,4 +1,4 @@
-# ممیزی ساختاری/معماری CoDM-Attach (ریسک‌محور)
+# ممیزی ساختاری/معماری Ox-Loadout (ریسک‌محور)
 تاریخ ممیزی: 2026-03-03  
 دامنه: کد + دیتابیس + DevOps  
 معیار اولویت: Production Risk
@@ -348,12 +348,12 @@
 - `Severity`: P1
 - `Impact`: نام دیتابیس/کاربر بین setup/deploy/compose ناهمخوان است و خطای عملیاتی ایجاد می‌کند
 - `Evidence(file:line)`:
-  - `scripts/setup_database.py:25` (`codm_attachments_db`)
-  - `scripts/setup_database.py:26` (`codm_bot_user`)
-  - `docker-compose.yml:18` (`codm_bot`, `codm_admin`)
-  - `docker-compose.yml:79` (`POSTGRES_DB=codm_bot`)
-  - `deploy.sh:49` (`DEFAULT_DB_NAME="codm_bot_db"`)
-  - `deploy.sh:50` (`DEFAULT_DB_USER="codm_bot_user"`)
+  - `scripts/setup_database.py:25` (`ox_loadout_attachments_db`)
+  - `scripts/setup_database.py:26` (`ox_loadout_bot_user`)
+  - `docker-compose.yml:18` (`ox_loadout_bot`, `ox_loadout_admin`)
+  - `docker-compose.yml:79` (`POSTGRES_DB=ox_loadout_bot`)
+  - `deploy.sh:49` (`DEFAULT_DB_NAME="ox_loadout_bot_db"`)
+  - `deploy.sh:50` (`DEFAULT_DB_USER="ox_loadout_bot_user"`)
 - `Root Cause`: قرارداد deployment/environment یکپارچه نشده
 - `Blast Radius`: provisioning و troubleshooting محیط‌ها
 - `Fix Direction`: تعریف canonical env contract و تولید همه scriptها از یک source

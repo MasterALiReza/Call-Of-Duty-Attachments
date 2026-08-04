@@ -1,5 +1,5 @@
 -- ============================================================================
--- CODM Attachments Bot - Complete Database Setup Script
+-- OX_LOADOUT Attachments Bot - Complete Database Setup Script
 -- ============================================================================
 -- Database Name: provided by bootstrap/runtime environment
 -- User/Owner: resolved from the current database owner role
@@ -160,8 +160,7 @@ CREATE TABLE IF NOT EXISTS user_attachments (
     deleted_by BIGINT REFERENCES admins(user_id),
     like_count INTEGER NOT NULL DEFAULT 0,
     report_count INTEGER NOT NULL DEFAULT 0,
-    view_count INTEGER NOT NULL DEFAULT 0,
-    views_count INTEGER DEFAULT 0
+    view_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_attachments_status ON user_attachments (status, submitted_at DESC);

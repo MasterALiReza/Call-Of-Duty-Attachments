@@ -8,7 +8,7 @@ from .base_repository import BaseRepository
 from typing import Optional, Dict, List, cast
 from utils.logger import log_exception
 
-logger = logging.getLogger('database.user_mixin')
+logger = logging.getLogger("database.user_mixin")
 
 
 class UserRepository(BaseRepository):
@@ -53,7 +53,7 @@ class UserRepository(BaseRepository):
             query = "SELECT language FROM users WHERE user_id = %s"
             result = await self.execute_query(query, (user_id,), fetch_one=True)
             if result:
-                return result.get('language')
+                return result.get("language")
             return None
         except Exception as e:
             log_exception(logger, e, f"get_user_language({user_id})")
@@ -64,7 +64,7 @@ class UserRepository(BaseRepository):
         تنظیم زبان کاربر در جدول users (fa/en)
         اگر کاربر وجود نداشت، ساخته می‌شود.
         """
-        if lang not in ('fa', 'en'):
+        if lang not in ("fa", "en"):
             logger.error(f"Invalid language: {lang}")
             return False
         try:
@@ -77,7 +77,7 @@ class UserRepository(BaseRepository):
                         ON CONFLICT (user_id)
                         DO UPDATE SET language = EXCLUDED.language
                         """,
-                        (user_id, lang)
+                        (user_id, lang),
                     )
                 logger.info(f"✅ Language set: user={user_id}, lang={lang}")
                 return True
@@ -102,7 +102,9 @@ class UserRepository(BaseRepository):
                     )
                     affected = cursor.rowcount
                 if affected == 0:
-                    logger.warning(f"No banned record found to unban for user_id={user_id}")
+                    logger.warning(
+                        f"No banned record found to unban for user_id={user_id}"
+                    )
                     return False
             logger.info(f"✅ User unbanned from attachments: {user_id}")
             return True
@@ -110,30 +112,36 @@ class UserRepository(BaseRepository):
             log_exception(logger, e, f"unban_user_from_attachments({user_id})")
             return False
 
-    async def create_role_if_not_exists(self, role_name: str, display_name: str, 
-                                   description: str = '', icon: str = '', 
-                                   permissions: List[str] = None) -> bool:
+    async def create_role_if_not_exists(
+        self,
+        role_name: str,
+        display_name: str,
+        description: str = "",
+        icon: str = "",
+        permissions: List[str] = None,
+    ) -> bool:
         """ایجاد role اگر وجود نداشته باشد"""
         permissions = permissions or []
-        
+
         try:
             async with self.transaction() as conn:
                 async with conn.cursor() as cursor:
-                    
                     # بررسی وجود role
                     query_check = "SELECT id FROM roles WHERE name = %s"
                     await cursor.execute(query_check, (role_name,))
                     result = await cursor.fetchone()
-                    
+
                     if result:
-                        role_id = result['id']
+                        role_id = result["id"]
                         # Update existing role
                         query_update = """
                             UPDATE roles 
                             SET display_name = %s, description = %s, icon = %s
                             WHERE id = %s
                         """
-                        await cursor.execute(query_update, (display_name, description, icon, role_id))
+                        await cursor.execute(
+                            query_update, (display_name, description, icon, role_id)
+                        )
                     else:
                         # Insert new role
                         query_insert = """
@@ -141,10 +149,12 @@ class UserRepository(BaseRepository):
                             VALUES (%s, %s, %s, %s, NOW())
                             RETURNING id
                         """
-                        await cursor.execute(query_insert, (role_name, display_name, description, icon))
+                        await cursor.execute(
+                            query_insert, (role_name, display_name, description, icon)
+                        )
                         result = await cursor.fetchone()
-                        role_id = result['id']
-                    
+                        role_id = result["id"]
+
                     # حذف permissions قدیمی
                     query_delete = "DELETE FROM role_permissions WHERE role_id = %s"
                     await cursor.execute(query_delete, (role_id,))
@@ -155,10 +165,10 @@ class UserRepository(BaseRepository):
                             VALUES (%s, %s)
                         """
                         await cursor.execute(query_perm, (role_id, perm))
-                
+
                 logger.info(f"✅ Role created/updated: {role_name}")
                 return True
-                
+
         except Exception as e:
             log_exception(logger, e, f"create_role_if_not_exists({role_name})")
             return False
@@ -169,11 +179,11 @@ class UserRepository(BaseRepository):
             # Source of truth for active subscribers is the 'subscribers' table
             query = "SELECT user_id FROM subscribers WHERE is_active = TRUE"
             results = await self.execute_query(query, fetch_all=True)
-            return [row['user_id'] for row in results]
+            return [row["user_id"] for row in results]
         except Exception as e:
             log_exception(logger, e, "get_all_users")
             return []
-    
+
     async def get_all_admins(self) -> List[Dict]:
         """دریافت لیست همه ادمین‌ها"""
         try:
@@ -202,8 +212,8 @@ class UserRepository(BaseRepository):
             for row in rows:
                 item = dict(row)
                 # Normalize roles to list[dict]
-                item['roles'] = self._decode_json_list(
-                    item.get('roles'),
+                item["roles"] = self._decode_json_list(
+                    item.get("roles"),
                     "get_all_admins.roles_decode",
                 )
                 admins.append(item)
@@ -211,13 +221,13 @@ class UserRepository(BaseRepository):
         except Exception as e:
             log_exception(logger, e, "get_all_admins")
             return []
-    
+
     async def get_admins_count(self) -> int:
         """تعداد ادمین‌ها"""
         try:
             query = "SELECT COUNT(*) as count FROM admins"
             result = await self.execute_query(query, fetch_one=True)
-            return result['count'] if result else 0
+            return result["count"] if result else 0
         except Exception as e:
             log_exception(logger, e, "get_admins_count")
             return 0
@@ -232,81 +242,103 @@ class UserRepository(BaseRepository):
         except Exception as e:
             log_exception(logger, e, f"remove_admin({user_id})")
             return False
-    
-    async def assign_role_to_admin(self, user_id: int, role_name: str,
-                            display_name: str = None, added_by: int = None) -> bool:
+
+    async def assign_role_to_admin(
+        self,
+        user_id: int,
+        role_name: str,
+        display_name: str = None,
+        added_by: int = None,
+    ) -> bool:
         """اختصاص نقش به ادمین"""
         try:
             async with self.transaction() as conn:
                 async with conn.cursor() as cursor:
                     # دریافت role_id
-                    await cursor.execute("SELECT id FROM roles WHERE name = %s", (role_name,))
+                    await cursor.execute(
+                        "SELECT id FROM roles WHERE name = %s", (role_name,)
+                    )
                     role = await cursor.fetchone()
-                    
+
                     if not role:
                         logger.error(f"❌ Role {role_name} not found")
                         return False
-                    
-                    role_id = role.get('id')
-                    
+
+                    role_id = role.get("id")
+
                     # ✅ Ensure user exists in 'users' table (Foreign Key requirement)
                     # This allows adding admins who haven't started the bot yet.
-                    await cursor.execute("""
+                    await cursor.execute(
+                        """
                         INSERT INTO users (user_id, last_seen)
                         VALUES (%s, NOW())
                         ON CONFLICT (user_id) DO UPDATE SET last_seen = NOW()
-                    """, (user_id,))
-                    
+                    """,
+                        (user_id,),
+                    )
+
                     # اضافه کردن ادمین اگر وجود ندارد
-                    await cursor.execute("""
+                    await cursor.execute(
+                        """
                         INSERT INTO admins (user_id, display_name)
                         VALUES (%s, %s)
                         ON CONFLICT (user_id) DO UPDATE SET
                             display_name = COALESCE(EXCLUDED.display_name, admins.display_name),
                             updated_at = NOW()
-                    """, (user_id, display_name))
-                    
+                    """,
+                        (user_id, display_name),
+                    )
+
                     # اختصاص نقش
-                    await cursor.execute("""
+                    await cursor.execute(
+                        """
                         INSERT INTO admin_roles (user_id, role_id, assigned_by)
                         VALUES (%s, %s, %s)
                         ON CONFLICT (user_id, role_id) DO NOTHING
-                    """, (user_id, role_id, added_by))
-                
+                    """,
+                        (user_id, role_id, added_by),
+                    )
+
                 logger.info(f"✅ Admin {user_id} assigned role {role_name}")
                 return True
-                
+
         except Exception as e:
             log_exception(logger, e, f"assign_role_to_admin({user_id}, {role_name})")
             return False
-    
+
     async def remove_role_from_admin(self, user_id: int, role_name: str) -> bool:
         """حذف یک نقش خاص از ادمین"""
         try:
             async with self.transaction() as conn:
                 async with conn.cursor() as cursor:
-                    
-                    await cursor.execute("SELECT id FROM roles WHERE name = %s", (role_name,))
+                    await cursor.execute(
+                        "SELECT id FROM roles WHERE name = %s", (role_name,)
+                    )
                     role = await cursor.fetchone()
-                    
+
                     if not role:
                         logger.error(f"❌ Role {role_name} not found")
                         return False
-                    
-                    role_id = role.get('id')
-                    
-                    await cursor.execute("""
+
+                    role_id = role.get("id")
+
+                    await cursor.execute(
+                        """
                         DELETE FROM admin_roles 
                         WHERE user_id = %s AND role_id = %s
-                    """, (user_id, role_id))
-                    
-                logger.info(f"✅ Role {role_name} removed from admin {user_id} (PostgreSQL)")
+                    """,
+                        (user_id, role_id),
+                    )
+
+                logger.info(
+                    f"✅ Role {role_name} removed from admin {user_id} (PostgreSQL)"
+                )
                 return True
-                
+
         except Exception as e:
             log_exception(logger, e, f"remove_role_from_admin({user_id}, {role_name})")
             return False
-    
+
     async def get_admin_roles(self, user_id: int) -> List[str]:
         """دریافت لیست نام نقش‌های یک ادمین"""
         try:
@@ -318,7 +350,7 @@ class UserRepository(BaseRepository):
                 ORDER BY r.name
             """
             results = await self.execute_query(query, (user_id,), fetch_all=True)
-            return [row['name'] for row in results]
+            return [row["name"] for row in results]
         except Exception as e:
             log_exception(logger, e, f"get_admin_roles({user_id})")
             return []
@@ -340,28 +372,30 @@ class UserRepository(BaseRepository):
                 ORDER BY r.name
             """
             results = await self.execute_query(query, fetch_all=True)
-            
+
             # تبدیل permissions از JSON به لیست
             result = []
             for row in results:
                 perms = self._decode_json_list(
-                    row.get('permissions', []),
+                    row.get("permissions", []),
                     "get_all_roles.permissions_decode",
                 )
-                result.append({
-                    'name': row['name'],
-                    'display_name': row['display_name'],
-                    'description': row['description'],
-                    'icon': row['icon'],
-                    'permissions': perms
-                })
-            
+                result.append(
+                    {
+                        "name": row["name"],
+                        "display_name": row["display_name"],
+                        "description": row["description"],
+                        "icon": row["icon"],
+                        "permissions": perms,
+                    }
+                )
+
             return result
-            
+
         except Exception as e:
             log_exception(logger, e, "get_all_roles")
             return []
-    
+
     async def get_role(self, role_name: str) -> Optional[Dict]:
         """دریافت اطلاعات یک نقش - بهینه‌شده با JOIN"""
         try:
@@ -378,29 +412,30 @@ class UserRepository(BaseRepository):
                 GROUP BY r.id, r.name, r.display_name, r.description, r.icon
             """
             row = await self.execute_query(query, (role_name,), fetch_one=True)
-            
+
             if not row:
                 return None
-            
+
             perms = self._decode_json_list(
-                row.get('permissions', []),
+                row.get("permissions", []),
                 f"get_role({role_name}).permissions_decode",
             )
-            
+
             return {
-                'name': row['name'],
-                'display_name': row['display_name'],
-                'description': row['description'],
-                'icon': row['icon'],
-                'permissions': perms
+                "name": row["name"],
+                "display_name": row["display_name"],
+                "description": row["description"],
+                "icon": row["icon"],
+                "permissions": perms,
             }
-            
+
         except Exception as e:
             log_exception(logger, e, f"get_role({role_name})")
             return None
-    
-    async def ban_user_from_submissions(self, user_id: int, reason: str, 
-                                  banned_by: int = None) -> bool:
+
+    async def ban_user_from_submissions(
+        self, user_id: int, reason: str, banned_by: int = None
+    ) -> bool:
         """محروم کردن کاربر از ارسال اتچمنت"""
         try:
             query = """
@@ -416,7 +451,7 @@ class UserRepository(BaseRepository):
         except Exception as e:
             log_exception(logger, e, f"ban_user_from_submissions({user_id})")
             return False
-    
+
     async def unban_user_from_submissions(self, user_id: int) -> bool:
         """رفع محرومیت کاربر"""
         try:
@@ -442,11 +477,11 @@ class UserRepository(BaseRepository):
             query = "SELECT role FROM admins WHERE user_id = %s LIMIT 1"
             result = await self.execute_query(query, (user_id,), fetch_one=True)
             if result:
-                return result.get('role')
-            return 'user' # پیش‌فرض برای کاربران عادی
+                return result.get("role")
+            return "user"  # پیش‌فرض برای کاربران عادی
         except Exception as e:
             log_exception(logger, e, f"get_user_role({user_id})")
-            return 'user'
+            return "user"
 
     async def is_admin(self, user_id: int) -> bool:
         """بررسی ادمین بودن کاربر - CRITICAL"""
@@ -457,8 +492,10 @@ class UserRepository(BaseRepository):
         except Exception as e:
             log_exception(logger, e, f"is_admin({user_id})")
             return False
-    
-    async def add_user(self, user_id: int, username: str = None, first_name: str = None) -> bool:
+
+    async def add_user(
+        self, user_id: int, username: str = None, first_name: str = None
+    ) -> bool:
         """افزودن کاربر جدید"""
         try:
             query = """
@@ -475,9 +512,14 @@ class UserRepository(BaseRepository):
         except Exception as e:
             log_exception(logger, e, f"add_user({user_id})")
             return False
-    
-    async def upsert_user(self, user_id: int, username: str = None,
-                   first_name: str = None, last_name: str = None) -> bool:
+
+    async def upsert_user(
+        self,
+        user_id: int,
+        username: str = None,
+        first_name: str = None,
+        last_name: str = None,
+    ) -> bool:
         """Insert or Update user (idempotent)"""
         try:
             query = """
@@ -494,7 +536,7 @@ class UserRepository(BaseRepository):
         except Exception as e:
             log_exception(logger, e, f"upsert_user({user_id})")
             return False
-    
+
     async def get_admin(self, user_id: int) -> Optional[Dict]:
         """دریافت اطلاعات ادمین"""
         try:
@@ -505,10 +547,10 @@ class UserRepository(BaseRepository):
                 WHERE a.user_id = %s
             """
             result = await self.execute_query(query, (user_id,), fetch_one=True)
-            
+
             if not result:
                 return None
-            
+
             admin = result
             q_roles = """
                 SELECT r.name, r.display_name, r.icon
@@ -518,12 +560,12 @@ class UserRepository(BaseRepository):
                 ORDER BY r.name
             """
             roles = await self.execute_query(q_roles, (user_id,), fetch_all=True) or []
-            admin['roles'] = roles
+            admin["roles"] = roles
             return admin
         except Exception as e:
             log_exception(logger, e, f"get_admin({user_id})")
             return None
-    
+
     async def get_user_display_name(self, user_id: int) -> str:
         """دریافت نام نمایشی کاربر"""
         try:
@@ -533,50 +575,67 @@ class UserRepository(BaseRepository):
                 WHERE user_id = %s
             """
             result = await self.execute_query(query, (user_id,), fetch_one=True)
-            
+
             if result:
-                username = result.get('username')
-                first_name = result.get('first_name')
-                
+                username = result.get("username")
+                first_name = result.get("first_name")
+
                 if username:
                     return f"@{username}"
                 elif first_name:
                     return str(first_name)
-            
+
             return f"User_{user_id}"
         except Exception as e:
             logger.debug(f"Could not get display name for {user_id}: {e}")
             return f"User_{user_id}"
-    
-    async def add_user_attachment(self, user_id: int, weapon_id: int = None, mode: str = None,
-                           category: str = None, custom_weapon_name: str = None,
-                           attachment_name: str = None, image_file_id: str = None,
-                           description: str = None) -> Optional[int]:
+
+    async def add_user_attachment(
+        self,
+        user_id: int,
+        weapon_id: int = None,
+        mode: str = None,
+        category: str = None,
+        custom_weapon_name: str = None,
+        attachment_name: str = None,
+        image_file_id: str = None,
+        description: str = None,
+    ) -> Optional[int]:
         """افزودن اتچمنت کاربر"""
         try:
             async with self.transaction() as conn:
                 async with conn.cursor() as cursor:
-                    
-                    await cursor.execute("""
+                    await cursor.execute(
+                        """
                         INSERT INTO user_attachments (
                             user_id, weapon_id, mode, category, custom_weapon_name,
                             attachment_name, image_file_id, description, status, submitted_at
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', NOW())
                         RETURNING id
-                    """, (user_id, weapon_id, mode, category, custom_weapon_name,
-                          attachment_name, image_file_id, description))
-                    
+                    """,
+                        (
+                            user_id,
+                            weapon_id,
+                            mode,
+                            category,
+                            custom_weapon_name,
+                            attachment_name,
+                            image_file_id,
+                            description,
+                        ),
+                    )
+
                     result = await cursor.fetchone()
-                    attachment_id = cast(int | None, result['id'] if result else None)
+                    attachment_id = cast(int | None, result["id"] if result else None)
                     if attachment_id is None:
                         return None
-                
+
                 logger.info(f"✅ User attachment added: ID={attachment_id}")
                 return int(attachment_id)
         except Exception as e:
             log_exception(logger, e, "add_user_attachment")
             return None
-    
+
     async def get_user_attachment(self, attachment_id: int) -> Optional[Dict]:
         """دریافت اتچمنت کاربر"""
         try:
@@ -587,34 +646,35 @@ class UserRepository(BaseRepository):
                 WHERE ua.id = %s
             """
             result = await self.execute_query(query, (attachment_id,), fetch_one=True)
-            
+
             if result:
                 data = dict(result)
-                data['weapon_name'] = data.get('custom_weapon_name', 'نامشخص')
-                data['category_name'] = data.get('category', 'نامشخص')
+                data["weapon_name"] = data.get("custom_weapon_name", "نامشخص")
+                data["category_name"] = data.get("category", "نامشخص")
                 return data
             return None
         except Exception as e:
             log_exception(logger, e, f"get_user_attachment({attachment_id})")
             return None
-    
-    async def get_user_attachments_paginated(self, user_id: int, status: str = None, 
-                                          limit: int = 5, offset: int = 0) -> List[Dict]:
+
+    async def get_user_attachments_paginated(
+        self, user_id: int, status: str = None, limit: int = 5, offset: int = 0
+    ) -> List[Dict]:
         """دریافت اتچمنت‌های یک کاربر خاص با صفحه‌بندی"""
         # Validate status to prevent injection (whitelist approach)
-        ALLOWED_STATUSES = {'pending', 'approved', 'rejected', 'deleted'}
-        
+        ALLOWED_STATUSES = {"pending", "approved", "rejected", "deleted"}
+
         try:
             conditions = ["ua.user_id = %s"]
             params: list[object] = [user_id]
-            
+
             if status and status in ALLOWED_STATUSES:
                 conditions.append("ua.status = %s")
                 params.append(status)
-            
+
             params.extend([limit, offset])
             where_clause = " AND ".join(conditions)
-            
+
             query = f"""
                 SELECT ua.*, w.name as weapon_name, w.display_name as weapon_display
                 FROM user_attachments ua
@@ -632,43 +692,46 @@ class UserRepository(BaseRepository):
     async def get_user_attachments_count(self, user_id: int, status: str = None) -> int:
         """تعداد کل اتچمنت‌های یک کاربر برای مدیریت صفحه‌بندی"""
         # Validate status to prevent injection (whitelist approach)
-        ALLOWED_STATUSES = {'pending', 'approved', 'rejected', 'deleted'}
-        
+        ALLOWED_STATUSES = {"pending", "approved", "rejected", "deleted"}
+
         try:
             conditions = ["user_id = %s"]
             params: list[object] = [user_id]
-            
+
             if status and status in ALLOWED_STATUSES:
                 conditions.append("status = %s")
                 params.append(status)
-            
+
             where_clause = " AND ".join(conditions)
-            query = f"SELECT COUNT(*) as count FROM user_attachments WHERE {where_clause}"
+            query = (
+                f"SELECT COUNT(*) as count FROM user_attachments WHERE {where_clause}"
+            )
             result = await self.execute_query(query, tuple(params), fetch_one=True)
-            return result['count'] if result else 0
+            return result["count"] if result else 0
         except Exception as e:
             log_exception(logger, e, f"get_user_attachments_count({user_id})")
             return 0
 
-    async def get_approved_user_attachments_paginated(self, mode: str, category: str = None, 
-                                                   limit: int = 5, offset: int = 0) -> List[Dict]:
+    async def get_approved_user_attachments_paginated(
+        self, mode: str, category: str = None, limit: int = 5, offset: int = 0
+    ) -> List[Dict]:
         """دریافت اتچمنت‌های تایید شده برای نمایش عمومی با صفحه‌بندی"""
         # Validate mode (whitelist approach)
-        ALLOWED_MODES = {'br', 'mp', 'zombies'}
+        ALLOWED_MODES = {"br", "mp", "zombies"}
         if mode not in ALLOWED_MODES:
             return []
-            
+
         try:
             conditions = ["ua.mode = %s", "ua.status = 'approved'"]
             params: list[object] = [mode]
-            
-            if category and category != 'all':
+
+            if category and category != "all":
                 conditions.append("ua.category = %s")
                 params.append(category)
-            
+
             params.extend([limit, offset])
             where_clause = " AND ".join(conditions)
-            
+
             query = f"""
                 SELECT ua.*, u.username, u.first_name, w.display_name as weapon_display
                 FROM user_attachments ua
@@ -684,31 +747,36 @@ class UserRepository(BaseRepository):
             log_exception(logger, e, f"get_approved_user_attachments_paginated({mode})")
             return []
 
-    async def get_approved_user_attachments_count(self, mode: str, category: str = None) -> int:
+    async def get_approved_user_attachments_count(
+        self, mode: str, category: str = None
+    ) -> int:
         """تعداد اتچمنت‌های تایید شده برای مدیریت صفحه‌بندی Browse"""
         # Validate mode (whitelist approach)
-        ALLOWED_MODES = {'br', 'mp', 'zombies'}
+        ALLOWED_MODES = {"br", "mp", "zombies"}
         if mode not in ALLOWED_MODES:
             return 0
-            
+
         try:
             conditions = ["mode = %s", "status = 'approved'"]
             params = [mode]
-            
-            if category and category != 'all':
+
+            if category and category != "all":
                 conditions.append("category = %s")
                 params.append(category)
-            
+
             where_clause = " AND ".join(conditions)
-            query = f"SELECT COUNT(*) as count FROM user_attachments WHERE {where_clause}"
+            query = (
+                f"SELECT COUNT(*) as count FROM user_attachments WHERE {where_clause}"
+            )
             result = await self.execute_query(query, tuple(params), fetch_one=True)
-            return result['count'] if result else 0
+            return result["count"] if result else 0
         except Exception as e:
             log_exception(logger, e, f"get_approved_user_attachments_count({mode})")
             return 0
 
-    async def get_user_attachments_by_status(self, status: str = 'pending',
-                                      limit: int = 50, offset: int = 0) -> List[Dict]:
+    async def get_user_attachments_by_status(
+        self, status: str = "pending", limit: int = 50, offset: int = 0
+    ) -> List[Dict]:
         """دریافت اتچمنت‌های کاربر بر اساس وضعیت"""
         try:
             query = """
@@ -719,138 +787,180 @@ class UserRepository(BaseRepository):
                 ORDER BY ua.submitted_at DESC
                 LIMIT %s OFFSET %s
             """
-            results = await self.execute_query(query, (status, limit, offset), fetch_all=True)
+            results = await self.execute_query(
+                query, (status, limit, offset), fetch_all=True
+            )
             return results
         except Exception as e:
             log_exception(logger, e, f"get_user_attachments_by_status({status})")
             return []
-    
+
     async def approve_user_attachment(self, attachment_id: int, admin_id: int) -> bool:
         """تایید اتچمنت کاربر"""
         try:
             async with self.transaction() as conn:
                 async with conn.cursor() as cursor:
-                    
-                    await cursor.execute("""
+                    await cursor.execute(
+                        """
                         SELECT user_id FROM user_attachments WHERE id = %s
-                    """, (attachment_id,))
-                    
+                    """,
+                        (attachment_id,),
+                    )
+
                     row = await cursor.fetchone()
                     if not row:
                         return False
-                    
-                    user_id = row['user_id']
-                    
-                    await cursor.execute("""
+
+                    user_id = row["user_id"]
+
+                    await cursor.execute(
+                        """
                         UPDATE user_attachments
                         SET status = 'approved',
                             approved_at = NOW(),
                             approved_by = %s
                         WHERE id = %s
-                    """, (admin_id, attachment_id))
-                    
-                    await cursor.execute("""
+                    """,
+                        (admin_id, attachment_id),
+                    )
+
+                    await cursor.execute(
+                        """
                         UPDATE user_submission_stats
                         SET approved_count = approved_count + 1
                         WHERE user_id = %s
-                    """, (user_id,))
-                
+                    """,
+                        (user_id,),
+                    )
+
                 logger.info(f"✅ User attachment {attachment_id} approved")
                 return True
         except Exception as e:
             log_exception(logger, e, f"approve_user_attachment({attachment_id})")
             return False
-    
-    async def reject_user_attachment(self, attachment_id: int, admin_id: int, reason: str) -> bool:
+
+    async def reject_user_attachment(
+        self, attachment_id: int, admin_id: int, reason: str
+    ) -> bool:
         """رد اتچمنت کاربر"""
         try:
             async with self.transaction() as conn:
                 async with conn.cursor() as cursor:
-                    
-                    await cursor.execute("""
+                    await cursor.execute(
+                        """
                         SELECT user_id FROM user_attachments WHERE id = %s
-                    """, (attachment_id,))
-                    
+                    """,
+                        (attachment_id,),
+                    )
+
                     row = await cursor.fetchone()
                     if not row:
                         return False
-                    
-                    user_id = row['user_id']
-                    
-                    await cursor.execute("""
+
+                    user_id = row["user_id"]
+
+                    await cursor.execute(
+                        """
                         UPDATE user_attachments
                         SET status = 'rejected',
                             rejected_at = NOW(),
                             rejected_by = %s,
                             rejection_reason = %s
                         WHERE id = %s
-                    """, (admin_id, reason, attachment_id))
-                    
-                    await cursor.execute("""
+                    """,
+                        (admin_id, reason, attachment_id),
+                    )
+
+                    await cursor.execute(
+                        """
                         UPDATE user_submission_stats
                         SET rejected_count = rejected_count + 1
                         WHERE user_id = %s
-                    """, (user_id,))
-                
+                    """,
+                        (user_id,),
+                    )
+
                 logger.info(f"✅ User attachment {attachment_id} rejected")
                 return True
         except Exception as e:
             log_exception(logger, e, f"reject_user_attachment({attachment_id})")
             return False
 
-    async def delete_user_attachment(self, attachment_id: int, deleted_by: int = None) -> bool:
+    async def delete_user_attachment(
+        self, attachment_id: int, deleted_by: int = None
+    ) -> bool:
         """حذف اتچمنت کاربر (Soft Delete)"""
         try:
             async with self.transaction() as conn:
                 async with conn.cursor() as cursor:
-                    await cursor.execute("SELECT user_id, status FROM user_attachments WHERE id = %s", (attachment_id,))
+                    await cursor.execute(
+                        "SELECT user_id, status FROM user_attachments WHERE id = %s",
+                        (attachment_id,),
+                    )
                     result = await cursor.fetchone()
                     if not result:
                         return False
-                    
-                    user_id = result['user_id']
-                    status = result['status']
-                    
-                    if status == 'deleted':
+
+                    user_id = result["user_id"]
+                    status = result["status"]
+
+                    if status == "deleted":
                         return True
-                    
-                    await cursor.execute("""
+
+                    await cursor.execute(
+                        """
                         UPDATE user_attachments
                         SET status = 'deleted',
                             deleted_at = NOW(),
                             deleted_by = %s
                         WHERE id = %s
-                    """, (deleted_by, attachment_id))
-                    
-                    if status == 'approved':
-                        await cursor.execute("""
+                    """,
+                        (deleted_by, attachment_id),
+                    )
+
+                    if status == "approved":
+                        await cursor.execute(
+                            """
                             UPDATE user_submission_stats
                             SET approved_count = GREATEST(0, approved_count - 1),
                                 deleted_count = deleted_count + 1
                             WHERE user_id = %s
-                        """, (user_id,))
-                    elif status == 'rejected':
-                        await cursor.execute("""
+                        """,
+                            (user_id,),
+                        )
+                    elif status == "rejected":
+                        await cursor.execute(
+                            """
                             UPDATE user_submission_stats
                             SET rejected_count = GREATEST(0, rejected_count - 1),
                                 deleted_count = deleted_count + 1
                             WHERE user_id = %s
-                        """, (user_id,))
-                    elif status == 'pending':
-                        await cursor.execute("""
+                        """,
+                            (user_id,),
+                        )
+                    elif status == "pending":
+                        await cursor.execute(
+                            """
                             UPDATE user_submission_stats
                             SET pending_count = GREATEST(0, pending_count - 1),
                                 deleted_count = deleted_count + 1
                             WHERE user_id = %s
-                        """, (user_id,))
+                        """,
+                            (user_id,),
+                        )
                     else:
-                        await cursor.execute("""
+                        await cursor.execute(
+                            """
                             UPDATE user_submission_stats
                             SET deleted_count = deleted_count + 1
                             WHERE user_id = %s
-                        """, (user_id,))
-                
-                logger.info(f"✅ User attachment {attachment_id} soft-deleted (Status: {status})")
+                        """,
+                            (user_id,),
+                        )
+
+                logger.info(
+                    f"✅ User attachment {attachment_id} soft-deleted (Status: {status})"
+                )
                 return True
         except Exception as e:
             log_exception(logger, e, f"delete_user_attachment({attachment_id})")
@@ -861,18 +971,22 @@ class UserRepository(BaseRepository):
         try:
             async with self.transaction() as conn:
                 async with conn.cursor() as cursor:
-                    await cursor.execute("SELECT user_id, status FROM user_attachments WHERE id = %s", (attachment_id,))
+                    await cursor.execute(
+                        "SELECT user_id, status FROM user_attachments WHERE id = %s",
+                        (attachment_id,),
+                    )
                     result = await cursor.fetchone()
                     if not result:
                         return False
-                    
-                    user_id = result['user_id']
-                    status = result['status']
-                    
-                    if status == 'pending':
+
+                    user_id = result["user_id"]
+                    status = result["status"]
+
+                    if status == "pending":
                         return True
-                    
-                    await cursor.execute("""
+
+                    await cursor.execute(
+                        """
                         UPDATE user_attachments
                         SET status = 'pending',
                             deleted_at = NULL,
@@ -883,35 +997,54 @@ class UserRepository(BaseRepository):
                             approved_at = NULL,
                             approved_by = NULL
                         WHERE id = %s
-                    """, (attachment_id,))
-                    
-                    if status == 'approved':
-                        await cursor.execute("UPDATE user_submission_stats SET approved_count = GREATEST(0, approved_count - 1) WHERE user_id = %s", (user_id,))
-                    elif status == 'rejected':
-                        await cursor.execute("UPDATE user_submission_stats SET rejected_count = GREATEST(0, rejected_count - 1) WHERE user_id = %s", (user_id,))
-                    elif status == 'deleted':
-                        await cursor.execute("UPDATE user_submission_stats SET deleted_count = GREATEST(0, deleted_count - 1) WHERE user_id = %s", (user_id,))
-                    
-                    await cursor.execute("UPDATE user_submission_stats SET pending_count = pending_count + 1 WHERE user_id = %s", (user_id,))
-                    
+                    """,
+                        (attachment_id,),
+                    )
+
+                    if status == "approved":
+                        await cursor.execute(
+                            "UPDATE user_submission_stats SET approved_count = GREATEST(0, approved_count - 1) WHERE user_id = %s",
+                            (user_id,),
+                        )
+                    elif status == "rejected":
+                        await cursor.execute(
+                            "UPDATE user_submission_stats SET rejected_count = GREATEST(0, rejected_count - 1) WHERE user_id = %s",
+                            (user_id,),
+                        )
+                    elif status == "deleted":
+                        await cursor.execute(
+                            "UPDATE user_submission_stats SET deleted_count = GREATEST(0, deleted_count - 1) WHERE user_id = %s",
+                            (user_id,),
+                        )
+
+                    await cursor.execute(
+                        "UPDATE user_submission_stats SET pending_count = pending_count + 1 WHERE user_id = %s",
+                        (user_id,),
+                    )
+
                 logger.info(f"✅ User attachment {attachment_id} restored to pending")
                 return True
         except Exception as e:
             log_exception(logger, e, f"restore_user_attachment({attachment_id})")
             return False
 
-    async def get_attachments_by_status(self, status: str, page: int = 1, limit: int = 10) -> tuple[list[dict], int]:
+    async def get_attachments_by_status(
+        self, status: str, page: int = 1, limit: int = 10
+    ) -> tuple[list[dict], int]:
         """دریافت لیست اتچمنت‌ها بر اساس وضعیت با صفحه‌بندی"""
         offset = (page - 1) * limit
         try:
             async with self.get_connection() as conn:
                 async with conn.cursor() as cursor:
-                    
-                    await cursor.execute("SELECT COUNT(*) as count FROM user_attachments WHERE status = %s", (status,))
+                    await cursor.execute(
+                        "SELECT COUNT(*) as count FROM user_attachments WHERE status = %s",
+                        (status,),
+                    )
                     result = await cursor.fetchone()
-                    total_count = result['count'] if result else 0
-                    
-                    await cursor.execute("""
+                    total_count = result["count"] if result else 0
+
+                    await cursor.execute(
+                        """
                         SELECT 
                             ua.*,
                             u.username, u.first_name,
@@ -926,11 +1059,13 @@ class UserRepository(BaseRepository):
                         WHERE ua.status = %s
                         ORDER BY action_date DESC, ua.id DESC
                         LIMIT %s OFFSET %s
-                    """, (status, limit, offset))
-                    
+                    """,
+                        (status, limit, offset),
+                    )
+
                     rows = await cursor.fetchall()
                     attachments = [dict(row) for row in rows]
-                    
+
                     return attachments, total_count
         except Exception as e:
             logger.error(f"Error getting attachments by status {status}: {e}")
@@ -939,11 +1074,11 @@ class UserRepository(BaseRepository):
     async def get_users_for_notification(self, event_types: list, mode: str) -> set:
         """
         دریافت کاربران فعال برای نوتیفیکیشن بر اساس تنظیمات (Optimized SQL)
-        
+
         Args:
             event_types: لیست انواع رویدادها (مثلا add_attachment, edit_name)
             mode: مود بازی (br/mp)
-            
+
         Returns:
             مجموعه‌ای از user_id ها
         """
@@ -986,22 +1121,29 @@ class UserRepository(BaseRepository):
                 )
         """
         try:
-            results = await self.execute_query(query, (mode, event_types, event_types), fetch_all=True)
-            return {row['user_id'] for row in results}
+            results = await self.execute_query(
+                query, (mode, event_types, event_types), fetch_all=True
+            )
+            return {row["user_id"] for row in results}
         except Exception as e:
-            logger.error(f'Error fetching notification users: {e}')
+            logger.error(f"Error fetching notification users: {e}")
             return set()
 
     # ========== User Management Methods ==========
 
-    async def get_users_paginated(self, page: int = 1, limit: int = 10,
-                                   search: str = None, sort_by: str = 'created_at',
-                                   is_banned: bool = None) -> List[Dict]:
+    async def get_users_paginated(
+        self,
+        page: int = 1,
+        limit: int = 10,
+        search: str = None,
+        sort_by: str = "created_at",
+        is_banned: bool = None,
+    ) -> List[Dict]:
         """دریافت لیست کاربران با صفحه‌بندی، جستجو و فیلتر"""
         offset = (page - 1) * limit
-        ALLOWED_SORTS = {'created_at', 'last_seen', 'username', 'user_id'}
+        ALLOWED_SORTS = {"created_at", "last_seen", "username", "user_id"}
         if sort_by not in ALLOWED_SORTS:
-            sort_by = 'created_at'
+            sort_by = "created_at"
 
         try:
             conditions = []
@@ -1058,7 +1200,7 @@ class UserRepository(BaseRepository):
             where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
             query = f"SELECT COUNT(*) as count FROM users {where}"
             result = await self.execute_query(query, tuple(params), fetch_one=True)
-            return result['count'] if result else 0
+            return result["count"] if result else 0
         except Exception as e:
             log_exception(logger, e, "get_users_count")
             return 0
@@ -1131,7 +1273,19 @@ class UserRepository(BaseRepository):
             result = await self.execute_query(query, fetch_one=True)
             if result:
                 return dict(result)
-            return {'total': 0, 'new_today': 0, 'active_week': 0, 'active_today': 0, 'banned': 0}
+            return {
+                "total": 0,
+                "new_today": 0,
+                "active_week": 0,
+                "active_today": 0,
+                "banned": 0,
+            }
         except Exception as e:
             log_exception(logger, e, "get_users_stats")
-            return {'total': 0, 'new_today': 0, 'active_week': 0, 'active_today': 0, 'banned': 0}
+            return {
+                "total": 0,
+                "new_today": 0,
+                "active_week": 0,
+                "active_today": 0,
+                "banned": 0,
+            }

@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ============================================================================
-# CODM Attachments Bot - Management CLI Tool
+# OX_LOADOUT Attachments Bot - Management CLI Tool
 # ============================================================================
-# Usage: wx-attach [command]
+# Usage: ox-loadout [command]
 # Commands:
 #   start    - Start the bot
 #   stop     - Stop the bot
@@ -25,8 +25,8 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Configuration
-INSTALL_DIR="/opt/codm-bot"
-SERVICE_NAME="codm-bot"
+INSTALL_DIR="/opt/ox_loadout-bot"
+SERVICE_NAME="ox_loadout-bot"
 ENV_FILE="$INSTALL_DIR/.env"
 VENV_PYTHON="$INSTALL_DIR/venv/bin/python"
 
@@ -39,7 +39,7 @@ print_header() {
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════════════════════╗"
     echo "║                                                                ║"
-    echo "║       🎮  CODM Attachments Bot Manager  🎮                     ║"
+    echo "║       🎮  OX_LOADOUT Attachments Bot Manager  🎮                     ║"
     echo "║                                                                ║"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -65,7 +65,7 @@ print_menu() {
 check_root() {
     if [ "$EUID" -ne 0 ]; then
         echo -e "${RED}⚠️  Some operations require root privileges.${NC}"
-        echo -e "${YELLOW}Run with: sudo wx-attach${NC}"
+        echo -e "${YELLOW}Run with: sudo ox-loadout${NC}"
         return 1
     fi
     return 0
@@ -81,7 +81,37 @@ check_installation() {
 
 load_env() {
     if [ -f "$ENV_FILE" ]; then
-        export $(grep -v '^#' "$ENV_FILE" | xargs)
+        while IFS='=' read -r key val || [ -n "$key" ]; do
+            if [[ -n "$key" && ! "$key" =~ ^[[:space:]]*# ]]; then
+                key="${key#"${key%%[![:space:]]*}"}"
+                key="${key%"${key##*[![:space:]]}"}"
+                val="${val#"${val%%[![:space:]]*}"}"
+                val="${val%"${val##*[![:space:]]}"}"
+                val="${val%\"}"
+                val="${val#\"}"
+                val="${val%\'}"
+                val="${val#\'}"
+                if [[ "$key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+                    export "$key=$val"
+                fi
+            fi
+        done < "$ENV_FILE"
+    fi
+}
+
+update_env_var() {
+    local key="$1"
+    local val="$2"
+    if [ -f "$ENV_FILE" ]; then
+        export UPDATE_VAL="$val"
+        awk -v k="$key" '
+        BEGIN { FS="="; OFS="=" }
+        $1 == k { print k, ENVIRON["UPDATE_VAL"]; updated=1; next }
+        { print }
+        END { if (!updated) print k "=" ENVIRON["UPDATE_VAL"] }
+        ' "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
+    else
+        echo "$key=$val" > "$ENV_FILE"
     fi
 }
 
@@ -90,7 +120,7 @@ load_env() {
 # ============================================================================
 
 start_bot() {
-    echo -e "${YELLOW}Starting CODM Bot...${NC}"
+    echo -e "${YELLOW}Starting OX_LOADOUT Bot...${NC}"
     if systemctl is-active --quiet $SERVICE_NAME; then
         echo -e "${YELLOW}⚠️  Bot is already running.${NC}"
     else
@@ -106,7 +136,7 @@ start_bot() {
 }
 
 stop_bot() {
-    echo -e "${YELLOW}Stopping CODM Bot...${NC}"
+    echo -e "${YELLOW}Stopping OX_LOADOUT Bot...${NC}"
     if systemctl is-active --quiet $SERVICE_NAME; then
         sudo systemctl stop $SERVICE_NAME
         sleep 2
@@ -121,7 +151,7 @@ stop_bot() {
 }
 
 restart_bot() {
-    echo -e "${YELLOW}Restarting CODM Bot...${NC}"
+    echo -e "${YELLOW}Restarting OX_LOADOUT Bot...${NC}"
     sudo systemctl restart $SERVICE_NAME
     sleep 3
     if systemctl is-active --quiet $SERVICE_NAME; then
@@ -163,15 +193,7 @@ show_status() {
     load_env
     if [ ! -z "$DATABASE_URL" ]; then
         # Test PostgreSQL connection
-        if $VENV_PYTHON -c "
-import psycopg
-try:
-    conn = psycopg.connect('$DATABASE_URL', connect_timeout=5)
-    conn.close()
-    exit(0)
-except:
-    exit(1)
-" 2>/dev/null; then
+        if "$VENV_PYTHON" "$INSTALL_DIR/scripts/admin_ops.py" check-status 2>/dev/null; then
             echo -e "${WHITE}║${NC}  Database:        ${GREEN}● Connected${NC}                                 ${WHITE}║${NC}"
         else
             echo -e "${WHITE}║${NC}  Database:        ${RED}● Disconnected${NC}                              ${WHITE}║${NC}"
@@ -253,33 +275,7 @@ list_admins() {
     load_env
     echo -e "\n${CYAN}📋 Current Admins:${NC}\n"
     
-    $VENV_PYTHON -c "
-import psycopg
-try:
-    conn = psycopg.connect('$DATABASE_URL')
-    cur = conn.cursor()
-    cur.execute('''
-        SELECT a.user_id, u.username, u.first_name, a.is_active, a.created_at
-        FROM admins a
-        LEFT JOIN users u ON a.user_id = u.user_id
-        ORDER BY a.created_at
-    ''')
-    rows = cur.fetchall()
-    if rows:
-        print(f'{'User ID':<15} {'Username':<20} {'Name':<20} {'Active':<8}')
-        print('-' * 65)
-        for row in rows:
-            uid, username, name, active, _ = row
-            username = username or 'N/A'
-            name = name or 'N/A'
-            status = '✅' if active else '❌'
-            print(f'{uid:<15} {username:<20} {name:<20} {status}')
-    else:
-        print('No admins found.')
-    conn.close()
-except Exception as e:
-    print(f'Error: {e}')
-" 2>/dev/null
+    "$VENV_PYTHON" "$INSTALL_DIR/scripts/admin_ops.py" list-admins 2>/dev/null
     
     echo ""
     echo -e "${YELLOW}Super Admin ID:${NC} $SUPER_ADMIN_ID"
@@ -296,34 +292,7 @@ add_admin() {
         return
     fi
     
-    $VENV_PYTHON -c "
-import psycopg
-try:
-    conn = psycopg.connect('$DATABASE_URL')
-    cur = conn.cursor()
-    # Insert into users if not exists
-    cur.execute('INSERT INTO users (user_id) VALUES (%s) ON CONFLICT DO NOTHING', ($new_admin_id,))
-    # Insert into admins
-    cur.execute('''
-        INSERT INTO admins (user_id, is_active) 
-        VALUES (%s, TRUE) 
-        ON CONFLICT (user_id) DO UPDATE SET is_active = TRUE
-    ''', ($new_admin_id,))
-    # Assign admin role
-    cur.execute('SELECT id FROM roles WHERE name = %s', ('admin',))
-    role = cur.fetchone()
-    if role:
-        cur.execute('''
-            INSERT INTO admin_roles (user_id, role_id) 
-            VALUES (%s, %s) 
-            ON CONFLICT DO NOTHING
-        ''', ($new_admin_id, role[0]))
-    conn.commit()
-    conn.close()
-    print('✅ Admin added successfully!')
-except Exception as e:
-    print(f'❌ Error: {e}')
-" 2>/dev/null
+    "$VENV_PYTHON" "$INSTALL_DIR/scripts/admin_ops.py" add-admin --user-id "$new_admin_id" 2>/dev/null
 }
 
 remove_admin() {
@@ -344,19 +313,7 @@ remove_admin() {
         return
     fi
     
-    $VENV_PYTHON -c "
-import psycopg
-try:
-    conn = psycopg.connect('$DATABASE_URL')
-    cur = conn.cursor()
-    cur.execute('UPDATE admins SET is_active = FALSE WHERE user_id = %s', ($remove_id,))
-    cur.execute('DELETE FROM admin_roles WHERE user_id = %s', ($remove_id,))
-    conn.commit()
-    conn.close()
-    print('✅ Admin removed successfully!')
-except Exception as e:
-    print(f'❌ Error: {e}')
-" 2>/dev/null
+    "$VENV_PYTHON" "$INSTALL_DIR/scripts/admin_ops.py" remove-admin --user-id "$remove_id" 2>/dev/null
 }
 
 change_super_admin() {
@@ -372,35 +329,9 @@ change_super_admin() {
         return
     fi
     
-    # Update .env file
-    sed -i "s/^SUPER_ADMIN_ID=.*/SUPER_ADMIN_ID=$new_super_id/" "$ENV_FILE"
-    
-    # Add to database
-    $VENV_PYTHON -c "
-import psycopg
-try:
-    conn = psycopg.connect('$DATABASE_URL')
-    cur = conn.cursor()
-    cur.execute('INSERT INTO users (user_id) VALUES (%s) ON CONFLICT DO NOTHING', ($new_super_id,))
-    cur.execute('''
-        INSERT INTO admins (user_id, is_active) 
-        VALUES (%s, TRUE) 
-        ON CONFLICT (user_id) DO UPDATE SET is_active = TRUE
-    ''', ($new_super_id,))
-    cur.execute('SELECT id FROM roles WHERE name = %s', ('super_admin',))
-    role = cur.fetchone()
-    if role:
-        cur.execute('''
-            INSERT INTO admin_roles (user_id, role_id) 
-            VALUES (%s, %s) 
-            ON CONFLICT DO NOTHING
-        ''', ($new_super_id, role[0]))
-    conn.commit()
-    conn.close()
-    print('✅ Super Admin ID updated!')
-except Exception as e:
-    print(f'❌ Error: {e}')
-" 2>/dev/null
+    update_env_var "SUPER_ADMIN_ID" "$new_super_id"
+    echo -e "${GREEN}Super Admin changed to $new_super_id.${NC}"
+    "$VENV_PYTHON" "$INSTALL_DIR/scripts/admin_ops.py" change-super-admin --user-id "$new_super_id" 2>/dev/null
     
     echo -e "${YELLOW}⚠️  Restart the bot for changes to take effect.${NC}"
 }
@@ -468,9 +399,12 @@ edit_bot_token() {
     read -p "Enter new Bot Token (or press Enter to cancel): " new_token
     
     if [ ! -z "$new_token" ]; then
-        sed -i "s/^BOT_TOKEN=.*/BOT_TOKEN=$new_token/" "$ENV_FILE"
-        echo -e "${GREEN}✅ Bot Token updated!${NC}"
-        echo -e "${YELLOW}⚠️  Restart the bot for changes to take effect.${NC}"
+        update_env_var "BOT_TOKEN" "$new_token"
+        echo -e "${GREEN}Bot Token updated successfully.${NC}"
+        read -p "Do you want to restart the bot to apply changes? (y/n): " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            restart_bot
+        fi
     else
         echo -e "${YELLOW}Cancelled.${NC}"
     fi
@@ -485,10 +419,8 @@ edit_database_url() {
     read -p "Enter new Database URL (or press Enter to cancel): " new_url
     
     if [ ! -z "$new_url" ]; then
-        # Escape special characters for sed
-        escaped_url=$(printf '%s\n' "$new_url" | sed -e 's/[\/&]/\\&/g')
-        sed -i "s/^DATABASE_URL=.*/DATABASE_URL=$escaped_url/" "$ENV_FILE"
-        echo -e "${GREEN}✅ Database URL updated!${NC}"
+        update_env_var "DATABASE_URL" "$new_url"
+        echo -e "${GREEN}Database URL updated successfully.${NC}"
         echo -e "${YELLOW}⚠️  Restart the bot for changes to take effect.${NC}"
     else
         echo -e "${YELLOW}Cancelled.${NC}"
@@ -544,63 +476,14 @@ test_db_connection() {
     load_env
     echo -e "\n${CYAN}🔌 Testing Database Connection...${NC}\n"
     
-    $VENV_PYTHON -c "
-import psycopg
-import time
-try:
-    start = time.time()
-    conn = psycopg.connect('$DATABASE_URL', connect_timeout=5)
-    elapsed = (time.time() - start) * 1000
-    cur = conn.cursor()
-    cur.execute('SELECT version()')
-    version = cur.fetchone()[0]
-    cur.execute('SELECT COUNT(*) FROM pg_tables WHERE schemaname = %s', ('public',))
-    tables = cur.fetchone()[0]
-    conn.close()
-    print(f'✅ Connection successful! ({elapsed:.1f}ms)')
-    print(f'   PostgreSQL: {version.split(\",\")[0]}')
-    print(f'   Tables: {tables}')
-except Exception as e:
-    print(f'❌ Connection failed: {e}')
-" 2>/dev/null
+    "$VENV_PYTHON" "$INSTALL_DIR/scripts/admin_ops.py" test-connection 2>/dev/null
 }
 
 show_db_stats() {
     load_env
     echo -e "\n${CYAN}📊 Database Statistics:${NC}\n"
     
-    $VENV_PYTHON -c "
-import psycopg
-try:
-    conn = psycopg.connect('$DATABASE_URL')
-    cur = conn.cursor()
-    
-    stats = {}
-    
-    # Count records in main tables
-    tables = ['users', 'admins', 'weapons', 'attachments', 'user_attachments', 'tickets']
-    for table in tables:
-        try:
-            cur.execute(f'SELECT COUNT(*) FROM {table}')
-            stats[table] = cur.fetchone()[0]
-        except:
-            stats[table] = 'N/A'
-    
-    # Database size
-    cur.execute(\"SELECT pg_size_pretty(pg_database_size(current_database()))\")
-    db_size = cur.fetchone()[0]
-    
-    conn.close()
-    
-    print(f'Database Size: {db_size}')
-    print('')
-    print(f'{'Table':<20} {'Records':<10}')
-    print('-' * 30)
-    for table, count in stats.items():
-        print(f'{table:<20} {count:<10}')
-except Exception as e:
-    print(f'❌ Error: {e}')
-" 2>/dev/null
+    "$VENV_PYTHON" "$INSTALL_DIR/scripts/admin_ops.py" show-stats 2>/dev/null
 }
 
 backup_database() {
@@ -613,7 +496,6 @@ backup_database() {
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
     BACKUP_FILE="$BACKUP_DIR/backup_$TIMESTAMP.sql"
     
-    # Extract connection details from DATABASE_URL
     if [[ "$DATABASE_URL" =~ postgresql://([^:]+):([^@]+)@([^/]+)/(.+) ]]; then
         DB_USER="${BASH_REMATCH[1]}"
         DB_PASS="${BASH_REMATCH[2]}"
@@ -621,14 +503,19 @@ backup_database() {
         DB_NAME="${BASH_REMATCH[4]}"
         
         echo -e "${YELLOW}Creating backup...${NC}"
-        PGPASSWORD="$DB_PASS" pg_dump -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -F c -f "$BACKUP_FILE" 2>/dev/null
         
-        if [ -f "$BACKUP_FILE" ]; then
+        PGPASSFILE=$(mktemp)
+        chmod 600 "$PGPASSFILE"
+        echo "$DB_HOST:5432:$DB_NAME:$DB_USER:$DB_PASS" > "$PGPASSFILE"
+        
+        if PGPASSFILE="$PGPASSFILE" pg_dump -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -F c -f "$BACKUP_FILE" 2>/dev/null; then
             SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
             echo -e "${GREEN}✅ Backup created: $BACKUP_FILE ($SIZE)${NC}"
         else
             echo -e "${RED}❌ Backup failed${NC}"
+            rm -f "$BACKUP_FILE"
         fi
+        rm -f "$PGPASSFILE"
     else
         echo -e "${RED}❌ Could not parse DATABASE_URL${NC}"
     fi
@@ -652,19 +539,12 @@ reset_database() {
                 DB_PORT="${BASH_REMATCH[5]:-5432}"
                 DB_NAME="${BASH_REMATCH[6]}"
 
-                if env \
-                    DB_NAME="$DB_NAME" \
-                    DB_USER="$DB_USER" \
-                    DB_PASSWORD="$DB_PASS" \
-                    DB_HOST="$DB_HOST" \
-                    DB_PORT="$DB_PORT" \
-                    POSTGRES_DB="$DB_NAME" \
-                    POSTGRES_USER="$DB_USER" \
-                    POSTGRES_PASSWORD="$DB_PASS" \
-                    python3 "$INSTALL_DIR/scripts/setup_database.py" --migrate-only >/tmp/wx-attach-db-reset.log 2>&1; then
+                export DB_NAME="$DB_NAME" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASS" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT"
+                export POSTGRES_DB="$DB_NAME" POSTGRES_USER="$DB_USER" POSTGRES_PASSWORD="$DB_PASS"
+                if python3 "$INSTALL_DIR/scripts/setup_database.py" --migrate-only >/tmp/ox-loadout-db-reset.log 2>&1; then
                     echo -e "${GREEN}??? Database reset complete!${NC}"
                 else
-                    echo -e "${RED}??? Database reset failed (see /tmp/wx-attach-db-reset.log)${NC}"
+                    echo -e "${RED}??? Database reset failed (see /tmp/ox-loadout-db-reset.log)${NC}"
                 fi
             else
                 echo -e "${RED}??? Could not parse DATABASE_URL${NC}"
@@ -704,17 +584,17 @@ handle_command() {
             view_logs
             ;;
         help|--help|-h)
-            echo "CODM Bot Manager - Usage:"
-            echo "  wx-attach           - Interactive menu"
-            echo "  wx-attach start     - Start bot"
-            echo "  wx-attach stop      - Stop bot"
-            echo "  wx-attach restart   - Restart bot"
-            echo "  wx-attach status    - Show status"
-            echo "  wx-attach logs      - View logs"
+            echo "OX_LOADOUT Bot Manager - Usage:"
+            echo "  ox-loadout           - Interactive menu"
+            echo "  ox-loadout start     - Start bot"
+            echo "  ox-loadout stop      - Stop bot"
+            echo "  ox-loadout restart   - Restart bot"
+            echo "  ox-loadout status    - Show status"
+            echo "  ox-loadout logs      - View logs"
             ;;
         *)
             echo -e "${RED}Unknown command: $1${NC}"
-            echo "Run 'wx-attach help' for usage"
+            echo "Run 'ox-loadout help' for usage"
             exit 1
             ;;
     esac

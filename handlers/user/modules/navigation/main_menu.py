@@ -1,40 +1,38 @@
 from core.context import CustomContext
+
 """
 مدیریت منوی اصلی و navigation
 ⚠️ این کد عیناً از user_handlers.py خط 91-141 کپی شده
 """
 
 import asyncio
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup
+from telegram.ext import ConversationHandler
 from core.events import event_bus, EventTypes
-from config.config import GAME_MODES
 from managers.channel_manager import require_channel_membership
-from utils.analytics_pg import AnalyticsPostgres as Analytics
 from handlers.user.base_user_handler import BaseUserHandler
-from utils.logger import get_logger, log_exception
+from utils.logger import get_logger
 from utils.language import get_user_lang
 from utils.i18n import t, kb
-from managers.cms_manager import CMSManager
 from managers.cms_manager import CMSManager
 from managers.admin_notifier import AdminNotifier
 from utils.validation import parse_attachment_deep_link, parse_all_weapons_deep_link
 
-logger = get_logger('user', 'user.log')
+logger = get_logger("user", "user.log")
 
 
 class MainMenuHandler(BaseUserHandler):
     """مدیریت منوی اصلی ربات"""
-    
+
     @require_channel_membership
     async def start(self, update: Update, context: CustomContext):
         """دستور شروع و نمایش منوی اصلی"""
         user_id = update.effective_user.id
         if context.args and len(context.args) > 0:
-            context.user_data['start_param'] = context.args[0]
+            context.user_data["start_param"] = context.args[0]
 
         # Deep-link actions
-        param = context.user_data.get('start_param')
+        param = context.user_data.get("start_param")
         if param and update.message:
             # /start att-{id}-{mode}
             if param.startswith("att-"):
@@ -42,56 +40,88 @@ class MainMenuHandler(BaseUserHandler):
                 if att_id:
                     att = await self.db.attachments.get_attachment_by_id(att_id)
                     if att:
-                        lang = await get_user_lang(update, context, self.db) or 'fa'
+                        lang = await get_user_lang(update, context, self.db) or "fa"
                         mode_name = t(f"mode.{mode}_btn", lang)
-                        weapon = att.get('weapon') or att.get('weapon_name') or ''
-                        caption = f"**{att.get('name','')}**\n{t('attachment.code', lang)}: `{att.get('code','')}`\n{weapon} | {mode_name}"
+                        weapon = att.get("weapon") or att.get("weapon_name") or ""
+                        caption = f"**{att.get('name', '')}**\n{t('attachment.code', lang)}: `{att.get('code', '')}`\n{weapon} | {mode_name}"
                         # دکمه‌های بازخورد
                         feedback_kb = None
-                        a_id = att.get('id')
+                        a_id = att.get("id")
                         if a_id:
                             try:
-                                stats = await self.db.analytics.get_attachment_stats(a_id, period='all') or {}
-                                like_count = stats.get('like_count', 0)
-                                dislike_count = stats.get('dislike_count', 0)
+                                stats = (
+                                    await self.db.analytics.get_attachment_stats(
+                                        a_id, period="all"
+                                    )
+                                    or {}
+                                )
+                                like_count = stats.get("like_count", 0)
+                                dislike_count = stats.get("dislike_count", 0)
                             except Exception:
                                 like_count = dislike_count = 0
-                            
+
                             from core.container import get_container
+
                             fb_handler = get_container().feedback_handler
-                            feedback_kb = InlineKeyboardMarkup(fb_handler.build_attachment_keyboard(
-                                a_id, 
-                                like_count=like_count, 
-                                dislike_count=dislike_count, 
-                                lang=lang,
-                                mode=mode
-                            ))
+                            feedback_kb = InlineKeyboardMarkup(
+                                fb_handler.build_attachment_keyboard(
+                                    a_id,
+                                    like_count=like_count,
+                                    dislike_count=dislike_count,
+                                    lang=lang,
+                                    mode=mode,
+                                )
+                            )
                         try:
-                            if att.get('image'):
-                                await update.message.reply_photo(photo=att['image'], caption=caption, parse_mode='Markdown', reply_markup=feedback_kb)
+                            if att.get("image"):
+                                await update.message.reply_photo(
+                                    photo=att["image"],
+                                    caption=caption,
+                                    parse_mode="Markdown",
+                                    reply_markup=feedback_kb,
+                                )
                             else:
-                                await update.message.reply_text(caption, parse_mode='Markdown', reply_markup=feedback_kb)
+                                await update.message.reply_text(
+                                    caption,
+                                    parse_mode="Markdown",
+                                    reply_markup=feedback_kb,
+                                )
                                 return
                             return
                         except Exception as e:
-                            logger.error(f"Error sending attachment photo/message (att_id {a_id}): {e}")
-                            await update.message.reply_text(caption, parse_mode='Markdown', reply_markup=feedback_kb)
+                            logger.error(
+                                f"Error sending attachment photo/message (att_id {a_id}): {e}"
+                            )
+                            await update.message.reply_text(
+                                caption, parse_mode="Markdown", reply_markup=feedback_kb
+                            )
                             return
             # /start allw-{category}__{weapon}__{mode}
             if param.startswith("allw-"):
                 category, weapon, mode = parse_all_weapons_deep_link(param)
                 if category and weapon:
-                    items = await self.db.attachments.get_all_attachments(category, weapon, mode=mode) or []
-                    lang = await get_user_lang(update, context, self.db) or 'fa'
+                    items = (
+                        await self.db.attachments.get_all_attachments(
+                            category, weapon, mode=mode
+                        )
+                        or []
+                    )
+                    lang = await get_user_lang(update, context, self.db) or "fa"
                     mode_name = t(f"mode.{mode}_btn", lang)
                     if not items:
-                        await update.message.reply_text(t('attachment.none', lang))
+                        await update.message.reply_text(t("attachment.none", lang))
                         return
-                    header = t('attachment.all.title', lang, weapon=weapon, mode=mode_name)
+                    header = t(
+                        "attachment.all.title", lang, weapon=weapon, mode=mode_name
+                    )
                     lines = [header]
                     for i, att in enumerate(items[:20], start=1):
-                        lines.append(f"{i}. {att.get('name','?')} — `{att.get('code','')}`")
-                    await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+                        lines.append(
+                            f"{i}. {att.get('name', '?')} — `{att.get('code', '')}`"
+                        )
+                    await update.message.reply_text(
+                        "\n".join(lines), parse_mode="Markdown"
+                    )
                     return
 
         # بررسی کاربر جدید قبل از ثبت
@@ -108,37 +138,53 @@ class MainMenuHandler(BaseUserHandler):
             logger.warning(f"Error registering user {user_id} for notifications: {e}")
 
         # Emit async event for user registered/started
-        asyncio.create_task(event_bus.emit(
-            EventTypes.USER_REGISTERED,
-            user_id=user_id,
-            user=update.effective_user,
-            is_new_user=is_new_user,
-            context=context
-        ))
+        asyncio.create_task(
+            event_bus.emit(
+                EventTypes.USER_REGISTERED,
+                user_id=user_id,
+                user=update.effective_user,
+                is_new_user=is_new_user,
+                context=context,
+            )
+        )
 
-        lang = await get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or "fa"
 
         keyboard = [
             [kb("menu.buttons.game_settings", lang), kb("menu.buttons.get", lang)]
         ]
-        
+
         # ردیف 2: بسته به فعال بودن سیستم اتچمنت کاربران
-        ua_system_enabled = await self.db.settings.get_ua_setting('system_enabled') or '1'
-        logger.info(f"[DEBUG] UA system_enabled value: {repr(ua_system_enabled)} (type: {type(ua_system_enabled).__name__})")
-        if ua_system_enabled in ('1', 'true', 'True'):
-            keyboard.append([kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)])
+        ua_system_enabled = (
+            await self.db.settings.get_ua_setting("system_enabled") or "1"
+        )
+        logger.info(
+            f"[DEBUG] UA system_enabled value: {repr(ua_system_enabled)} (type: {type(ua_system_enabled).__name__})"
+        )
+        if ua_system_enabled in ("1", "true", "True"):
+            keyboard.append(
+                [kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)]
+            )
         else:
             keyboard.append([kb("menu.buttons.suggested", lang)])
-        
-        keyboard.extend([
-            [kb("menu.buttons.season_list", lang), kb("menu.buttons.season_top", lang)],
-            [kb("menu.buttons.notify", lang), kb("menu.buttons.search", lang)],
-            [kb("menu.buttons.contact", lang), kb("menu.buttons.help", lang)]
-        ])
+
+        keyboard.extend(
+            [
+                [
+                    kb("menu.buttons.season_list", lang),
+                    kb("menu.buttons.season_top", lang),
+                ],
+                [kb("menu.buttons.notify", lang), kb("menu.buttons.search", lang)],
+                [kb("menu.buttons.contact", lang), kb("menu.buttons.help", lang)],
+            ]
+        )
 
         # ردیف CMS (نمایش مشروط به فعال بودن و داشتن محتوا)
         try:
-            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = (
+                str(await self.db.settings.get_setting("cms_enabled", "false")).lower()
+                == "true"
+            )
         except Exception:
             cms_enabled = False
         if cms_enabled:
@@ -149,7 +195,12 @@ class MainMenuHandler(BaseUserHandler):
             if cms_total > 0:
                 keyboard.append([kb("menu.buttons.cms", lang)])
 
-        keyboard.append([kb("menu.buttons.leaderboard", lang), kb("menu.buttons.user_settings", lang)])
+        keyboard.append(
+            [
+                kb("menu.buttons.leaderboard", lang),
+                kb("menu.buttons.user_settings", lang),
+            ]
+        )
 
         # اگر کاربر ادمین است، دکمه پنل ادمین را اضافه کن (بررسی از دیتابیس RBAC)
         if await self.db.users.is_admin(user_id):
@@ -159,9 +210,7 @@ class MainMenuHandler(BaseUserHandler):
 
         welcome_text = t("welcome", lang, app_name=t("app.name", lang))
         await update.message.reply_text(
-            welcome_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
+            welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
         )
 
     async def back_msg(self, update: Update, context: CustomContext):
@@ -174,27 +223,39 @@ class MainMenuHandler(BaseUserHandler):
         await query.answer()
 
         user_id = update.effective_user.id
-        lang = await get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or "fa"
 
         # ساخت همان کیبورد reply
         keyboard = [
             [kb("menu.buttons.game_settings", lang), kb("menu.buttons.get", lang)]
         ]
 
-        ua_system_enabled = await self.db.settings.get_ua_setting('system_enabled') or '1'
-        if ua_system_enabled in ('1', 'true', 'True'):
-            keyboard.append([kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)])
+        ua_system_enabled = (
+            await self.db.settings.get_ua_setting("system_enabled") or "1"
+        )
+        if ua_system_enabled in ("1", "true", "True"):
+            keyboard.append(
+                [kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)]
+            )
         else:
             keyboard.append([kb("menu.buttons.suggested", lang)])
 
-        keyboard.extend([
-            [kb("menu.buttons.season_list", lang), kb("menu.buttons.season_top", lang)],
-            [kb("menu.buttons.notify", lang), kb("menu.buttons.search", lang)],
-            [kb("menu.buttons.contact", lang), kb("menu.buttons.help", lang)]
-        ])
+        keyboard.extend(
+            [
+                [
+                    kb("menu.buttons.season_list", lang),
+                    kb("menu.buttons.season_top", lang),
+                ],
+                [kb("menu.buttons.notify", lang), kb("menu.buttons.search", lang)],
+                [kb("menu.buttons.contact", lang), kb("menu.buttons.help", lang)],
+            ]
+        )
 
         try:
-            cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
+            cms_enabled = (
+                str(await self.db.settings.get_setting("cms_enabled", "false")).lower()
+                == "true"
+            )
         except Exception:
             cms_enabled = False
         if cms_enabled:
@@ -205,7 +266,12 @@ class MainMenuHandler(BaseUserHandler):
             if cms_total > 0:
                 keyboard.append([kb("menu.buttons.cms", lang)])
 
-        keyboard.append([kb("menu.buttons.leaderboard", lang), kb("menu.buttons.user_settings", lang)])
+        keyboard.append(
+            [
+                kb("menu.buttons.leaderboard", lang),
+                kb("menu.buttons.user_settings", lang),
+            ]
+        )
 
         if await self.db.users.is_admin(user_id):
             keyboard.append([kb("menu.buttons.admin", lang)])
@@ -221,13 +287,13 @@ class MainMenuHandler(BaseUserHandler):
 
         # ارسال پیام جدید با کیبورد reply در پایین چت
         await query.message.chat.send_message(
-            welcome_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
+            welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
         )
 
         return ConversationHandler.END
 
     async def show_user_id(self, update: Update, context: CustomContext):
         """نمایش شناسه کاربری"""
-        await update.message.reply_text(f"Your User ID: `{update.effective_user.id}`", parse_mode='Markdown')
+        await update.message.reply_text(
+            f"Your User ID: `{update.effective_user.id}`", parse_mode="Markdown"
+        )

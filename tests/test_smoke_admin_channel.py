@@ -58,7 +58,9 @@ class _TxRecorder:
 
 
 class _CursorRecorder:
-    def __init__(self, *, fetchone_values=None, execute_side_effect=None, rowcount: int = 1):
+    def __init__(
+        self, *, fetchone_values=None, execute_side_effect=None, rowcount: int = 1
+    ):
         self.execute = AsyncMock(side_effect=execute_side_effect)
         self.fetchone = AsyncMock(side_effect=fetchone_values)
         self.fetchall = AsyncMock(return_value=[])
@@ -90,7 +92,9 @@ async def test_has_manage_user_attachments_permission_allows_super_admin() -> No
     db.users.is_admin.assert_not_called()
 
 
-async def test_has_manage_user_attachments_permission_uses_granular_permission() -> None:
+async def test_has_manage_user_attachments_permission_uses_granular_permission() -> (
+    None
+):
     role_manager = Mock()
     role_manager.is_super_admin = AsyncMock(return_value=False)
     role_manager.has_permission = AsyncMock(return_value=True)
@@ -108,9 +112,13 @@ async def test_has_manage_user_attachments_permission_uses_granular_permission()
     db.users.is_admin.assert_not_called()
 
 
-async def test_has_manage_user_attachments_permission_falls_back_to_legacy_admin() -> None:
+async def test_has_manage_user_attachments_permission_falls_back_to_legacy_admin() -> (
+    None
+):
     role_manager = Mock()
-    role_manager.is_super_admin = AsyncMock(side_effect=RuntimeError("rbac unavailable"))
+    role_manager.is_super_admin = AsyncMock(
+        side_effect=RuntimeError("rbac unavailable")
+    )
     role_manager.has_permission = AsyncMock(return_value=False)
     db = SimpleNamespace(users=SimpleNamespace(is_admin=AsyncMock(return_value=True)))
 
@@ -147,14 +155,21 @@ async def test_check_channel_management_permission_falls_back_to_db_admin() -> N
     db.users.is_admin.assert_awaited_once_with(505)
 
 
-async def test_check_channel_management_permission_falls_back_to_super_admin_id(monkeypatch) -> None:
+async def test_check_channel_management_permission_falls_back_to_super_admin_id(
+    monkeypatch,
+) -> None:
     import config
 
     monkeypatch.setattr(config, "SUPER_ADMIN_ID", 606, raising=False)
     context = SimpleNamespace(bot_data={})
 
-    assert await channel_handlers.check_channel_management_permission(606, context) is True
-    assert await channel_handlers.check_channel_management_permission(607, context) is False
+    assert (
+        await channel_handlers.check_channel_management_permission(606, context) is True
+    )
+    assert (
+        await channel_handlers.check_channel_management_permission(607, context)
+        is False
+    )
 
 
 async def test_channel_management_menu_blocks_unauthorized_user(monkeypatch) -> None:
@@ -204,12 +219,17 @@ async def test_has_manage_user_attachments_permission_logs_denied_decision() -> 
     assert allowed is False
     audit_logger.log_permission_decision.assert_awaited_once()
     assert audit_logger.log_permission_decision.await_args.kwargs["allowed"] is False
-    assert audit_logger.log_permission_decision.await_args.kwargs["route"] == "ua_admin_reports"
+    assert (
+        audit_logger.log_permission_decision.await_args.kwargs["route"]
+        == "ua_admin_reports"
+    )
 
 
 async def test_import_start_denied_records_permission_audit(monkeypatch) -> None:
     handler = object.__new__(import_export_module.ImportExportHandler)
-    handler.role_manager = SimpleNamespace(get_user_permissions=AsyncMock(return_value=[]))
+    handler.role_manager = SimpleNamespace(
+        get_user_permissions=AsyncMock(return_value=[])
+    )
     handler.audit_permission_denied = AsyncMock()
     update = SimpleNamespace(
         callback_query=SimpleNamespace(
@@ -269,8 +289,12 @@ async def test_notify_home_menu_denied_records_permission_audit(monkeypatch) -> 
     update = SimpleNamespace(callback_query=query)
     context = SimpleNamespace()
 
-    monkeypatch.setattr(notification_handler_module, "get_user_lang", AsyncMock(return_value="fa"))
-    monkeypatch.setattr(notification_handler_module, "t", lambda key, lang, **kwargs: key)
+    monkeypatch.setattr(
+        notification_handler_module, "get_user_lang", AsyncMock(return_value="fa")
+    )
+    monkeypatch.setattr(
+        notification_handler_module, "t", lambda key, lang, **kwargs: key
+    )
 
     result = await handler.notify_home_menu(update, context)
 
@@ -293,12 +317,16 @@ async def test_admin_tickets_menu_denied_records_permission_audit(monkeypatch) -
     query = SimpleNamespace(answer=AsyncMock())
     update = SimpleNamespace(
         callback_query=query,
-        effective_user=SimpleNamespace(id=9102, username=None, first_name="TicketDenied"),
+        effective_user=SimpleNamespace(
+            id=9102, username=None, first_name="TicketDenied"
+        ),
     )
     context = SimpleNamespace()
     safe_edit = AsyncMock()
 
-    monkeypatch.setattr(ticket_handler_module, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        ticket_handler_module, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(ticket_handler_module, "t", lambda key, lang, **kwargs: key)
     monkeypatch.setattr(ticket_handler_module, "safe_edit_message_text", safe_edit)
 
@@ -326,7 +354,9 @@ async def test_admin_faqs_menu_denied_records_permission_audit(monkeypatch) -> N
     )
     context = SimpleNamespace(user_data={})
 
-    monkeypatch.setattr(faq_handler_module, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        faq_handler_module, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(faq_handler_module, "t", lambda key, lang, **kwargs: key)
 
     result = await handler.admin_faqs_menu(update, context)
@@ -347,11 +377,15 @@ async def test_manage_admins_menu_denied_records_permission_audit(monkeypatch) -
     handler.db = SimpleNamespace()
     handler.audit_permission_denied = AsyncMock()
     query = SimpleNamespace(answer=AsyncMock())
-    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=9104))
+    update = SimpleNamespace(
+        callback_query=query, effective_user=SimpleNamespace(id=9104)
+    )
     context = SimpleNamespace(user_data={})
     safe_edit = AsyncMock()
 
-    monkeypatch.setattr(admin_management_module, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        admin_management_module, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(admin_management_module, "t", lambda key, lang, **kwargs: key)
     monkeypatch.setattr(admin_management_module, "safe_edit_message_text", safe_edit)
 
@@ -364,10 +398,14 @@ async def test_manage_admins_menu_denied_records_permission_audit(monkeypatch) -
         permission="SUPER_ADMIN",
         source="manage_admins_menu",
     )
-    safe_edit.assert_awaited_once_with(query, "common.no_permission", parse_mode="Markdown")
+    safe_edit.assert_awaited_once_with(
+        query, "common.no_permission", parse_mode="Markdown"
+    )
 
 
-async def test_direct_contact_menu_denied_records_permission_audit_via_decorator() -> None:
+async def test_direct_contact_menu_denied_records_permission_audit_via_decorator() -> (
+    None
+):
     handler = object.__new__(direct_contact_handler_module.DirectContactHandler)
     handler.role_manager = SimpleNamespace(
         is_admin=AsyncMock(return_value=True),
@@ -421,14 +459,18 @@ async def test_category_menu_denied_records_permission_audit_via_decorator() -> 
 
 async def test_stats_backup_denied_records_permission_audit(monkeypatch) -> None:
     handler = object.__new__(stats_backup_module.StatsBackupHandler)
-    handler.role_manager = SimpleNamespace(get_user_permissions=AsyncMock(return_value=[]))
+    handler.role_manager = SimpleNamespace(
+        get_user_permissions=AsyncMock(return_value=[])
+    )
     handler.audit_permission_denied = AsyncMock()
     handler.db = SimpleNamespace()
     query = SimpleNamespace(from_user=SimpleNamespace(id=9107), answer=AsyncMock())
     update = SimpleNamespace(callback_query=query)
     context = SimpleNamespace()
 
-    monkeypatch.setattr(stats_backup_module, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        stats_backup_module, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(stats_backup_module, "t", lambda key, lang, **kwargs: key)
 
     result = await handler.create_backup(update, context)
@@ -449,10 +491,14 @@ async def test_user_mgmt_menu_denied_uses_explicit_route(monkeypatch) -> None:
     handler.send_permission_denied = AsyncMock()
     handler.db = SimpleNamespace()
     query = SimpleNamespace(answer=AsyncMock())
-    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=9108))
+    update = SimpleNamespace(
+        callback_query=query, effective_user=SimpleNamespace(id=9108)
+    )
     context = SimpleNamespace(user_data={})
 
-    monkeypatch.setattr(user_management_module, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        user_management_module, "get_user_lang", AsyncMock(return_value="fa")
+    )
 
     result = await handler.user_mgmt_menu(update, context)
 
@@ -472,10 +518,14 @@ async def test_cms_menu_denied_uses_explicit_route(monkeypatch) -> None:
     handler.send_permission_denied = AsyncMock()
     handler.db = SimpleNamespace()
     query = SimpleNamespace(answer=AsyncMock())
-    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=9109))
+    update = SimpleNamespace(
+        callback_query=query, effective_user=SimpleNamespace(id=9109)
+    )
     context = SimpleNamespace()
 
-    monkeypatch.setattr(cms_handler_module, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        cms_handler_module, "get_user_lang", AsyncMock(return_value="fa")
+    )
 
     result = await handler.cms_menu(update, context)
 
@@ -496,7 +546,9 @@ async def test_channel_management_menu_renders_for_authorized_user(monkeypatch) 
         message=None,
         effective_user=SimpleNamespace(id=808),
     )
-    db = SimpleNamespace(cms=SimpleNamespace(get_required_channels=AsyncMock(return_value=[])))
+    db = SimpleNamespace(
+        cms=SimpleNamespace(get_required_channels=AsyncMock(return_value=[]))
+    )
     context = SimpleNamespace(bot_data={"database": db})
 
     menu_edit = AsyncMock()
@@ -520,7 +572,9 @@ async def test_channel_management_menu_renders_for_authorized_user(monkeypatch) 
     assert "admin.channels.menu.empty" in rendered_message
 
 
-async def test_save_channel_confirm_persists_channel_and_clears_temp_state(monkeypatch) -> None:
+async def test_save_channel_confirm_persists_channel_and_clears_temp_state(
+    monkeypatch,
+) -> None:
     import managers.channel_manager as channel_manager
 
     query = SimpleNamespace(answer=AsyncMock())
@@ -528,7 +582,9 @@ async def test_save_channel_confirm_persists_channel_and_clears_temp_state(monke
         callback_query=query,
         effective_user=SimpleNamespace(id=811),
     )
-    db = SimpleNamespace(cms=SimpleNamespace(add_required_channel=AsyncMock(return_value=True)))
+    db = SimpleNamespace(
+        cms=SimpleNamespace(add_required_channel=AsyncMock(return_value=True))
+    )
     context = SimpleNamespace(
         bot_data={"database": db},
         user_data={
@@ -548,7 +604,9 @@ async def test_save_channel_confirm_persists_channel_and_clears_temp_state(monke
     monkeypatch.setattr(channel_add_actions, "Analytics", _Analytics)
     monkeypatch.setattr(channel_manager, "invalidate_all_cache", lambda: 0)
     monkeypatch.setattr(channel_add_actions, "safe_edit_message_text", menu_edit)
-    monkeypatch.setattr(channel_add_actions, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        channel_add_actions, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_add_actions, "t", lambda key, lang, **kwargs: key)
 
     result = await channel_handlers.save_channel_confirm(update, context)
@@ -570,10 +628,14 @@ async def test_delete_channel_execute_requires_selected_channel(monkeypatch) -> 
         callback_query=query,
         effective_user=SimpleNamespace(id=822),
     )
-    db = SimpleNamespace(cms=SimpleNamespace(remove_required_channel=AsyncMock(return_value=True)))
+    db = SimpleNamespace(
+        cms=SimpleNamespace(remove_required_channel=AsyncMock(return_value=True))
+    )
     context = SimpleNamespace(bot_data={"database": db}, user_data={})
 
-    monkeypatch.setattr(channel_delete_actions, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        channel_delete_actions, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_delete_actions, "t", lambda key, lang, **kwargs: key)
 
     result = await channel_handlers.delete_channel_execute(update, context)
@@ -585,7 +647,9 @@ async def test_delete_channel_execute_requires_selected_channel(monkeypatch) -> 
     query.edit_message_text.assert_not_called()
 
 
-async def test_delete_channel_execute_removes_channel_and_returns_menu(monkeypatch) -> None:
+async def test_delete_channel_execute_removes_channel_and_returns_menu(
+    monkeypatch,
+) -> None:
     import managers.channel_manager as channel_manager
 
     query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
@@ -593,7 +657,9 @@ async def test_delete_channel_execute_removes_channel_and_returns_menu(monkeypat
         callback_query=query,
         effective_user=SimpleNamespace(id=833),
     )
-    db = SimpleNamespace(cms=SimpleNamespace(remove_required_channel=AsyncMock(return_value=True)))
+    db = SimpleNamespace(
+        cms=SimpleNamespace(remove_required_channel=AsyncMock(return_value=True))
+    )
     context = SimpleNamespace(
         bot_data={"database": db},
         user_data={"deleting_channel_id": "-10022"},
@@ -604,7 +670,9 @@ async def test_delete_channel_execute_removes_channel_and_returns_menu(monkeypat
 
     monkeypatch.setattr(channel_delete_actions, "Analytics", _Analytics)
     monkeypatch.setattr(channel_manager, "invalidate_all_cache", lambda: 0)
-    monkeypatch.setattr(channel_delete_actions, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        channel_delete_actions, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_delete_actions, "t", lambda key, lang, **kwargs: key)
 
     result = await channel_handlers.delete_channel_execute(update, context)
@@ -639,7 +707,9 @@ async def test_handle_move_channel_moves_up_and_refreshes_menu(monkeypatch) -> N
 
     query = SimpleNamespace(data="move_up_-10033", answer=AsyncMock())
     update = SimpleNamespace(callback_query=query)
-    db = SimpleNamespace(cms=SimpleNamespace(move_channel_up=AsyncMock(return_value=True)))
+    db = SimpleNamespace(
+        cms=SimpleNamespace(move_channel_up=AsyncMock(return_value=True))
+    )
     context = SimpleNamespace(bot_data={"database": db})
 
     reorder_menu = AsyncMock(return_value=channel_handlers.REORDER_CHANNELS)
@@ -661,10 +731,18 @@ async def test_add_channel_id_rejects_invalid_input(monkeypatch) -> None:
         message=SimpleNamespace(text="invalid", reply_text=AsyncMock()),
         effective_user=SimpleNamespace(id=901),
     )
-    context = SimpleNamespace(bot_data={"database": Mock()}, user_data={}, bot=SimpleNamespace(get_chat=AsyncMock()))
+    context = SimpleNamespace(
+        bot_data={"database": Mock()},
+        user_data={},
+        bot=SimpleNamespace(get_chat=AsyncMock()),
+    )
 
-    monkeypatch.setattr("utils.validators.validate_channel_id", lambda _: (False, "invalid channel id"))
-    monkeypatch.setattr(channel_add_actions, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        "utils.validators.validate_channel_id", lambda _: (False, "invalid channel id")
+    )
+    monkeypatch.setattr(
+        channel_add_actions, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_add_actions, "t", lambda key, lang, **kwargs: key)
 
     result = await channel_handlers.add_channel_id(update, context)
@@ -676,7 +754,9 @@ async def test_add_channel_id_rejects_invalid_input(monkeypatch) -> None:
     context.bot.get_chat.assert_not_called()
 
 
-async def test_add_channel_id_accepts_valid_channel_and_moves_to_title(monkeypatch) -> None:
+async def test_add_channel_id_accepts_valid_channel_and_moves_to_title(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         message=SimpleNamespace(text="https://t.me/mychannel", reply_text=AsyncMock()),
         effective_user=SimpleNamespace(id=902),
@@ -688,8 +768,12 @@ async def test_add_channel_id_accepts_valid_channel_and_moves_to_title(monkeypat
         bot=SimpleNamespace(get_chat=AsyncMock(return_value=fake_chat)),
     )
 
-    monkeypatch.setattr("utils.validators.validate_channel_id", lambda value: (True, value))
-    monkeypatch.setattr(channel_add_actions, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        "utils.validators.validate_channel_id", lambda value: (True, value)
+    )
+    monkeypatch.setattr(
+        channel_add_actions, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_add_actions, "t", lambda key, lang, **kwargs: key)
 
     result = await channel_handlers.add_channel_id(update, context)
@@ -712,8 +796,12 @@ async def test_add_channel_id_handles_channel_access_error(monkeypatch) -> None:
         bot=SimpleNamespace(get_chat=AsyncMock(side_effect=RuntimeError("forbidden"))),
     )
 
-    monkeypatch.setattr("utils.validators.validate_channel_id", lambda value: (True, value))
-    monkeypatch.setattr(channel_add_actions, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        "utils.validators.validate_channel_id", lambda value: (True, value)
+    )
+    monkeypatch.setattr(
+        channel_add_actions, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_add_actions, "t", lambda key, lang, **kwargs: key)
 
     result = await channel_handlers.add_channel_id(update, context)
@@ -735,27 +823,38 @@ async def test_add_channel_url_rejects_invalid_link(monkeypatch) -> None:
         user_data={"temp_channel": {"channel_id": "-1007", "display_title": "T"}},
     )
 
-    monkeypatch.setattr(channel_add_actions, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        channel_add_actions, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_add_actions, "t", lambda key, lang, **kwargs: key)
 
     result = await channel_handlers.add_channel_url(update, context)
 
     assert result == channel_handlers.ADD_CHANNEL_URL
     update.message.reply_text.assert_awaited_once()
-    assert update.message.reply_text.await_args.args[0] == "admin.channels.errors.invalid_link"
+    assert (
+        update.message.reply_text.await_args.args[0]
+        == "admin.channels.errors.invalid_link"
+    )
 
 
-async def test_add_channel_url_accepts_valid_link_and_moves_to_confirm(monkeypatch) -> None:
+async def test_add_channel_url_accepts_valid_link_and_moves_to_confirm(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         message=SimpleNamespace(text="https://t.me/ch_ok", reply_text=AsyncMock()),
         effective_user=SimpleNamespace(id=905),
     )
     context = SimpleNamespace(
         bot_data={"database": Mock()},
-        user_data={"temp_channel": {"channel_id": "-1008", "display_title": "Good Channel"}},
+        user_data={
+            "temp_channel": {"channel_id": "-1008", "display_title": "Good Channel"}
+        },
     )
 
-    monkeypatch.setattr(channel_add_actions, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        channel_add_actions, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_add_actions, "t", lambda key, lang, **kwargs: key)
 
     result = await channel_handlers.add_channel_url(update, context)
@@ -887,7 +986,9 @@ async def test_dismiss_report_rolls_back_on_execute_error(monkeypatch) -> None:
     handle_error.assert_awaited_once()
 
 
-async def test_delete_reported_attachment_handles_missing_attachment(monkeypatch) -> None:
+async def test_delete_reported_attachment_handles_missing_attachment(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_report_delete_70_71",
         answer=AsyncMock(),
@@ -936,7 +1037,9 @@ async def test_delete_reported_attachment_handles_missing_attachment(monkeypatch
     show_reports.assert_not_called()
 
 
-async def test_delete_reported_attachment_uses_transaction_and_notifies_owner(monkeypatch) -> None:
+async def test_delete_reported_attachment_uses_transaction_and_notifies_owner(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_report_delete_33_44",
         answer=AsyncMock(),
@@ -992,7 +1095,9 @@ async def test_delete_reported_attachment_uses_transaction_and_notifies_owner(mo
     assert query.answer.await_args.kwargs.get("show_alert") is True
 
 
-async def test_delete_reported_attachment_rolls_back_on_write_error(monkeypatch) -> None:
+async def test_delete_reported_attachment_rolls_back_on_write_error(
+    monkeypatch,
+) -> None:
     from utils.error_handler import error_handler
 
     query = SimpleNamespace(
@@ -1043,7 +1148,9 @@ async def test_delete_reported_attachment_rolls_back_on_write_error(monkeypatch)
     handle_error.assert_awaited_once()
 
 
-async def test_warn_owner_about_report_uses_transaction_and_refreshes_list(monkeypatch) -> None:
+async def test_warn_owner_about_report_uses_transaction_and_refreshes_list(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_report_warn_77_88",
         answer=AsyncMock(),
@@ -1174,7 +1281,9 @@ async def test_warn_owner_about_report_rejects_malformed_payload(monkeypatch) ->
     context.bot.send_message.assert_not_called()
 
 
-async def test_approve_attachment_uses_fallback_language_and_refreshes_pending(monkeypatch) -> None:
+async def test_approve_attachment_uses_fallback_language_and_refreshes_pending(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_approve_55",
         answer=AsyncMock(),
@@ -1214,9 +1323,13 @@ async def test_approve_attachment_uses_fallback_language_and_refreshes_pending(m
     monkeypatch.setattr(review_handler, "cache", cache)
     monkeypatch.setattr(review_handler, "show_pending_list", show_pending)
     monkeypatch.setattr(review_handler, "show_ua_admin_menu", show_menu)
-    monkeypatch.setattr(review_handler, "check_ua_admin_permission", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        review_handler, "check_ua_admin_permission", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(review_handler, "get_user_lang", AsyncMock(return_value="fa"))
-    monkeypatch.setattr(review_handler, "t", lambda key, lang, **kwargs: f"{key}:{lang}")
+    monkeypatch.setattr(
+        review_handler, "t", lambda key, lang, **kwargs: f"{key}:{lang}"
+    )
 
     await review_handler.approve_attachment(update, context)
 
@@ -1234,7 +1347,9 @@ async def test_approve_attachment_uses_fallback_language_and_refreshes_pending(m
     show_menu.assert_not_called()
 
 
-async def test_approve_attachment_stops_before_side_effects_when_repo_approval_fails(monkeypatch) -> None:
+async def test_approve_attachment_stops_before_side_effects_when_repo_approval_fails(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_approve_56",
         answer=AsyncMock(),
@@ -1273,9 +1388,13 @@ async def test_approve_attachment_stops_before_side_effects_when_repo_approval_f
     monkeypatch.setattr(review_handler, "cache", cache)
     monkeypatch.setattr(review_handler, "show_pending_list", show_pending)
     monkeypatch.setattr(review_handler, "show_ua_admin_menu", show_menu)
-    monkeypatch.setattr(review_handler, "check_ua_admin_permission", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        review_handler, "check_ua_admin_permission", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(review_handler, "get_user_lang", AsyncMock(return_value="fa"))
-    monkeypatch.setattr(review_handler, "t", lambda key, lang, **kwargs: f"{key}:{lang}")
+    monkeypatch.setattr(
+        review_handler, "t", lambda key, lang, **kwargs: f"{key}:{lang}"
+    )
 
     await review_handler.approve_attachment(update, context)
 
@@ -1292,7 +1411,9 @@ async def test_approve_attachment_stops_before_side_effects_when_repo_approval_f
     assert query.answer.await_args.kwargs.get("show_alert") is True
 
 
-async def test_approve_attachment_succeeds_even_if_notification_and_cache_fail(monkeypatch) -> None:
+async def test_approve_attachment_succeeds_even_if_notification_and_cache_fail(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_approve_57",
         answer=AsyncMock(),
@@ -1322,7 +1443,9 @@ async def test_approve_attachment_succeeds_even_if_notification_and_cache_fail(m
         get_paginated_count=AsyncMock(side_effect=RuntimeError("count failed")),
     )
     context = SimpleNamespace(
-        bot=SimpleNamespace(send_message=AsyncMock(side_effect=RuntimeError("notify failed"))),
+        bot=SimpleNamespace(
+            send_message=AsyncMock(side_effect=RuntimeError("notify failed"))
+        ),
         user_data={},
     )
     show_pending = AsyncMock()
@@ -1332,9 +1455,13 @@ async def test_approve_attachment_succeeds_even_if_notification_and_cache_fail(m
     monkeypatch.setattr(review_handler, "cache", cache)
     monkeypatch.setattr(review_handler, "show_pending_list", show_pending)
     monkeypatch.setattr(review_handler, "show_ua_admin_menu", show_menu)
-    monkeypatch.setattr(review_handler, "check_ua_admin_permission", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        review_handler, "check_ua_admin_permission", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(review_handler, "get_user_lang", AsyncMock(return_value="fa"))
-    monkeypatch.setattr(review_handler, "t", lambda key, lang, **kwargs: f"{key}:{lang}")
+    monkeypatch.setattr(
+        review_handler, "t", lambda key, lang, **kwargs: f"{key}:{lang}"
+    )
 
     await review_handler.approve_attachment(update, context)
 
@@ -1364,7 +1491,9 @@ async def test_user_repository_approve_user_attachment_commits_once() -> None:
     assert cursor.execute.await_count == 3
 
 
-async def test_user_repository_approve_user_attachment_rolls_back_on_stats_write_error() -> None:
+async def test_user_repository_approve_user_attachment_rolls_back_on_stats_write_error() -> (
+    None
+):
     cursor = _CursorRecorder(
         fetchone_values=[{"user_id": 4401}],
         execute_side_effect=[None, None, RuntimeError("stats update failed")],
@@ -1381,7 +1510,9 @@ async def test_user_repository_approve_user_attachment_rolls_back_on_stats_write
     assert cursor.execute.await_count == 3
 
 
-async def test_user_repository_reject_user_attachment_rolls_back_on_stats_write_error() -> None:
+async def test_user_repository_reject_user_attachment_rolls_back_on_stats_write_error() -> (
+    None
+):
     cursor = _CursorRecorder(
         fetchone_values=[{"user_id": 5501}],
         execute_side_effect=[None, None, RuntimeError("reject stats failed")],
@@ -1412,7 +1543,9 @@ async def test_user_repository_reject_user_attachment_commits_once() -> None:
     assert cursor.execute.await_count == 3
 
 
-async def test_receive_reject_reason_clears_state_and_handles_runtime_error(monkeypatch) -> None:
+async def test_receive_reject_reason_clears_state_and_handles_runtime_error(
+    monkeypatch,
+) -> None:
     from utils.error_handler import error_handler
 
     update = SimpleNamespace(
@@ -1457,14 +1590,18 @@ async def test_receive_reject_reason_clears_state_and_handles_runtime_error(monk
     assert "ua_reject_attachment_id" not in context.user_data
 
 
-async def test_receive_reject_reason_succeeds_even_if_notification_and_cache_fail(monkeypatch) -> None:
+async def test_receive_reject_reason_succeeds_even_if_notification_and_cache_fail(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         message=SimpleNamespace(text="duplicate", reply_text=AsyncMock()),
         effective_user=SimpleNamespace(id=2206),
     )
     context = SimpleNamespace(
         user_data={"ua_reject_attachment_id": 67},
-        bot=SimpleNamespace(send_message=AsyncMock(side_effect=RuntimeError("notify failed"))),
+        bot=SimpleNamespace(
+            send_message=AsyncMock(side_effect=RuntimeError("notify failed"))
+        ),
     )
     attachment = {
         "id": 67,
@@ -1480,7 +1617,9 @@ async def test_receive_reject_reason_succeeds_even_if_notification_and_cache_fai
             get_user_language=AsyncMock(side_effect=RuntimeError("lang failed")),
         )
     )
-    cache = SimpleNamespace(invalidate=AsyncMock(side_effect=RuntimeError("cache failed")))
+    cache = SimpleNamespace(
+        invalidate=AsyncMock(side_effect=RuntimeError("cache failed"))
+    )
 
     monkeypatch.setattr(review_handler, "db", db)
     monkeypatch.setattr(review_handler, "cache", cache)
@@ -1512,7 +1651,9 @@ async def test_show_attachment_view_rejects_malformed_payload(monkeypatch) -> No
     db = SimpleNamespace(users=SimpleNamespace(get_user_attachment=AsyncMock()))
 
     monkeypatch.setattr(review_handler, "db", db)
-    monkeypatch.setattr(review_handler, "check_ua_admin_permission", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        review_handler, "check_ua_admin_permission", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(review_handler, "get_user_lang", AsyncMock(return_value="fa"))
     monkeypatch.setattr(review_handler, "t", lambda key, lang, **kwargs: key)
 
@@ -1524,7 +1665,9 @@ async def test_show_attachment_view_rejects_malformed_payload(monkeypatch) -> No
     query.message.reply_photo.assert_not_called()
 
 
-async def test_delete_attachment_admin_invalidates_cache_and_shows_deleted_list(monkeypatch) -> None:
+async def test_delete_attachment_admin_invalidates_cache_and_shows_deleted_list(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_delete_77",
         answer=AsyncMock(),
@@ -1534,14 +1677,18 @@ async def test_delete_attachment_admin_invalidates_cache_and_shows_deleted_list(
         effective_user=SimpleNamespace(id=2302),
     )
     context = SimpleNamespace()
-    db = SimpleNamespace(users=SimpleNamespace(delete_user_attachment=AsyncMock(return_value=True)))
+    db = SimpleNamespace(
+        users=SimpleNamespace(delete_user_attachment=AsyncMock(return_value=True))
+    )
     cache = SimpleNamespace(invalidate=AsyncMock())
     show_deleted = AsyncMock()
 
     monkeypatch.setattr(review_handler, "db", db)
     monkeypatch.setattr(review_handler, "cache", cache)
     monkeypatch.setattr(review_handler, "show_deleted_list", show_deleted)
-    monkeypatch.setattr(review_handler, "check_ua_admin_permission", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        review_handler, "check_ua_admin_permission", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(review_handler, "get_user_lang", AsyncMock(return_value="fa"))
     monkeypatch.setattr(review_handler, "t", lambda key, lang, **kwargs: key)
 
@@ -1554,7 +1701,9 @@ async def test_delete_attachment_admin_invalidates_cache_and_shows_deleted_list(
     show_deleted.assert_awaited_once_with(update, context)
 
 
-async def test_delete_attachment_admin_succeeds_even_if_cache_invalidation_fails(monkeypatch) -> None:
+async def test_delete_attachment_admin_succeeds_even_if_cache_invalidation_fails(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_delete_78",
         answer=AsyncMock(),
@@ -1564,14 +1713,20 @@ async def test_delete_attachment_admin_succeeds_even_if_cache_invalidation_fails
         effective_user=SimpleNamespace(id=2304),
     )
     context = SimpleNamespace()
-    db = SimpleNamespace(users=SimpleNamespace(delete_user_attachment=AsyncMock(return_value=True)))
-    cache = SimpleNamespace(invalidate=AsyncMock(side_effect=RuntimeError("cache failed")))
+    db = SimpleNamespace(
+        users=SimpleNamespace(delete_user_attachment=AsyncMock(return_value=True))
+    )
+    cache = SimpleNamespace(
+        invalidate=AsyncMock(side_effect=RuntimeError("cache failed"))
+    )
     show_deleted = AsyncMock()
 
     monkeypatch.setattr(review_handler, "db", db)
     monkeypatch.setattr(review_handler, "cache", cache)
     monkeypatch.setattr(review_handler, "show_deleted_list", show_deleted)
-    monkeypatch.setattr(review_handler, "check_ua_admin_permission", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        review_handler, "check_ua_admin_permission", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(review_handler, "get_user_lang", AsyncMock(return_value="fa"))
     monkeypatch.setattr(review_handler, "t", lambda key, lang, **kwargs: key)
 
@@ -1597,7 +1752,9 @@ async def test_restore_attachment_admin_rejects_malformed_payload(monkeypatch) -
     db = SimpleNamespace(users=SimpleNamespace(restore_user_attachment=AsyncMock()))
 
     monkeypatch.setattr(review_handler, "db", db)
-    monkeypatch.setattr(review_handler, "check_ua_admin_permission", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        review_handler, "check_ua_admin_permission", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(review_handler, "get_user_lang", AsyncMock(return_value="fa"))
     monkeypatch.setattr(review_handler, "t", lambda key, lang, **kwargs: key)
 
@@ -1608,7 +1765,9 @@ async def test_restore_attachment_admin_rejects_malformed_payload(monkeypatch) -
     db.users.restore_user_attachment.assert_not_called()
 
 
-async def test_restore_attachment_admin_succeeds_even_if_cache_invalidation_fails(monkeypatch) -> None:
+async def test_restore_attachment_admin_succeeds_even_if_cache_invalidation_fails(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="ua_admin_restore_79",
         answer=AsyncMock(),
@@ -1618,14 +1777,20 @@ async def test_restore_attachment_admin_succeeds_even_if_cache_invalidation_fail
         effective_user=SimpleNamespace(id=2305),
     )
     context = SimpleNamespace()
-    db = SimpleNamespace(users=SimpleNamespace(restore_user_attachment=AsyncMock(return_value=True)))
-    cache = SimpleNamespace(invalidate=AsyncMock(side_effect=RuntimeError("cache failed")))
+    db = SimpleNamespace(
+        users=SimpleNamespace(restore_user_attachment=AsyncMock(return_value=True))
+    )
+    cache = SimpleNamespace(
+        invalidate=AsyncMock(side_effect=RuntimeError("cache failed"))
+    )
     show_pending = AsyncMock()
 
     monkeypatch.setattr(review_handler, "db", db)
     monkeypatch.setattr(review_handler, "cache", cache)
     monkeypatch.setattr(review_handler, "show_pending_list", show_pending)
-    monkeypatch.setattr(review_handler, "check_ua_admin_permission", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        review_handler, "check_ua_admin_permission", AsyncMock(return_value=True)
+    )
     monkeypatch.setattr(review_handler, "get_user_lang", AsyncMock(return_value="fa"))
     monkeypatch.setattr(review_handler, "t", lambda key, lang, **kwargs: key)
 
@@ -1652,7 +1817,9 @@ async def test_user_repository_delete_user_attachment_commits_once() -> None:
     assert cursor.execute.await_count == 3
 
 
-async def test_user_repository_delete_user_attachment_rolls_back_on_stats_write_error() -> None:
+async def test_user_repository_delete_user_attachment_rolls_back_on_stats_write_error() -> (
+    None
+):
     cursor = _CursorRecorder(
         fetchone_values=[{"user_id": 6601, "status": "approved"}],
         execute_side_effect=[None, None, RuntimeError("delete stats failed")],
@@ -1669,7 +1836,9 @@ async def test_user_repository_delete_user_attachment_rolls_back_on_stats_write_
     assert cursor.execute.await_count == 3
 
 
-async def test_user_repository_restore_user_attachment_rolls_back_on_pending_count_write_error() -> None:
+async def test_user_repository_restore_user_attachment_rolls_back_on_pending_count_write_error() -> (
+    None
+):
     cursor = _CursorRecorder(
         fetchone_values=[{"user_id": 7701, "status": "deleted"}],
         execute_side_effect=[None, None, None, RuntimeError("pending count failed")],
@@ -1700,7 +1869,9 @@ async def test_user_repository_restore_user_attachment_commits_once() -> None:
     assert cursor.execute.await_count == 4
 
 
-async def test_receive_new_weapon_name_clears_state_on_runtime_error(monkeypatch) -> None:
+async def test_receive_new_weapon_name_clears_state_on_runtime_error(
+    monkeypatch,
+) -> None:
     update = SimpleNamespace(
         message=SimpleNamespace(text="M4A1", reply_text=AsyncMock()),
     )
@@ -1777,23 +1948,35 @@ async def test_receive_new_weapon_name_rolls_back_on_write_error(monkeypatch) ->
     assert "ua_edit_weapon_attachment_id" not in context.user_data
 
 
-async def test_show_single_channel_stats_falls_back_to_fa_on_missing_channel(monkeypatch) -> None:
+async def test_show_single_channel_stats_falls_back_to_fa_on_missing_channel(
+    monkeypatch,
+) -> None:
     query = SimpleNamespace(
         data="channel_stat_-10055",
         answer=AsyncMock(),
     )
     update = SimpleNamespace(callback_query=query)
-    db = SimpleNamespace(cms=SimpleNamespace(get_channel_by_id=AsyncMock(return_value=None)))
+    db = SimpleNamespace(
+        cms=SimpleNamespace(get_channel_by_id=AsyncMock(return_value=None))
+    )
     context = SimpleNamespace(bot_data={"database": db})
     channel_menu = AsyncMock(return_value="CHANNEL_MENU")
 
     class _Analytics:
         async def get_channel_stats(self, channel_id):
-            raise AssertionError("analytics should not be called when channel is missing")
+            raise AssertionError(
+                "analytics should not be called when channel is missing"
+            )
 
     monkeypatch.setattr(channel_stats_handlers, "Analytics", _Analytics)
-    monkeypatch.setattr(channel_stats_handlers, "get_user_lang", AsyncMock(side_effect=RuntimeError("lang failed")))
-    monkeypatch.setattr(channel_stats_handlers, "t", lambda key, lang, **kwargs: f"{key}:{lang}")
+    monkeypatch.setattr(
+        channel_stats_handlers,
+        "get_user_lang",
+        AsyncMock(side_effect=RuntimeError("lang failed")),
+    )
+    monkeypatch.setattr(
+        channel_stats_handlers, "t", lambda key, lang, **kwargs: f"{key}:{lang}"
+    )
 
     result = await channel_stats_handlers.show_single_channel_stats_impl(
         update,
@@ -1823,9 +2006,13 @@ async def test_show_channel_stats_renders_error_with_back_button(monkeypatch) ->
             raise RuntimeError("dashboard failed")
 
     monkeypatch.setattr(channel_stats_handlers, "Analytics", _Analytics)
-    monkeypatch.setattr(channel_stats_handlers, "get_user_lang", AsyncMock(return_value="fa"))
+    monkeypatch.setattr(
+        channel_stats_handlers, "get_user_lang", AsyncMock(return_value="fa")
+    )
     monkeypatch.setattr(channel_stats_handlers, "safe_edit_message_text", safe_edit)
-    monkeypatch.setattr(channel_stats_handlers, "t", lambda key, lang, **kwargs: f"{key}:{lang}")
+    monkeypatch.setattr(
+        channel_stats_handlers, "t", lambda key, lang, **kwargs: f"{key}:{lang}"
+    )
 
     result = await channel_stats_handlers.show_channel_stats_impl(
         update,
@@ -1840,4 +2027,3 @@ async def test_show_channel_stats_renders_error_with_back_button(monkeypatch) ->
     assert safe_edit.await_args.args[1] == "admin.channels.stats.error:fa"
     reply_markup = safe_edit.await_args.kwargs["reply_markup"]
     assert reply_markup.inline_keyboard[0][0].callback_data == "channel_menu"
-

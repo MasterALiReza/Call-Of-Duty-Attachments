@@ -28,7 +28,7 @@ backups/
 
 # SQLite database files (runtime) - DEPRECATED, moved to PostgreSQL
 # Keep DB out of git; seed/migrate scripts can recreate
-codm_attachments.db
+ox_loadout_attachments.db
 *.db-wal
 *.db-shm
 *.db.bak_*
@@ -80,3 +80,4 @@ archive/
 
 # Test outputs
 test_outputs/
+.agents/

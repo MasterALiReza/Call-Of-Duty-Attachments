@@ -1,5 +1,5 @@
 {
-  "app.name": "CODM Attachments Bot",
+  "app.name": "OX_LOADOUT Attachments Bot",
   "lang.choose_bilingual": "🌍 Please choose your language\n🌍 لطفاً زبان خود را انتخاب کنید",
   "lang.fa": "🇮🇷 Persian",
   "lang.en": "🇬🇧 English",
@@ -15,7 +15,7 @@
   "membership.network_error.title": "⚠️ <b>Connection issue</b>",
   "membership.network_error.body": "We are unable to verify your membership right now.\n\n🔄 Please check your internet or VPN and try again.",
   "rate_limit.wait_seconds": "⏱ Please wait {seconds} seconds...",
-  "welcome": "🎮 **Welcome to {app_name}!**\n\nThis bot helps you browse the best CODM weapon attachments.\n\n🔹 Choose an option from the menu below:",
+  "welcome": "🎮 **Welcome to {app_name}!**\n\nThis bot helps you browse the best OX_LOADOUT weapon attachments.\n\n🔹 Choose an option from the menu below:",
   "menu.buttons.get": "🔫 Get Attachments",
   "menu.buttons.game_settings": "⚙️ Game Settings",
   "menu.buttons.user_settings": "⚙️ Bot Settings",

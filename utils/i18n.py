@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict
 from utils.logger import get_logger
 
-logger = get_logger('i18n', 'app.log')
+logger = get_logger("i18n", "app.log")
 
 _translations: Dict[str, Dict] = {}
 _locales_dir = Path(__file__).resolve().parent.parent / "locales"
@@ -17,7 +17,7 @@ def _load_translations(lang: str) -> Dict:
         logger.warning(f"Locale file not found: {locale_file}")
         return {}
     try:
-        with open(locale_file, 'r', encoding='utf-8') as f:
+        with open(locale_file, "r", encoding="utf-8") as f:
             _translations[lang] = json.load(f)
             return _translations[lang]
     except Exception as e:
@@ -25,7 +25,7 @@ def _load_translations(lang: str) -> Dict:
         return {}
 
 
-def t(key: str, lang: str = 'fa', **kwargs) -> str:
+def t(key: str, lang: str = "fa", **kwargs) -> str:
     """Return localized text for the given key and language.
 
     Fallback order:
@@ -66,8 +66,9 @@ def t(key: str, lang: str = 'fa', **kwargs) -> str:
     return text
 
 
-def kb(key: str, lang: str = 'fa') -> str:
+def kb(key: str, lang: str = "fa") -> str:
     return t(key, lang)
+
 
 def get_all_translations_for_key(key: str) -> list[str]:
     """Return all translations for a given key across all available locales."""
@@ -77,8 +78,9 @@ def get_all_translations_for_key(key: str) -> list[str]:
         _load_translations(lang)
         if lang in _translations and key in _translations[lang]:
             result.add(_translations[lang][key])
-            
+
     return list(result)
+
 
 def build_regex_for_key(key: str) -> str:
     """Builds an exact-match Regex pattern matching ANY language's translation for the key.
@@ -87,11 +89,13 @@ def build_regex_for_key(key: str) -> str:
     texts = get_all_translations_for_key(key)
     if not texts:
         texts = [key]  # safe fallback
-        
+
     import re
+
     escaped = [re.escape(text) for text in texts]
     # Match exact text OR text followed by optional count in parentheses
-    return r'^(' + '|'.join(escaped) + r')(?:\s*\(\d+\))?$'
+    return r"^(" + "|".join(escaped) + r")(?:\s*\(\d+\))?$"
+
 
 def build_regex_for_keys(keys: list[str]) -> str:
     """Builds an exact-match Regex pattern matching ANY language's translation for ANY of the keys.
@@ -100,13 +104,15 @@ def build_regex_for_keys(keys: list[str]) -> str:
     all_texts = set()
     for key in keys:
         all_texts.update(get_all_translations_for_key(key))
-    
+
     if not all_texts:
         all_texts = set(keys)
-        
+
     import re
+
     escaped = [re.escape(text) for text in all_texts]
-    return r'^(' + '|'.join(escaped) + r')(?:\s*\(\d+\))?$'
+    return r"^(" + "|".join(escaped) + r")(?:\s*\(\d+\))?$"
+
 
 def reload_translations():
     _translations.clear()

@@ -1,5 +1,5 @@
 """
-تنظیمات ربات تلگرام CODM Attachments
+تنظیمات ربات تلگرام OX_LOADOUT Attachments
 """
 
 import os
@@ -12,7 +12,9 @@ load_dotenv()
 
 # i18n
 DEFAULT_LANG = os.getenv("DEFAULT_LANG", "fa")
-SUPPORTED_LANGS = [s.strip() for s in os.getenv("SUPPORTED_LANGS", "fa,en").split(",") if s.strip()]
+SUPPORTED_LANGS = [
+    s.strip() for s in os.getenv("SUPPORTED_LANGS", "fa,en").split(",") if s.strip()
+]
 FALLBACK_LANG = os.getenv("FALLBACK_LANG", "en")
 LANGUAGE_ONBOARDING = os.getenv("LANGUAGE_ONBOARDING", "true").lower() == "true"
 
@@ -65,8 +67,14 @@ BACKUP_DIR = "backups"
 
 # دسته‌بندی سلاح‌ها (IDs)
 WEAPON_CATEGORIES_IDS = [
-    "assault_rifle", "smg", "lmg", "sniper", 
-    "marksman", "shotgun", "pistol", "launcher"
+    "assault_rifle",
+    "smg",
+    "lmg",
+    "sniper",
+    "marksman",
+    "shotgun",
+    "pistol",
+    "launcher",
 ]
 
 WEAPON_CATEGORIES = {
@@ -77,7 +85,7 @@ WEAPON_CATEGORIES = {
     "marksman": "Marksman",
     "shotgun": "Shotgun",
     "pistol": "Pistol",
-    "launcher": "Launcher"
+    "launcher": "Launcher",
 }
 
 WEAPON_CATEGORIES_SHORT = {
@@ -88,38 +96,47 @@ WEAPON_CATEGORIES_SHORT = {
     "marksman": "Marksman",
     "shotgun": "SG",
     "pistol": "Pistol",
-    "launcher": "Launcher"
+    "launcher": "Launcher",
 }
 
 CATEGORIES = WEAPON_CATEGORIES
 
 # تنظیمات Mode (Battle Royale / Multiplayer)
-GAME_MODES = {
-    "br": "🪂 BR",
-    "mp": "🎮 MP"
-}
+GAME_MODES = {"br": "🪂 BR", "mp": "🎮 MP"}
 
-@cached(ttl=300, key_func=lambda callback_prefix, show_count=False, db=None, lang='fa', active_ids=None, **kwargs: f"cat_kb:{callback_prefix}:{show_count}:{lang}:{active_ids}")
-async def build_category_keyboard(callback_prefix: str, show_count: bool = False, db=None, lang: str = 'fa', active_ids: list = None) -> list:
+
+@cached(
+    ttl=300,
+    key_func=lambda callback_prefix, show_count=False, db=None, lang="fa", active_ids=None, **kwargs: (
+        f"cat_kb:{callback_prefix}:{show_count}:{lang}:{active_ids}"
+    ),
+)
+async def build_category_keyboard(
+    callback_prefix: str,
+    show_count: bool = False,
+    db=None,
+    lang: str = "fa",
+    active_ids: list = None,
+) -> list:
     """
     ساخت کیبورد 2 ستونی برای دسته‌بندی‌ها با استفاده از i18n
-    
+
     Args:
         callback_prefix: پیشوند callback_data (مثل "cat_", "aac_")
         show_count: نمایش تعداد سلاح‌ها
         db: شیء دیتابیس (فقط برای show_count=True)
         lang: زبان (fa/en) برای translation
         active_ids: لیست IDهای فعال (اگر None باشد، همه نمایش داده می‌شوند)
-    
+
     Returns:
         لیست ردیف‌های کیبورد
     """
     from telegram import InlineKeyboardButton
     from utils.i18n import t
-    
+
     keyboard = []
     buttons = []
-    
+
     counts = {}
     if show_count and db:
         try:
@@ -127,55 +144,66 @@ async def build_category_keyboard(callback_prefix: str, show_count: bool = False
             counts = await db.attachments.get_all_category_counts()
         except Exception:
             counts = {}
-    
+
     target_ids = active_ids if active_ids is not None else WEAPON_CATEGORIES_IDS
-    
+
     for key in target_ids:
         # دریافت نام نمایشی از i18n - همیشه انگلیسی به درخواست کاربر
-        display_name = t(f"category.{key}", lang='en')
-        
+        display_name = t(f"category.{key}", lang="en")
+
         # اضافه کردن ایموجی بر اساس ID
         emojis = {
-            "assault_rifle": "🔫", "smg": "⚡", "lmg": "🎯", "sniper": "🔭",
-            "marksman": "🎪", "shotgun": "💥", "pistol": "🔫", "launcher": "🚀"
+            "assault_rifle": "🔫",
+            "smg": "⚡",
+            "lmg": "🎯",
+            "sniper": "🔭",
+            "marksman": "🎪",
+            "shotgun": "💥",
+            "pistol": "🔫",
+            "launcher": "🚀",
         }
         emoji = emojis.get(key, "")
         button_text = f"{emoji} {display_name}" if emoji else display_name
-        
+
         if show_count and db:
             weapons_count = counts.get(key, 0)
             button_text = f"{button_text} ({weapons_count})"
-        
-        buttons.append(InlineKeyboardButton(button_text, callback_data=f"{callback_prefix}{key}"))
-    
+
+        buttons.append(
+            InlineKeyboardButton(button_text, callback_data=f"{callback_prefix}{key}")
+        )
+
     # تقسیم دکمه‌ها به ردیف‌های 2 تایی
     for i in range(0, len(buttons), 2):
         if i + 1 < len(buttons):
             keyboard.append([buttons[i], buttons[i + 1]])
         else:
             keyboard.append([buttons[i]])
-    
+
     return keyboard
 
-def build_weapon_keyboard(weapons: list, callback_prefix: str, category: str = None, add_emoji: bool = False) -> list:
+
+def build_weapon_keyboard(
+    weapons: list, callback_prefix: str, category: str = None, add_emoji: bool = False
+) -> list:
     """
     ساخت کیبورد برای سلاح‌ها با تعداد ستون‌های متغیر بر اساس دسته
-    
+
     Args:
         weapons: لیست نام سلاح‌ها
         callback_prefix: پیشوند callback_data (مثل "wpn_", "aaw_")
         category: دسته سلاح (برای تعیین تعداد ستون‌ها)
         add_emoji: اضافه کردن ایموجی 🔫 به متن دکمه
-    
+
     Returns:
         لیست ردیف‌های کیبورد
     """
     from telegram import InlineKeyboardButton
-    
+
     # تعیین تعداد ستون‌ها بر اساس دسته
     # AR و SMG: 3 ستونی، بقیه: 2 ستونی
-    columns = 3 if category in ['assault_rifle', 'smg'] else 2
-    
+    columns = 3 if category in ["assault_rifle", "smg"] else 2
+
     keyboard = []
     for i in range(0, len(weapons), columns):
         row = []
@@ -183,44 +211,47 @@ def build_weapon_keyboard(weapons: list, callback_prefix: str, category: str = N
             if i + j < len(weapons):
                 weapon = weapons[i + j]
                 button_text = f"🔫 {weapon}" if add_emoji else weapon
-                row.append(InlineKeyboardButton(
-                    button_text, 
-                    callback_data=f"{callback_prefix}{weapon}"
-                ))
+                row.append(
+                    InlineKeyboardButton(
+                        button_text, callback_data=f"{callback_prefix}{weapon}"
+                    )
+                )
         keyboard.append(row)
-    
+
     return keyboard
+
 
 # وضعیت فعال/غیرفعال بودن هر دسته برای نمایش به کاربران
 # ساختار mode-based: {'mp': {'category': {'enabled': bool}}, 'br': {...}}
 DEFAULT_CATEGORY_SETTINGS = {
-    'mp': {
-        'assault_rifle': {'enabled': True},
-        'launcher': {'enabled': True},
-        'lmg': {'enabled': True},
-        'marksman': {'enabled': True},
-        'pistol': {'enabled': True},
-        'shotgun': {'enabled': True},
-        'smg': {'enabled': True},
-        'sniper': {'enabled': True}
+    "mp": {
+        "assault_rifle": {"enabled": True},
+        "launcher": {"enabled": True},
+        "lmg": {"enabled": True},
+        "marksman": {"enabled": True},
+        "pistol": {"enabled": True},
+        "shotgun": {"enabled": True},
+        "smg": {"enabled": True},
+        "sniper": {"enabled": True},
     },
-    'br': {
-        'assault_rifle': {'enabled': True},
-        'launcher': {'enabled': True},
-        'lmg': {'enabled': True},
-        'marksman': {'enabled': True},
-        'pistol': {'enabled': True},
-        'shotgun': {'enabled': True},
-        'smg': {'enabled': True},
-        'sniper': {'enabled': True}
-    }
+    "br": {
+        "assault_rifle": {"enabled": True},
+        "launcher": {"enabled": True},
+        "lmg": {"enabled": True},
+        "marksman": {"enabled": True},
+        "pistol": {"enabled": True},
+        "shotgun": {"enabled": True},
+        "smg": {"enabled": True},
+        "sniper": {"enabled": True},
+    },
 }
 
 import json
 
+
 async def get_all_category_settings(db=None) -> dict:
     if db:
-        val = await db.settings.get_setting('category_settings')
+        val = await db.settings.get_setting("category_settings")
         if val:
             try:
                 return json.loads(val)
@@ -228,42 +259,51 @@ async def get_all_category_settings(db=None) -> dict:
                 pass
     return DEFAULT_CATEGORY_SETTINGS
 
+
 CATEGORY_SETTINGS = DEFAULT_CATEGORY_SETTINGS
+
 
 async def get_category_setting(category: str, mode: str = None, db=None) -> dict:
     """دریافت تنظیمات یک دسته برای mode مشخص از دیتابیس"""
     if mode is None:
-        mode = 'mp'  # default
+        mode = "mp"  # default
     settings = await get_all_category_settings(db)
     if mode in settings and category in settings[mode]:
         return settings[mode][category]
-    return {'enabled': True}
+    return {"enabled": True}
+
 
 async def is_category_enabled(category: str, mode: str = None, db=None) -> bool:
     """بررسی فعال بودن یک دسته برای mode مشخص"""
     settings = await get_category_setting(category, mode, db)
-    return settings.get('enabled', True)
+    return settings.get("enabled", True)
+
 
 async def set_category_enabled(category: str, enabled: bool, mode: str = None, db=None):
     """تنظیم وضعیت فعال/غیرفعال یک دسته در دیتابیس"""
     settings = await get_all_category_settings(db)
-    
+
     if mode is None:
-        for m in ['mp', 'br']:
+        for m in ["mp", "br"]:
             if m not in settings:
                 settings[m] = {}
             if category not in settings[m]:
                 settings[m][category] = {}
-            settings[m][category]['enabled'] = enabled
+            settings[m][category]["enabled"] = enabled
     else:
         if mode not in settings:
             settings[mode] = {}
         if category not in settings[mode]:
             settings[mode][category] = {}
-        settings[mode][category]['enabled'] = enabled
-    
+        settings[mode][category]["enabled"] = enabled
+
     if db:
-        await db.settings.set_setting('category_settings', json.dumps(settings), "Category enable/disable settings")
+        await db.settings.set_setting(
+            "category_settings",
+            json.dumps(settings),
+            "Category enable/disable settings",
+        )
+
 
 DEFAULT_NOTIFICATION_SETTINGS = {
     "enabled": True,
@@ -275,7 +315,7 @@ DEFAULT_NOTIFICATION_SETTINGS = {
         "delete_attachment": True,
         "top_set": True,
         "top_added": True,
-        "top_removed": True
+        "top_removed": True,
     },
     "templates": {
         "add_attachment": "notification.template.add_attachment",
@@ -285,30 +325,41 @@ DEFAULT_NOTIFICATION_SETTINGS = {
         "delete_attachment": "notification.template.delete_attachment",
         "top_set": "notification.template.top_set",
         "top_added": "notification.template.top_added",
-        "top_removed": "notification.template.top_removed"
+        "top_removed": "notification.template.top_removed",
     },
-    "auto_notify": True
+    "auto_notify": True,
 }
+
 
 async def get_notification_settings(db=None) -> dict:
     if db:
-        val = await db.settings.get_setting('notification_settings')
+        val = await db.settings.get_setting("notification_settings")
         if val:
             try:
                 settings = json.loads(val)
                 merged = {**DEFAULT_NOTIFICATION_SETTINGS, **settings}
-                merged['events'] = {**DEFAULT_NOTIFICATION_SETTINGS.get('events', {}), **settings.get('events', {})}
-                merged['templates'] = {**DEFAULT_NOTIFICATION_SETTINGS.get('templates', {}), **settings.get('templates', {})}
+                merged["events"] = {
+                    **DEFAULT_NOTIFICATION_SETTINGS.get("events", {}),
+                    **settings.get("events", {}),
+                }
+                merged["templates"] = {
+                    **DEFAULT_NOTIFICATION_SETTINGS.get("templates", {}),
+                    **settings.get("templates", {}),
+                }
                 return merged
             except Exception:
                 pass
     return DEFAULT_NOTIFICATION_SETTINGS
 
+
 async def set_notification_settings(settings: dict, db=None) -> bool:
     if db:
-        return await db.settings.set_setting('notification_settings', json.dumps(settings), "Global notification settings")
+        return await db.settings.set_setting(
+            "notification_settings",
+            json.dumps(settings),
+            "Global notification settings",
+        )
     return False
-
 
 
 # تنظیمات صفحه‌بندی

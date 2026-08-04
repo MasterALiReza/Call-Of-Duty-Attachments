@@ -2,4 +2,4 @@
 
 from .contact_handlers import ContactHandlers
 
-__all__ = ['ContactHandlers']
+__all__ = ["ContactHandlers"]

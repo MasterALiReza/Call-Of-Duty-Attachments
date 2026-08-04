@@ -132,7 +132,9 @@ async def run_admin_cancel(handler: Any, update: Update, context: CustomContext)
     return await handler.admin_menu_return(update, context)
 
 
-async def run_search_cancel_and_admin(handler: Any, update: Update, context: CustomContext):
+async def run_search_cancel_and_admin(
+    handler: Any, update: Update, context: CustomContext
+):
     user_id = update.effective_user.id
     if await handler.is_admin(user_id):
         await handler.admin_start_msg(update, context)

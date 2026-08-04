@@ -8,7 +8,7 @@ from .ticket_handler import TicketHandler
 from .direct_contact_handler import DirectContactHandler
 
 __all__ = [
-    'FAQHandler',
-    'TicketHandler',
-    'DirectContactHandler',
+    "FAQHandler",
+    "TicketHandler",
+    "DirectContactHandler",
 ]

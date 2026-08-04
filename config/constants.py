@@ -24,21 +24,21 @@ MAX_BROADCAST_MESSAGE_LENGTH = 4000
 # Image
 MAX_IMAGE_SIZE_MB = 10
 MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
-ALLOWED_IMAGE_FORMATS = {'jpg', 'jpeg', 'png', 'webp'}
+ALLOWED_IMAGE_FORMATS = {"jpg", "jpeg", "png", "webp"}
 
 # Video
 MAX_VIDEO_SIZE_MB = 20
 MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024
-ALLOWED_VIDEO_FORMATS = {'mp4', 'avi', 'mov', 'mkv'}
+ALLOWED_VIDEO_FORMATS = {"mp4", "avi", "mov", "mkv"}
 
 # ====================================
 # Cache TTL (Time To Live) - seconds
 # ====================================
 
-CACHE_TTL_CATEGORIES = 3600      # 1 hour
-CACHE_TTL_WEAPONS = 1800         # 30 minutes
-CACHE_TTL_ATTACHMENTS = 300      # 5 minutes
-CACHE_TTL_USERS = 600            # 10 minutes
+CACHE_TTL_CATEGORIES = 3600  # 1 hour
+CACHE_TTL_WEAPONS = 1800  # 30 minutes
+CACHE_TTL_ATTACHMENTS = 300  # 5 minutes
+CACHE_TTL_USERS = 600  # 10 minutes
 CACHE_TTL_CHANNEL_MEMBER = 1800  # 30 minutes (for members)
 CACHE_TTL_CHANNEL_NON_MEMBER = 120  # 2 minutes (for non-members)
 CACHE_TTL_CATEGORY_COUNTS = 1800  # 30 minutes

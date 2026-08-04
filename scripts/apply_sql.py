@@ -20,13 +20,13 @@ def _load_database_url() -> str | None:
         if env_path.exists():
             for line in env_path.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
-                if line.startswith('DATABASE_URL='):
+                if line.startswith("DATABASE_URL="):
                     # Support quoted or plain
-                    value = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    value = line.split("=", 1)[1].strip().strip('"').strip("'")
                     if value:
-                        os.environ['DATABASE_URL'] = value
+                        os.environ["DATABASE_URL"] = value
                         return value
     except Exception:
         pass
@@ -36,7 +36,9 @@ def _load_database_url() -> str | None:
 def main() -> int:
     dsn = _load_database_url()
     if not dsn:
-        print("ERROR: DATABASE_URL not set (env) and not found in .env", file=sys.stderr)
+        print(
+            "ERROR: DATABASE_URL not set (env) and not found in .env", file=sys.stderr
+        )
         return 2
 
     # Build target list from CLI args: files or directories of .sql
@@ -49,45 +51,47 @@ def main() -> int:
                 p = (Path(HERE) / p).resolve()
             if p.is_dir():
                 # All .sql files in directory, sorted by name
-                for f in sorted(p.glob('*.sql')):
+                for f in sorted(p.glob("*.sql")):
                     targets.append(f)
-            elif p.suffix.lower() == '.sql' and p.exists():
+            elif p.suffix.lower() == ".sql" and p.exists():
                 targets.append(p)
             else:
                 print(f"WARN: skipping invalid target: {arg}", file=sys.stderr)
     else:
         targets = [Path(SQL_PATH)]
 
-    total_statements = 0
-    applied = 0
+    total_files = len(targets)
+    applied_files = 0
     with psycopg.connect(dsn) as conn:
         conn.autocommit = True
         with conn.cursor() as cur:
             for tpath in targets:
                 try:
-                    sql = tpath.read_text(encoding='utf-8')
+                    sql = tpath.read_text(encoding="utf-8")
                 except Exception as e:
-                    print(f"ERROR: cannot read SQL file: {tpath} -> {e}", file=sys.stderr)
+                    print(
+                        f"ERROR: cannot read SQL file: {tpath} -> {e}", file=sys.stderr
+                    )
                     continue
-                stmts = [s.strip() for s in sql.split(';') if s.strip()]
-                total_statements += len(stmts)
-                for s in stmts:
-                    try:
-                        cur.execute(s)
-                        applied += 1
-                    except Exception as e:
-                        print(f"WARN: failed statement head: {s[:120]!r} -> {e}", file=sys.stderr)
+                try:
+                    cur.execute(sql)
+                    applied_files += 1
+                except Exception as e:
+                    print(
+                        f"ERROR: failed applying SQL file {tpath} -> {e}",
+                        file=sys.stderr,
+                    )
 
     # Quick verification of key tables
     verify_tables = [
-        'user_attachments',
-        'user_attachment_engagement',
-        'suggested_attachments',
-        'ua_stats_cache',
-        'ua_top_weapons_cache',
-        'ua_top_users_cache',
-        'data_health_checks',
-        'data_quality_metrics',
+        "user_attachments",
+        "user_attachment_engagement",
+        "suggested_attachments",
+        "ua_stats_cache",
+        "ua_top_weapons_cache",
+        "ua_top_users_cache",
+        "data_health_checks",
+        "data_quality_metrics",
     ]
     missing: list[str] = []
     try:
@@ -100,13 +104,13 @@ def main() -> int:
                     WHERE table_schema = current_schema()
                     """
                 )
-                existing = {row.get('table_name') for row in vcur.fetchall()}
+                existing = {row.get("table_name") for row in vcur.fetchall()}
         missing = [t for t in verify_tables if t not in existing]
     except Exception:
         # Verification is best-effort
         pass
 
-    print(f"Applied {applied}/{total_statements} statements successfully from {len(targets)} file(s)")
+    print(f"Applied {applied_files}/{total_files} SQL file(s) successfully.")
     if missing:
         print(f"Missing tables after apply: {', '.join(missing)}", file=sys.stderr)
         return 4

@@ -1,9 +1,9 @@
 from typing import List, Dict, Optional, Any
-from datetime import datetime
 import json
 from utils.logger import get_logger
 
-logger = get_logger('cms_manager', 'database.log')
+logger = get_logger("cms_manager", "database.log")
+
 
 class CMSManager:
     """
@@ -39,7 +39,11 @@ class CMSManager:
                 )
                 row = await cur.fetchone()
                 await conn.commit()
-                return row["content_id"] if row and isinstance(row, dict) else (row[0] if row else None)
+                return (
+                    row["content_id"]
+                    if row and isinstance(row, dict)
+                    else (row[0] if row else None)
+                )
 
     async def update_content(
         self,
@@ -118,7 +122,9 @@ class CMSManager:
             return await self.archive_content(content_id)
         async with self.db.get_connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("DELETE FROM cms_content WHERE content_id = %s", (content_id,))
+                await cur.execute(
+                    "DELETE FROM cms_content WHERE content_id = %s", (content_id,)
+                )
                 await conn.commit()
                 return cur.rowcount > 0
 
@@ -138,7 +144,9 @@ class CMSManager:
                 row = await cur.fetchone()
                 return dict(row) if row else None
 
-    async def get_published_content(self, content_type: Optional[str] = None, limit: int = 10, offset: int = 0) -> List[Dict]:
+    async def get_published_content(
+        self, content_type: Optional[str] = None, limit: int = 10, offset: int = 0
+    ) -> List[Dict]:
         query = (
             "SELECT content_id, content_type, title, body, tags, published_at "
             "FROM cms_content WHERE status = 'published'"
@@ -171,7 +179,7 @@ class CMSManager:
                     return 0
                 # row could be dict-like or tuple
                 try:
-                    return int(row.get('c'))  # type: ignore[union-attr]
+                    return int(row.get("c"))  # type: ignore[union-attr]
                 except Exception:
                     return int(row[0])
 

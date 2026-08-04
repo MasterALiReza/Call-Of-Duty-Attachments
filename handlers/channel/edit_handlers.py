@@ -32,7 +32,10 @@ async def edit_channel_start_impl(
     channels = await db.cms.get_required_channels()
     if not channels:
         try:
-            lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+            lang = (
+                await get_user_lang(update, context, context.bot_data.get("database"))
+                or "fa"
+            )
         except Exception:
             lang = "fa"
         await query.answer(t("admin.channels.edit.none", lang), show_alert=True)
@@ -40,26 +43,44 @@ async def edit_channel_start_impl(
 
     keyboard = []
     for channel in channels:
-        keyboard.append([
-            InlineKeyboardButton(f"📢 {channel['title']}", callback_data=f"edit_select_{channel['channel_id']}")
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"📢 {channel['title']}",
+                    callback_data=f"edit_select_{channel['channel_id']}",
+                )
+            ]
+        )
 
     try:
-        lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        lang = (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception:
         lang = "fa"
-    keyboard.append([InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="channel_menu")])
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="channel_menu"
+            )
+        ]
+    )
 
     await safe_edit_message_text(
         query,
-        t("admin.channels.edit.title", lang) + "\n\n" + t("admin.channels.edit.prompt", lang),
+        t("admin.channels.edit.title", lang)
+        + "\n\n"
+        + t("admin.channels.edit.prompt", lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML",
     )
     return edit_select_state
 
 
-async def edit_channel_select_impl(update: Update, context: CustomContext, edit_field_state: str):
+async def edit_channel_select_impl(
+    update: Update, context: CustomContext, edit_field_state: str
+):
     """Select editable field for chosen channel."""
     query = update.callback_query
     await query.answer()
@@ -68,13 +89,30 @@ async def edit_channel_select_impl(update: Update, context: CustomContext, edit_
     context.user_data["editing_channel_id"] = channel_id
 
     try:
-        lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        lang = (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception:
         lang = "fa"
     keyboard = [
-        [InlineKeyboardButton(t("admin.channels.buttons.edit_title", lang), callback_data="edit_field_title")],
-        [InlineKeyboardButton(t("admin.channels.buttons.edit_url", lang), callback_data="edit_field_url")],
-        [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="edit_channel")],
+        [
+            InlineKeyboardButton(
+                t("admin.channels.buttons.edit_title", lang),
+                callback_data="edit_field_title",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("admin.channels.buttons.edit_url", lang),
+                callback_data="edit_field_url",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="edit_channel"
+            )
+        ],
     ]
 
     await safe_edit_message_text(
@@ -85,7 +123,9 @@ async def edit_channel_select_impl(update: Update, context: CustomContext, edit_
     return edit_field_state
 
 
-async def edit_channel_field_impl(update: Update, context: CustomContext, edit_value_state: str):
+async def edit_channel_field_impl(
+    update: Update, context: CustomContext, edit_value_state: str
+):
     """Prompt for updated field value."""
     query = update.callback_query
     await query.answer()
@@ -94,12 +134,27 @@ async def edit_channel_field_impl(update: Update, context: CustomContext, edit_v
     context.user_data["editing_field"] = field
 
     try:
-        lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        lang = (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception:
         lang = "fa"
-    message = t("admin.channels.edit.prompt_title", lang) if field == "title" else t("admin.channels.edit.prompt_url", lang)
-    keyboard = [[InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="channel_menu")]]
-    await safe_edit_message_text(query, message, reply_markup=InlineKeyboardMarkup(keyboard))
+    message = (
+        t("admin.channels.edit.prompt_title", lang)
+        if field == "title"
+        else t("admin.channels.edit.prompt_url", lang)
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.cancel", lang), callback_data="channel_menu"
+            )
+        ]
+    ]
+    await safe_edit_message_text(
+        query, message, reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return edit_value_state
 
 
@@ -119,7 +174,10 @@ async def edit_channel_value_impl(
 
     if not channel_id or not field:
         try:
-            lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+            lang = (
+                await get_user_lang(update, context, context.bot_data.get("database"))
+                or "fa"
+            )
         except Exception:
             lang = "fa"
         await update.message.reply_text(t("admin.channels.errors.missing_edit", lang))
@@ -131,34 +189,74 @@ async def edit_channel_value_impl(
         if success:
             try:
                 analytics = Analytics()
-                await analytics.track_channel_updated(channel_id=channel_id, admin_id=update.effective_user.id, title=value)
+                await analytics.track_channel_updated(
+                    channel_id=channel_id,
+                    admin_id=update.effective_user.id,
+                    title=value,
+                )
             except Exception as e:
                 logger.error("[Analytics] Error tracking channel update: %s", e)
-                log_exception(logger, e, str({"channel_id": channel_id, "admin_id": update.effective_user.id}))
+                log_exception(
+                    logger,
+                    e,
+                    str(
+                        {"channel_id": channel_id, "admin_id": update.effective_user.id}
+                    ),
+                )
     else:
         if not value.startswith("https://t.me/"):
             try:
-                lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+                lang = (
+                    await get_user_lang(
+                        update, context, context.bot_data.get("database")
+                    )
+                    or "fa"
+                )
             except Exception:
                 lang = "fa"
-            await update.message.reply_text(t("admin.channels.errors.invalid_link", lang))
+            await update.message.reply_text(
+                t("admin.channels.errors.invalid_link", lang)
+            )
             return edit_value_state
         success = await db.cms.update_required_channel(channel_id, url=value)
         if success:
             try:
                 analytics = Analytics()
-                await analytics.track_channel_updated(channel_id=channel_id, admin_id=update.effective_user.id, url=value)
+                await analytics.track_channel_updated(
+                    channel_id=channel_id, admin_id=update.effective_user.id, url=value
+                )
             except Exception as e:
                 logger.error("[Analytics] Error tracking channel update: %s", e)
-                log_exception(logger, e, str({"channel_id": channel_id, "admin_id": update.effective_user.id}))
+                log_exception(
+                    logger,
+                    e,
+                    str(
+                        {"channel_id": channel_id, "admin_id": update.effective_user.id}
+                    ),
+                )
 
     try:
-        lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        lang = (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception:
         lang = "fa"
-    message = t("admin.channels.edit.success", lang) if success else t("admin.channels.edit.error", lang)
-    keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="channel_menu")]]
-    await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
+    message = (
+        t("admin.channels.edit.success", lang)
+        if success
+        else t("admin.channels.edit.error", lang)
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="channel_menu"
+            )
+        ]
+    ]
+    await update.message.reply_text(
+        message, reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
     context.user_data.pop("editing_channel_id", None)
     context.user_data.pop("editing_field", None)

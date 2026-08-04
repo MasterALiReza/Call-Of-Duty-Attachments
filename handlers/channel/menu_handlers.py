@@ -36,18 +36,27 @@ async def channel_management_menu_impl(
         try:
             await audit_permission_denied(update.effective_user.id)
         except Exception:
-            logger.exception("[channel] Failed to record permission deny for user=%s", update.effective_user.id)
+            logger.exception(
+                "[channel] Failed to record permission deny for user=%s",
+                update.effective_user.id,
+            )
         query = update.callback_query
         if query:
-            await query.answer(translate("admin.channels.permission_denied", lang), show_alert=True)
+            await query.answer(
+                translate("admin.channels.permission_denied", lang), show_alert=True
+            )
         else:
             try:
-                await update.message.reply_text(translate("admin.channels.permission_denied", lang))
+                await update.message.reply_text(
+                    translate("admin.channels.permission_denied", lang)
+                )
             except Exception:
                 pass
         return ConversationHandler.END
 
-    logger.info("[channel] Open menu by user=%s, page=%d", update.effective_user.id, page)
+    logger.info(
+        "[channel] Open menu by user=%s, page=%d", update.effective_user.id, page
+    )
     query = update.callback_query
     if query:
         await query.answer()

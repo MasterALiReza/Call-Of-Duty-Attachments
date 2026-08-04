@@ -11,10 +11,10 @@ from .suggested_attachments import SuggestedAttachmentsHandler
 from .management_menu import AttachmentManagementHandler
 
 __all__ = [
-    'AddAttachmentHandler',
-    'DeleteAttachmentHandler',
-    'EditAttachmentHandler',
-    'TopAttachmentsHandler',
-    'SuggestedAttachmentsHandler',
-    'AttachmentManagementHandler',
+    "AddAttachmentHandler",
+    "DeleteAttachmentHandler",
+    "EditAttachmentHandler",
+    "TopAttachmentsHandler",
+    "SuggestedAttachmentsHandler",
+    "AttachmentManagementHandler",
 ]

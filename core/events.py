@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Any, Callable, Dict, List, Coroutine
 
-logger = logging.getLogger('events')
+logger = logging.getLogger("events")
 
 EventCallback = Callable[..., Coroutine[Any, Any, None]]
 
@@ -11,6 +11,7 @@ class EventBus:
     """
     A lightweight asynchronous Event Bus for decoupling pub/sub mechanisms.
     """
+
     def __init__(self):
         self._subscribers: Dict[str, List[EventCallback]] = {}
 
@@ -27,7 +28,9 @@ class EventBus:
         if event_type in self._subscribers:
             if callback in self._subscribers[event_type]:
                 self._subscribers[event_type].remove(callback)
-                logger.debug(f"[EventBus] Unsubscribed {callback.__name__} from '{event_type}'")
+                logger.debug(
+                    f"[EventBus] Unsubscribed {callback.__name__} from '{event_type}'"
+                )
 
     async def emit(self, event_type: str, **kwargs):
         """
@@ -39,8 +42,10 @@ class EventBus:
         if event_type not in self._subscribers or not self._subscribers[event_type]:
             return
 
-        logger.debug(f"[EventBus] Emitting '{event_type}' to {len(self._subscribers[event_type])} subscribers. Data: {kwargs}")
-        
+        logger.debug(
+            f"[EventBus] Emitting '{event_type}' to {len(self._subscribers[event_type])} subscribers. Data: {kwargs}"
+        )
+
         # Fire off all callbacks concurrently without awaiting their completion here
         # to prevent blocking the emitter.
         tasks = []
@@ -49,8 +54,10 @@ class EventBus:
                 task = asyncio.create_task(self._safe_execute(callback, **kwargs))
                 tasks.append(task)
             except Exception as e:
-                logger.error(f"[EventBus] Failed to spawn task for {callback.__name__} on '{event_type}': {e}")
-                
+                logger.error(
+                    f"[EventBus] Failed to spawn task for {callback.__name__} on '{event_type}': {e}"
+                )
+
         # Optional: We don't await the tasks here as we want a true "fire-and-forget"
         # However, it's safe to let them run in the event loop.
 
@@ -59,11 +66,15 @@ class EventBus:
         try:
             await callback(**kwargs)
         except Exception as e:
-            logger.error(f"[EventBus] Error in subscriber {callback.__name__}: {e}", exc_info=True)
+            logger.error(
+                f"[EventBus] Error in subscriber {callback.__name__}: {e}",
+                exc_info=True,
+            )
 
 
 # Global instance
 event_bus = EventBus()
+
 
 # Event Types Constants
 class EventTypes:

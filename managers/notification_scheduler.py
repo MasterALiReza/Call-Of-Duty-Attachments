@@ -2,6 +2,7 @@
 Notification Scheduler
 Runs a background loop to send scheduled notifications at defined intervals.
 """
+
 import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -10,7 +11,7 @@ from utils.logger import get_logger
 from utils.broadcast_optimizer import OptimizedBroadcaster
 from utils.subscribers_pg import SubscribersPostgres as Subscribers
 
-logger = get_logger('notif_scheduler', 'notification.log')
+logger = get_logger("notif_scheduler", "notification.log")
 
 
 class NotificationScheduler:
@@ -23,7 +24,9 @@ class NotificationScheduler:
         self.subscribers = subscribers or Subscribers(db_adapter=self.db)
         self._task: Optional[asyncio.Task] = None
         self._running = False
-        self._broadcaster = OptimizedBroadcaster(max_concurrent=30, delay_between_batches=1.0)
+        self._broadcaster = OptimizedBroadcaster(
+            max_concurrent=30, delay_between_batches=1.0
+        )
 
     async def start(self, application):
         """
@@ -53,9 +56,9 @@ class NotificationScheduler:
     async def _run_loop(self, application):
         """Main loop: check due schedules every 60 seconds."""
         # Ensure subscribers schema is initialized
-        if hasattr(self.subscribers, 'initialize'):
+        if hasattr(self.subscribers, "initialize"):
             await self.subscribers.initialize()
-            
+
         # Use UTC for consistency with PostgreSQL TIMESTAMPTZ
         check_interval_seconds = 60
         while self._running:
@@ -69,11 +72,22 @@ class NotificationScheduler:
                     try:
                         await self._send_item(application, item)
                         # Compute next run
-                        interval_hours = int(item.get('interval_hours') or 0)
-                        next_run_at = now + timedelta(hours=interval_hours)
-                        await self.db.cms.mark_schedule_sent(item['id'], now, next_run_at)
+                        try:
+                            interval_hours = float(item.get("interval_hours") or 0)
+                        except (ValueError, TypeError):
+                            interval_hours = 0
+                        if interval_hours <= 0:
+                            await self.db.cms.set_schedule_enabled(item["id"], False)
+                            await self.db.cms.mark_schedule_sent(item["id"], now, None)
+                        else:
+                            next_run_at = now + timedelta(hours=interval_hours)
+                            await self.db.cms.mark_schedule_sent(
+                                item["id"], now, next_run_at
+                            )
                     except Exception as e:
-                        logger.error(f"Error sending scheduled notification id={item.get('id')}: {e}")
+                        logger.error(
+                            f"Error sending scheduled notification id={item.get('id')}: {e}"
+                        )
                 # Sleep
                 await asyncio.sleep(check_interval_seconds)
             except asyncio.CancelledError:
@@ -87,17 +101,17 @@ class NotificationScheduler:
         """
         Broadcast one scheduled item to all subscribers using OptimizedBroadcaster.
         """
-        message_type = item.get('message_type', 'text')
-        text = item.get('message_text') or ''
-        photo_id = item.get('photo_file_id')
-        parse_mode = item.get('parse_mode') or 'Markdown'
+        message_type = item.get("message_type", "text")
+        text = item.get("message_text") or ""
+        photo_id = item.get("photo_file_id")
+        parse_mode = item.get("parse_mode") or "Markdown"
 
         user_ids = await self.subscribers.all()
         if not user_ids:
             logger.info("No subscribers to send scheduled notification")
             return
 
-        if message_type == 'photo' and photo_id:
+        if message_type == "photo" and photo_id:
             stats = await self._broadcaster.broadcast_to_users(
                 user_ids,
                 application.bot.send_photo,
@@ -114,11 +128,13 @@ class NotificationScheduler:
             )
 
         # Fallback: if some users failed and we used a parse_mode, try again without parse_mode
-        failed_users = stats.get('failed_users', []) or []
+        failed_users = stats.get("failed_users", []) or []
         if failed_users and parse_mode:
-            logger.info(f"Retrying without parse_mode for {len(failed_users)} users (scheduled)")
+            logger.info(
+                f"Retrying without parse_mode for {len(failed_users)} users (scheduled)"
+            )
             try:
-                if message_type == 'photo' and photo_id:
+                if message_type == "photo" and photo_id:
                     fallback_stats = await self._broadcaster.broadcast_to_users(
                         failed_users,
                         application.bot.send_photo,
@@ -132,16 +148,22 @@ class NotificationScheduler:
                         text=text,
                     )
                 # Merge blocked users for cleanup
-                bu = (stats.get('blocked_users') or []) + (fallback_stats.get('blocked_users') or [])
-                stats['blocked_users'] = bu
+                bu = (stats.get("blocked_users") or []) + (
+                    fallback_stats.get("blocked_users") or []
+                )
+                stats["blocked_users"] = bu
                 # Merge counts for reporting
-                stats['success'] = int(stats.get('success') or 0) + int(fallback_stats.get('success') or 0)
-                stats['failed'] = int(stats.get('failed') or 0) + int(fallback_stats.get('failed') or 0)
+                stats["success"] = int(stats.get("success") or 0) + int(
+                    fallback_stats.get("success") or 0
+                )
+                stats["failed"] = int(stats.get("failed") or 0) + int(
+                    fallback_stats.get("failed") or 0
+                )
             except Exception as e:
                 logger.warning(f"Fallback send failed: {e}")
 
         # Remove blocked users
-        for uid in stats.get('blocked_users', []) or []:
+        for uid in stats.get("blocked_users", []) or []:
             try:
                 await self.subscribers.remove(uid)
             except Exception:

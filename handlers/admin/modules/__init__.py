@@ -2,4 +2,4 @@
 
 from .base_handler import BaseAdminHandler
 
-__all__ = ['BaseAdminHandler']
+__all__ = ["BaseAdminHandler"]

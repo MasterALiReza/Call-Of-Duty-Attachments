@@ -10,9 +10,13 @@ class InlineHandlerRegistry(BaseHandlerRegistry):
         self.bot = bot_instance
 
     def register(self):
-        enabled = os.getenv('INLINE_MODE_ENABLED', 'false').lower() == 'true'
+        enabled = os.getenv("INLINE_MODE_ENABLED", "false").lower() == "true"
         if not enabled:
             return
         handler = InlineHandler(self.db)
-        self.application.add_handler(InlineQueryHandler(handler.handle_inline_query), group=0)
-        self.application.add_handler(ChosenInlineResultHandler(handler.handle_chosen_inline_result), group=0)
+        self.application.add_handler(
+            InlineQueryHandler(handler.handle_inline_query), group=0
+        )
+        self.application.add_handler(
+            ChosenInlineResultHandler(handler.handle_chosen_inline_result), group=0
+        )

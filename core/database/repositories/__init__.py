@@ -7,11 +7,11 @@ from .analytics_repository import AnalyticsRepository
 from .support_repository import SupportRepository
 
 __all__ = [
-    'BaseRepository',
-    'UserRepository',
-    'SettingsRepository',
-    'AttachmentRepository',
-    'CMSRepository',
-    'AnalyticsRepository',
-    'SupportRepository'
+    "BaseRepository",
+    "UserRepository",
+    "SettingsRepository",
+    "AttachmentRepository",
+    "CMSRepository",
+    "AnalyticsRepository",
+    "SupportRepository",
 ]

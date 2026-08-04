@@ -21,13 +21,14 @@ from utils.logger import get_logger, log_exception
 
 from .permissions import has_manage_user_attachments_permission
 
-logger = get_logger('ua_reports', 'admin.log')
+logger = get_logger("ua_reports", "admin.log")
 db = get_database_adapter()
 cache = get_ua_cache(db, ttl_seconds=300)
 audit_logger = AuditLogger()
 
 # RBAC helper
 role_manager = RoleManager(db)
+
 
 async def has_ua_perm(user_id: int) -> bool:
     """Check if user can manage user attachments (UA)."""
@@ -41,7 +42,9 @@ async def has_ua_perm(user_id: int) -> bool:
     )
 
 
-def _parse_report_action_ids(data: str, prefix: str, expected_parts: int) -> tuple[int, ...]:
+def _parse_report_action_ids(
+    data: str, prefix: str, expected_parts: int
+) -> tuple[int, ...]:
     payload = data.replace(prefix, "", 1).split("_")
     if len(payload) != expected_parts:
         raise ValidationError("Invalid report action payload.")
@@ -95,7 +98,9 @@ async def _send_report_owner_notification(
         logger.warning("Failed to send UA report notification to %s: %s", owner_id, exc)
 
 
-async def _apply_report_penalty(cursor, owner_id: int, admin_id: int, lang: str) -> tuple[dict, str, float]:
+async def _apply_report_penalty(
+    cursor, owner_id: int, admin_id: int, lang: str
+) -> tuple[dict, str, float]:
     """Apply strike/ban updates inside the active transaction."""
     strike_value = 0.5
     await cursor.execute(
@@ -137,12 +142,16 @@ async def _apply_report_penalty(cursor, owner_id: int, admin_id: int, lang: str)
             WHERE user_id = %s
             """,
             (
-                t('admin.ua.reports.auto_ban.reason', lang, count=f"{strike_count:.1f}"),
+                t(
+                    "admin.ua.reports.auto_ban.reason",
+                    lang,
+                    count=f"{strike_count:.1f}",
+                ),
                 owner_id,
             ),
         )
         stats["is_banned"] = True
-        ban_message = "\n\n" + t('admin.ua.reports.auto_ban.note', lang)
+        ban_message = "\n\n" + t("admin.ua.reports.auto_ban.note", lang)
 
     stats["strike_count"] = strike_count
     return stats, ban_message, strike_value
@@ -152,20 +161,20 @@ async def show_reports_list(update: Update, context: CustomContext):
     """نمایش لیست گزارش‌های pending"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = update.effective_user.id
-    lang = await get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or "fa"
     if not await has_ua_perm(user_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
+
     # دریافت صفحه
     page = 0
-    if 'page_' in query.data:
-        page = int(query.data.split('_')[-1])
-    
+    if "page_" in query.data:
+        page = int(query.data.split("_")[-1])
+
     ITEMS_PER_PAGE = 10
-    
+
     try:
         async with db.get_connection() as conn:
             cursor = conn.cursor(row_factory=dict_row)
@@ -224,19 +233,31 @@ async def show_reports_list(update: Update, context: CustomContext):
                 """
             )
             total_row = await cursor.fetchone()
-            total = int((total_row or {}).get('cnt') or 0)
+            total = int((total_row or {}).get("cnt") or 0)
             await cursor.close()
     except Exception as e:
         from utils.error_handler import error_handler
+
         await error_handler.handle_telegram_error(update, context, e)
         return
-    
+
     if not reports:
         try:
             await query.edit_message_text(
-                t('admin.ua.reports.empty.title', lang) + "\n\n" + t('admin.ua.reports.empty.desc', lang),
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")]])
+                t("admin.ua.reports.empty.title", lang)
+                + "\n\n"
+                + t("admin.ua.reports.empty.desc", lang),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                t("menu.buttons.back", lang),
+                                callback_data="ua_admin_menu",
+                            )
+                        ]
+                    ]
+                ),
             )
         except Exception:
             try:
@@ -244,53 +265,86 @@ async def show_reports_list(update: Update, context: CustomContext):
             except Exception as e:
                 logger.warning(f"Failed to delete UA reports empty message: {e}")
             await query.message.reply_text(
-                t('admin.ua.reports.empty.title', lang) + "\n\n" + t('admin.ua.reports.empty.desc', lang),
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")]])
+                t("admin.ua.reports.empty.title", lang)
+                + "\n\n"
+                + t("admin.ua.reports.empty.desc", lang),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                t("menu.buttons.back", lang),
+                                callback_data="ua_admin_menu",
+                            )
+                        ]
+                    ]
+                ),
             )
         return
-    
+
     total_pages = (total - 1) // ITEMS_PER_PAGE + 1
-    
+
     message = (
-        t('admin.ua.reports.list.title', lang) + "\n\n" +
-        t('admin.ua.reports.list.header', lang, total=total, page=page + 1, total_pages=total_pages) + "\n\n"
+        t("admin.ua.reports.list.title", lang)
+        + "\n\n"
+        + t(
+            "admin.ua.reports.list.header",
+            lang,
+            total=total,
+            page=page + 1,
+            total_pages=total_pages,
+        )
+        + "\n\n"
     )
-    
+
     keyboard = []
     for report in reports:
-        report_id = report.get('id')
-        reason = report.get('reason')
-        att_name = report.get('attachment_name')
-        mode = report.get('mode')
-        
-        mode_icon = "🎮" if mode == 'mp' else "🪂"
+        report_id = report.get("id")
+        reason = report.get("reason")
+        att_name = report.get("attachment_name")
+        mode = report.get("mode")
+
+        mode_icon = "🎮" if mode == "mp" else "🪂"
         reason_short = (reason[:20] + "...") if len(reason) > 20 else reason
-        
-        keyboard.append([
-            InlineKeyboardButton(
-                f"{mode_icon} {att_name[:20]} - {reason_short}",
-                callback_data=f"ua_admin_report_{report_id}"
-            )
-        ])
-    
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"{mode_icon} {att_name[:20]} - {reason_short}",
+                    callback_data=f"ua_admin_report_{report_id}",
+                )
+            ]
+        )
+
     # Pagination
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton(t('nav.prev', lang), callback_data=f"ua_admin_reports_page_{page-1}"))
+        nav_buttons.append(
+            InlineKeyboardButton(
+                t("nav.prev", lang), callback_data=f"ua_admin_reports_page_{page - 1}"
+            )
+        )
     if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton(t('nav.next', lang), callback_data=f"ua_admin_reports_page_{page+1}"))
-    
+        nav_buttons.append(
+            InlineKeyboardButton(
+                t("nav.next", lang), callback_data=f"ua_admin_reports_page_{page + 1}"
+            )
+        )
+
     if nav_buttons:
         keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton(t('menu.buttons.back', lang), callback_data="ua_admin_menu")])
-    
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="ua_admin_menu"
+            )
+        ]
+    )
+
     try:
         await query.edit_message_text(
-            message,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception:
         try:
@@ -298,9 +352,7 @@ async def show_reports_list(update: Update, context: CustomContext):
         except Exception as e:
             logger.warning(f"Failed to delete UA reports list source message: {e}")
         await query.message.reply_text(
-            message,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
 
@@ -308,15 +360,15 @@ async def show_report_detail(update: Update, context: CustomContext):
     """نمایش جزئیات گزارش"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = update.effective_user.id
-    lang = await get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or "fa"
     if not await has_ua_perm(user_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
-    report_id = int(query.data.replace('ua_admin_report_', ''))
-    
+
+    report_id = int(query.data.replace("ua_admin_report_", ""))
+
     try:
         async with db.get_connection() as conn:
             cursor = conn.cursor(row_factory=dict_row)
@@ -386,36 +438,45 @@ async def show_report_detail(update: Update, context: CustomContext):
             await cursor.close()
 
         if not report_data:
-            await query.answer(t('admin.ua.reports.not_found', lang), show_alert=True)
+            await query.answer(t("admin.ua.reports.not_found", lang), show_alert=True)
             return
-        
+
     except Exception as e:
         from utils.error_handler import error_handler
+
         await error_handler.handle_telegram_error(update, context, e)
         return
-    
-    rep_id = report_data.get('id')
-    att_id = report_data.get('attachment_id')
-    reporter_id = report_data.get('reporter_id')
-    reason = report_data.get('reason')
-    reported_at = report_data.get('reported_at')
-    att_name = report_data.get('attachment_name')
-    description = report_data.get('description')
-    mode = report_data.get('mode')
-    image_file_id = report_data.get('image_file_id')
-    owner_id = report_data.get('owner_id')
-    like_count = report_data.get('like_count')
-    reporter_username = report_data.get('reporter_username')
-    reporter_first_name = report_data.get('reporter_first_name')
-    owner_username = report_data.get('owner_username')
-    owner_first_name = report_data.get('owner_first_name')
-    weapon_name = report_data.get('weapon_name')
-    category_name = report_data.get('category_name')
-    
+
+    rep_id = report_data.get("id")
+    att_id = report_data.get("attachment_id")
+    reporter_id = report_data.get("reporter_id")
+    reason = report_data.get("reason")
+    reported_at = report_data.get("reported_at")
+    att_name = report_data.get("attachment_name")
+    description = report_data.get("description")
+    mode = report_data.get("mode")
+    image_file_id = report_data.get("image_file_id")
+    owner_id = report_data.get("owner_id")
+    like_count = report_data.get("like_count")
+    reporter_username = report_data.get("reporter_username")
+    reporter_first_name = report_data.get("reporter_first_name")
+    owner_username = report_data.get("owner_username")
+    owner_first_name = report_data.get("owner_first_name")
+    weapon_name = report_data.get("weapon_name")
+    category_name = report_data.get("category_name")
+
     mode_name = t(f"mode.{mode}_short", lang)
-    reporter_name = f"@{reporter_username}" if reporter_username else (reporter_first_name or t('user.anonymous', lang))
-    owner_name = f"@{owner_username}" if owner_username else (owner_first_name or t('user.anonymous', lang))
-    
+    reporter_name = (
+        f"@{reporter_username}"
+        if reporter_username
+        else (reporter_first_name or t("user.anonymous", lang))
+    )
+    owner_name = (
+        f"@{owner_username}"
+        if owner_username
+        else (owner_first_name or t("user.anonymous", lang))
+    )
+
     # Safe date formatting
     if isinstance(reported_at, datetime):
         reported_date = reported_at.date().isoformat()
@@ -423,18 +484,22 @@ async def show_report_detail(update: Update, context: CustomContext):
         reported_date = reported_at.isoformat()
     else:
         reported_date = str(reported_at)[:10]
-    
+
     # Escape dynamic fields for MarkdownV2 (after computing reported_date)
     s_att_name = escape_markdown(att_name or "", version=2)
     s_mode_name = escape_markdown(mode_name or "", version=2)
     s_weapon_name = escape_markdown(weapon_name or "", version=2)
     s_category_name = escape_markdown(category_name or "", version=2)
-    s_description = escape_markdown((description or t('common.no_description', lang)), version=2)
+    s_description = escape_markdown(
+        (description or t("common.no_description", lang)), version=2
+    )
     s_reason = escape_markdown(reason or "", version=2)
-    s_reporter_name = escape_markdown(reporter_name or t('user.anonymous', lang), version=2)
-    s_owner_name = escape_markdown(owner_name or t('user.anonymous', lang), version=2)
+    s_reporter_name = escape_markdown(
+        reporter_name or t("user.anonymous", lang), version=2
+    )
+    s_owner_name = escape_markdown(owner_name or t("user.anonymous", lang), version=2)
     s_reported_date = escape_markdown(reported_date or "", version=2)
-    
+
     caption = (
         f"{t('admin.ua.reports.detail.title', lang)}\n\n"
         f"{t('admin.ua.reports.detail.attachment', lang)}: {s_att_name}\n"
@@ -448,16 +513,32 @@ async def show_report_detail(update: Update, context: CustomContext):
         f"{t('admin.ua.reports.detail.owner_label', lang)}: {s_owner_name} \\\\({t('common.id_label', lang)}: {owner_id}\\\\)\\n"
         f"{t('admin.ua.reports.detail.date_label', lang)}: {s_reported_date}"
     )
-    
+
     keyboard = [
         [
-            InlineKeyboardButton(t('admin.ua.reports.buttons.delete_attachment', lang), callback_data=f"ua_admin_report_delete_{att_id}_{rep_id}"),
-            InlineKeyboardButton(t('admin.ua.reports.buttons.warn_owner', lang), callback_data=f"ua_admin_report_warn_{owner_id}_{rep_id}")
+            InlineKeyboardButton(
+                t("admin.ua.reports.buttons.delete_attachment", lang),
+                callback_data=f"ua_admin_report_delete_{att_id}_{rep_id}",
+            ),
+            InlineKeyboardButton(
+                t("admin.ua.reports.buttons.warn_owner", lang),
+                callback_data=f"ua_admin_report_warn_{owner_id}_{rep_id}",
+            ),
         ],
-        [InlineKeyboardButton(t('admin.ua.reports.buttons.dismiss', lang), callback_data=f"ua_admin_report_dismiss_{rep_id}")],
-        [InlineKeyboardButton(t('admin.ua.reports.buttons.back_to_list', lang), callback_data="ua_admin_reports")]
+        [
+            InlineKeyboardButton(
+                t("admin.ua.reports.buttons.dismiss", lang),
+                callback_data=f"ua_admin_report_dismiss_{rep_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("admin.ua.reports.buttons.back_to_list", lang),
+                callback_data="ua_admin_reports",
+            )
+        ],
     ]
-    
+
     # ارسال تصویر یا متن در صورت نبود تصویر
     sent_ok = False
     if image_file_id:
@@ -465,8 +546,8 @@ async def show_report_detail(update: Update, context: CustomContext):
             await query.message.reply_photo(
                 photo=image_file_id,
                 caption=caption,
-                parse_mode='MarkdownV2',
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                parse_mode="MarkdownV2",
+                reply_markup=InlineKeyboardMarkup(keyboard),
             )
             sent_ok = True
         except Exception:
@@ -474,10 +555,10 @@ async def show_report_detail(update: Update, context: CustomContext):
     if not sent_ok:
         await query.message.reply_text(
             text=caption,
-            parse_mode='MarkdownV2',
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
-    
+
     # حذف پیام قبلی
     try:
         await query.message.delete()
@@ -488,15 +569,17 @@ async def show_report_detail(update: Update, context: CustomContext):
 async def delete_reported_attachment(update: Update, context: CustomContext):
     """?????? ???????????? ?????????? ??????"""
     query = update.callback_query
-    lang = await get_user_lang(update, context, db) or 'fa'
-    
+    lang = await get_user_lang(update, context, db) or "fa"
+
     admin_id = update.effective_user.id
     if not await has_ua_perm(admin_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
+
     try:
-        att_id, report_id = _parse_report_action_ids(query.data, 'ua_admin_report_delete_', 2)
+        att_id, report_id = _parse_report_action_ids(
+            query.data, "ua_admin_report_delete_", 2
+        )
         stats: dict = {}
         ban_message = ""
         strike_value = 0.5
@@ -514,13 +597,15 @@ async def delete_reported_attachment(update: Update, context: CustomContext):
             att_info = await cursor.fetchone()
             if not att_info:
                 await cursor.close()
-                await query.answer(t('attachment.not_found', lang), show_alert=True)
+                await query.answer(t("attachment.not_found", lang), show_alert=True)
                 return
 
-            owner_id = att_info.get('user_id')
-            att_name = att_info.get('attachment_name')
+            owner_id = att_info.get("user_id")
+            att_name = att_info.get("attachment_name")
 
-            await cursor.execute("DELETE FROM user_attachments WHERE id = %s", (att_id,))
+            await cursor.execute(
+                "DELETE FROM user_attachments WHERE id = %s", (att_id,)
+            )
             await cursor.execute(
                 """
                 UPDATE user_attachment_reports
@@ -542,33 +627,40 @@ async def delete_reported_attachment(update: Update, context: CustomContext):
             context=context,
             owner_id=owner_id,
             lang=lang,
-            template_key='user.ua.report.deleted',
+            template_key="user.ua.report.deleted",
             attachment_name=att_name,
             strike_value=strike_value,
-            strike_count=float(stats['strike_count']),
+            strike_count=float(stats["strike_count"]),
             ban_message=ban_message,
         )
-        
-        await query.answer(t('admin.ua.reports.delete.success', lang, strike=f"{strike_value}"), show_alert=True)
+
+        await query.answer(
+            t("admin.ua.reports.delete.success", lang, strike=f"{strike_value}"),
+            show_alert=True,
+        )
         await show_reports_list(update, context)
     except ValidationError:
-        await query.answer(t('error.generic', lang), show_alert=True)
+        await query.answer(t("error.generic", lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+
         log_exception(logger, e, "ua_reports.delete_reported_attachment")
         await error_handler.handle_telegram_error(update, context, e)
 
+
 async def warn_owner_about_report(update: Update, context: CustomContext):
     query = update.callback_query
-    
+
     admin_id = update.effective_user.id
-    lang = await get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or "fa"
     if not await has_ua_perm(admin_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
+
     try:
-        owner_id, report_id = _parse_report_action_ids(query.data, 'ua_admin_report_warn_', 2)
+        owner_id, report_id = _parse_report_action_ids(
+            query.data, "ua_admin_report_warn_", 2
+        )
         stats: dict = {}
         ban_message = ""
         strike_value = 0.5
@@ -585,7 +677,7 @@ async def warn_owner_about_report(update: Update, context: CustomContext):
                 (report_id,),
             )
             row = await cursor.fetchone()
-            att_name = (row or {}).get('attachment_name') or ""
+            att_name = (row or {}).get("attachment_name") or ""
 
             await cursor.execute(
                 """
@@ -608,34 +700,38 @@ async def warn_owner_about_report(update: Update, context: CustomContext):
             context=context,
             owner_id=owner_id,
             lang=lang,
-            template_key='user.ua.report.warn',
+            template_key="user.ua.report.warn",
             attachment_name=att_name,
             strike_value=strike_value,
-            strike_count=float(stats['strike_count']),
+            strike_count=float(stats["strike_count"]),
             ban_message=ban_message,
         )
-        
-        await query.answer(t('admin.ua.reports.warn.success', lang), show_alert=True)
+
+        await query.answer(t("admin.ua.reports.warn.success", lang), show_alert=True)
         await show_reports_list(update, context)
     except ValidationError:
-        await query.answer(t('error.generic', lang), show_alert=True)
+        await query.answer(t("error.generic", lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+
         log_exception(logger, e, "ua_reports.warn_owner_about_report")
         await error_handler.handle_telegram_error(update, context, e)
+
 
 async def dismiss_report(update: Update, context: CustomContext):
     """رد کردن گزارش (بدون اقدام)"""
     query = update.callback_query
-    
+
     admin_id = update.effective_user.id
-    lang = await get_user_lang(update, context, db) or 'fa'
+    lang = await get_user_lang(update, context, db) or "fa"
     if not await has_ua_perm(admin_id):
-        await query.answer(t('error.unauthorized', lang), show_alert=True)
+        await query.answer(t("error.unauthorized", lang), show_alert=True)
         return
-    
+
     try:
-        (report_id,) = _parse_report_action_ids(query.data, 'ua_admin_report_dismiss_', 1)
+        (report_id,) = _parse_report_action_ids(
+            query.data, "ua_admin_report_dismiss_", 1
+        )
         async with db.transaction() as conn:
             cursor = conn.cursor(row_factory=dict_row)
             await cursor.execute(
@@ -647,18 +743,19 @@ async def dismiss_report(update: Update, context: CustomContext):
                 (admin_id, report_id),
             )
             await cursor.close()
-        
+
         # invalidate stats cache so pending_reports count updates
         await _invalidate_reports_cache()
 
-        await query.answer(t('admin.ua.reports.dismiss.success', lang), show_alert=True)
-        
+        await query.answer(t("admin.ua.reports.dismiss.success", lang), show_alert=True)
+
         # بازگشت به لیست
         await show_reports_list(update, context)
     except ValidationError:
-        await query.answer(t('error.generic', lang), show_alert=True)
+        await query.answer(t("error.generic", lang), show_alert=True)
     except Exception as e:
         from utils.error_handler import error_handler
+
         log_exception(logger, e, "ua_reports.dismiss_report")
         await error_handler.handle_telegram_error(update, context, e)
 
@@ -667,7 +764,9 @@ async def dismiss_report(update: Update, context: CustomContext):
 reports_handlers = [
     CallbackQueryHandler(show_reports_list, pattern="^ua_admin_reports"),
     CallbackQueryHandler(show_report_detail, pattern="^ua_admin_report_\\d+$"),
-    CallbackQueryHandler(delete_reported_attachment, pattern="^ua_admin_report_delete_"),
+    CallbackQueryHandler(
+        delete_reported_attachment, pattern="^ua_admin_report_delete_"
+    ),
     CallbackQueryHandler(warn_owner_about_report, pattern="^ua_admin_report_warn_"),
     CallbackQueryHandler(dismiss_report, pattern="^ua_admin_report_dismiss_"),
 ]

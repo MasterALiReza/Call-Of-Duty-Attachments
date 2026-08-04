@@ -26,16 +26,26 @@ async def clear_channels_impl(
     await query.answer()
 
     try:
-        lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        lang = (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception:
         lang = "fa"
 
     db = context.bot_data["database"]
     if query.data == "clear_channels":
-        keyboard = [[
-            InlineKeyboardButton(t("admin.channels.delete.confirm_yes", lang), callback_data="clear_yes"),
-            InlineKeyboardButton(t("menu.buttons.cancel", lang), callback_data="channel_menu"),
-        ]]
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    t("admin.channels.delete.confirm_yes", lang),
+                    callback_data="clear_yes",
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.cancel", lang), callback_data="channel_menu"
+                ),
+            ]
+        ]
         await safe_edit_message_text(
             query,
             t("admin.channels.clear.confirm", lang),
@@ -58,11 +68,26 @@ async def clear_channels_impl(
             from managers.channel_manager import invalidate_all_cache
 
             cleared_count = invalidate_all_cache()
-            logger.info("[channel] Cleared all channels; invalidated cache for %s users", cleared_count)
+            logger.info(
+                "[channel] Cleared all channels; invalidated cache for %s users",
+                cleared_count,
+            )
         except Exception as e:
             logger.error("[channel] Error invalidating cache after clear: %s", e)
 
-    message = t("admin.channels.clear.success", lang) if success_all else t("admin.channels.clear.error", lang)
-    keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="channel_menu")]]
-    await safe_edit_message_text(query, message, reply_markup=InlineKeyboardMarkup(keyboard))
+    message = (
+        t("admin.channels.clear.success", lang)
+        if success_all
+        else t("admin.channels.clear.error", lang)
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="channel_menu"
+            )
+        ]
+    ]
+    await safe_edit_message_text(
+        query, message, reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return channel_menu_state

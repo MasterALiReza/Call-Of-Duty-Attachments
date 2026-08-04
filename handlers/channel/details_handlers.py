@@ -27,7 +27,10 @@ async def view_channel_details_impl(
     await query.answer()
 
     try:
-        lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        lang = (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception:
         lang = "fa"
 
@@ -41,13 +44,27 @@ async def view_channel_details_impl(
 
     is_active = channel.get("is_active", True)
     status_emoji = "✅" if is_active else "❌"
-    status_text = t("admin.channels.status.active", lang) if is_active else t("admin.channels.status.inactive", lang)
+    status_text = (
+        t("admin.channels.status.active", lang)
+        if is_active
+        else t("admin.channels.status.inactive", lang)
+    )
     message = (
-        t("admin.channels.details.title", lang) + "\n\n"
-        + t("admin.channels.details.name", lang, title=channel["title"]) + "\n"
-        + t("admin.channels.details.id", lang, id=channel["channel_id"]) + "\n"
-        + t("admin.channels.details.url", lang, url=channel["url"]) + "\n"
-        + t("admin.channels.details.status", lang, emoji=status_emoji, status=status_text) + "\n"
+        t("admin.channels.details.title", lang)
+        + "\n\n"
+        + t("admin.channels.details.name", lang, title=channel["title"])
+        + "\n"
+        + t("admin.channels.details.id", lang, id=channel["channel_id"])
+        + "\n"
+        + t("admin.channels.details.url", lang, url=channel["url"])
+        + "\n"
+        + t(
+            "admin.channels.details.status",
+            lang,
+            emoji=status_emoji,
+            status=status_text,
+        )
+        + "\n"
     )
 
     toggle_emoji = "🔴" if is_active else "🟢"
@@ -57,14 +74,31 @@ async def view_channel_details_impl(
         else t("admin.channels.buttons.toggle_activate", lang)
     )
     keyboard = [
-        [InlineKeyboardButton(f"{toggle_emoji} {toggle_text}", callback_data=f"toggle_channel_{channel_id}")],
         [
-            InlineKeyboardButton(t("admin.channels.buttons.stats", lang), callback_data=f"channel_stat_{channel_id}"),
-            InlineKeyboardButton(t("admin.channels.buttons.test", lang), callback_data=f"test_channel_{channel_id}"),
+            InlineKeyboardButton(
+                f"{toggle_emoji} {toggle_text}",
+                callback_data=f"toggle_channel_{channel_id}",
+            )
         ],
-        [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="channel_menu")],
+        [
+            InlineKeyboardButton(
+                t("admin.channels.buttons.stats", lang),
+                callback_data=f"channel_stat_{channel_id}",
+            ),
+            InlineKeyboardButton(
+                t("admin.channels.buttons.test", lang),
+                callback_data=f"test_channel_{channel_id}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data="channel_menu"
+            )
+        ],
     ]
-    await safe_edit_message_text(query, message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_message_text(
+        query, message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
+    )
     return channel_menu_state
 
 
@@ -85,16 +119,25 @@ async def toggle_channel_status_impl(
         from managers.channel_manager import invalidate_all_cache
 
         cleared_count = invalidate_all_cache()
-        logger.info("[channel] Cleared membership cache for %s users after toggling channel status", cleared_count)
+        logger.info(
+            "[channel] Cleared membership cache for %s users after toggling channel status",
+            cleared_count,
+        )
         try:
-            lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+            lang = (
+                await get_user_lang(update, context, context.bot_data.get("database"))
+                or "fa"
+            )
         except Exception:
             lang = "fa"
         await query.answer(t("admin.channels.toggled", lang), show_alert=True)
         return await view_channel_details(update, context, channel_id=channel_id)
 
     try:
-        lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        lang = (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception:
         lang = "fa"
     await query.answer(t("admin.channels.toggle_error", lang), show_alert=True)

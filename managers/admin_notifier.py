@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 from utils.logger import get_logger, log_exception
 
-logger = get_logger('admin_notifier', 'admin.log')
+logger = get_logger("admin_notifier", "admin.log")
 
 
 class AdminNotifier:
@@ -20,16 +20,20 @@ class AdminNotifier:
     async def _is_enabled(self) -> bool:
         """بررسی فعال بودن نوتیفیکیشن start ادمین"""
         try:
-            val = await self.db.settings.get_setting('admin_start_notif_enabled', 'true')
-            return str(val).lower() in ('true', '1', 'yes')
+            val = await self.db.settings.get_setting(
+                "admin_start_notif_enabled", "true"
+            )
+            return str(val).lower() in ("true", "1", "yes")
         except Exception:
             return True  # فعال به صورت پیش‌فرض
 
     async def _is_new_only(self) -> bool:
         """آیا فقط برای کاربران جدید ارسال شود"""
         try:
-            val = await self.db.settings.get_setting('admin_start_notif_new_only', 'true')
-            return str(val).lower() in ('true', '1', 'yes')
+            val = await self.db.settings.get_setting(
+                "admin_start_notif_new_only", "true"
+            )
+            return str(val).lower() in ("true", "1", "yes")
         except Exception:
             return True
 
@@ -54,7 +58,7 @@ class AdminNotifier:
                 async with conn.cursor() as cur:
                     await cur.execute(query)
                     result = await cur.fetchone()
-            return result['cnt'] if result else 0
+            return result["cnt"] if result else 0
         except Exception:
             return 0
 
@@ -69,7 +73,7 @@ class AdminNotifier:
                 async with conn.cursor() as cur:
                     await cur.execute(query)
                     result = await cur.fetchone()
-            return result['cnt'] if result else 0
+            return result["cnt"] if result else 0
         except Exception:
             return 0
 
@@ -77,7 +81,7 @@ class AdminNotifier:
         """دریافت لیست آیدی ادمین‌هایی که باید نوتیف بگیرند"""
         try:
             admins = await self.db.users.get_all_admins()
-            return [a['user_id'] for a in admins if a.get('user_id')]
+            return [a["user_id"] for a in admins if a.get("user_id")]
         except Exception as e:
             logger.error(f"Error getting admin IDs for notification: {e}")
             return []
@@ -116,10 +120,7 @@ class AdminNotifier:
         return message
 
     async def notify_user_start(
-        self,
-        context: ContextTypes.DEFAULT_TYPE,
-        user: TelegramUser,
-        is_new_user: bool
+        self, context: ContextTypes.DEFAULT_TYPE, user: TelegramUser, is_new_user: bool
     ):
         """
         ارسال نوتیفیکیشن به ادمین(ها) هنگام start کاربر
@@ -137,9 +138,15 @@ class AdminNotifier:
             message = await self._build_message(user, is_new_user)
 
             # ساخت دکمه inline برای دسترسی مستقیم
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("👤 مشاهده جزئیات", callback_data=f"um_detail_{user.id}")]
-            ])
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "👤 مشاهده جزئیات", callback_data=f"um_detail_{user.id}"
+                        )
+                    ]
+                ]
+            )
 
             # دریافت لیست ادمین‌ها
             admin_ids = await self._get_admin_ids()
@@ -152,8 +159,8 @@ class AdminNotifier:
                     await context.bot.send_message(
                         chat_id=admin_id,
                         text=message,
-                        parse_mode='Markdown',
-                        reply_markup=keyboard
+                        parse_mode="Markdown",
+                        reply_markup=keyboard,
                     )
                 except Exception as e:
                     logger.debug(f"Failed to notify admin {admin_id}: {e}")

@@ -57,22 +57,33 @@ def build_channel_menu_view(
     total_pages = 0
 
     if all_channels:
-        channels, total_pages, has_prev, has_next = paginate_list(all_channels, page, per_page)
+        channels, total_pages, has_prev, has_next = paginate_list(
+            all_channels, page, per_page
+        )
 
-        keyboard.append([
-            InlineKeyboardButton(
-                translate("admin.channels.pagination.header", lang, page=page, total=total_pages),
-                callback_data="noop",
-            )
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    translate(
+                        "admin.channels.pagination.header",
+                        lang,
+                        page=page,
+                        total=total_pages,
+                    ),
+                    callback_data="noop",
+                )
+            ]
+        )
 
         for channel in channels:
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"📢 {channel['title']}",
-                    callback_data=f"view_channel_{channel['channel_id']}",
-                )
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"📢 {channel['title']}",
+                        callback_data=f"view_channel_{channel['channel_id']}",
+                    )
+                ]
+            )
 
         if total_pages > 1:
             nav_buttons: list[InlineKeyboardButton] = []
@@ -84,7 +95,9 @@ def build_channel_menu_view(
                     )
                 )
 
-            nav_buttons.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+            nav_buttons.append(
+                InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop")
+            )
 
             if has_next:
                 nav_buttons.append(
@@ -95,38 +108,68 @@ def build_channel_menu_view(
                 )
             keyboard.append(nav_buttons)
 
-    keyboard.append([InlineKeyboardButton(translate("admin.channels.buttons.add", lang), callback_data="add_channel")])
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                translate("admin.channels.buttons.add", lang),
+                callback_data="add_channel",
+            )
+        ]
+    )
 
     if channels:
         keyboard.append(
             [
-                InlineKeyboardButton(translate("admin.channels.buttons.edit", lang), callback_data="edit_channel"),
-                InlineKeyboardButton(translate("admin.channels.buttons.delete", lang), callback_data="delete_channel"),
+                InlineKeyboardButton(
+                    translate("admin.channels.buttons.edit", lang),
+                    callback_data="edit_channel",
+                ),
+                InlineKeyboardButton(
+                    translate("admin.channels.buttons.delete", lang),
+                    callback_data="delete_channel",
+                ),
             ]
         )
         keyboard.append(
             [
-                InlineKeyboardButton(translate("admin.channels.buttons.reorder", lang), callback_data="reorder_channels"),
-                InlineKeyboardButton(translate("admin.channels.buttons.clear_all", lang), callback_data="clear_channels"),
+                InlineKeyboardButton(
+                    translate("admin.channels.buttons.reorder", lang),
+                    callback_data="reorder_channels",
+                ),
+                InlineKeyboardButton(
+                    translate("admin.channels.buttons.clear_all", lang),
+                    callback_data="clear_channels",
+                ),
             ]
         )
 
-    keyboard.append([InlineKeyboardButton(translate("menu.buttons.back", lang), callback_data="ch_admin_return")])
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                translate("menu.buttons.back", lang), callback_data="ch_admin_return"
+            )
+        ]
+    )
 
     message = translate("admin.channels.menu.title", lang) + "\n\n"
     if all_channels:
-        message += translate("admin.channels.menu.total", lang, n=len(all_channels)) + "\n"
+        message += (
+            translate("admin.channels.menu.total", lang, n=len(all_channels)) + "\n"
+        )
 
         if total_pages > 1:
             start_num = (page - 1) * per_page + 1
             end_num = min(page * per_page, len(all_channels))
-            message += translate(
-                "pagination.showing_range",
-                lang,
-                start=start_num,
-                end=end_num,
-                total=len(all_channels),
-            ) + "\n"
+            message += (
+                translate(
+                    "pagination.showing_range",
+                    lang,
+                    start=start_num,
+                    end=end_num,
+                    total=len(all_channels),
+                )
+                + "\n"
+            )
 
         message += "\n" + translate("admin.channels.menu.hint_click", lang) + "\n"
         message += translate("admin.channels.menu.hint_membership", lang)

@@ -10,9 +10,9 @@ from .text_handler import TextHandler
 from .cms_handler import CMSHandler
 
 __all__ = [
-    'GuidesHandler',
-    'CategoryHandler',
-    'WeaponHandler',
-    'TextHandler',
-    'CMSHandler',
+    "GuidesHandler",
+    "CategoryHandler",
+    "WeaponHandler",
+    "TextHandler",
+    "CMSHandler",
 ]

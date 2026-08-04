@@ -7,8 +7,8 @@ import sys
 import psycopg
 
 
-DB_NAME = os.getenv("DB_NAME", os.getenv("POSTGRES_DB", "codm_bot"))
-DB_USER = os.getenv("DB_USER", os.getenv("POSTGRES_USER", "codm_admin"))
+DB_NAME = os.getenv("DB_NAME", os.getenv("POSTGRES_DB", "ox_loadout_bot"))
+DB_USER = os.getenv("DB_USER", os.getenv("POSTGRES_USER", "ox_loadout_admin"))
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_HOST = os.getenv("DB_HOST", os.getenv("POSTGRES_HOST", "localhost"))
 DB_PORT = int(os.getenv("DB_PORT", os.getenv("POSTGRES_PORT", "5432")))
@@ -80,7 +80,9 @@ def main() -> int:
                 )
             for required_migration in args.require_migration:
                 if required_migration not in applied_migrations:
-                    return fail(f"Required migration missing from _migrations: {required_migration}")
+                    return fail(
+                        f"Required migration missing from _migrations: {required_migration}"
+                    )
 
             cur.execute(
                 """
@@ -106,7 +108,9 @@ def main() -> int:
                 existing_columns = {row[0] for row in cur.fetchall()}
                 missing_columns = sorted(columns - existing_columns)
                 if missing_columns:
-                    return fail(f"Missing expected columns in {table_name}: {missing_columns}")
+                    return fail(
+                        f"Missing expected columns in {table_name}: {missing_columns}"
+                    )
 
             cur.execute(
                 """

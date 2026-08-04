@@ -1,4 +1,4 @@
-# 🎮 CoDM Attachments Bot
+# 🎮 Ox Loadout Bot
 
 Advanced Telegram Bot for managing and sharing Call of Duty: Mobile loadouts. Built with Python and PostgreSQL.
 
@@ -36,7 +36,7 @@ The `deploy.sh` script handles:
 
 After installation, use the management tool:
 ```bash
-wx-attach
+ox-loadout
 ```
 
 ## 📖 Documentation

@@ -1,15 +1,17 @@
 import re
 import logging
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Any
 
-logger = logging.getLogger('validation')
+logger = logging.getLogger("validation")
 
 # Regex constraint patterns
 ATTACHMENT_DEEP_LINK_PATTERN = re.compile(r"^att-(\d+)-([a-z0-9_]+)$")
-WEAPON_ALL_DEEP_LINK_PATTERN = re.compile(r"^allw-([a-z0-9_]+)__([a-zA-Z0-9_\-]+)__([a-z0-9_]+)$")
+WEAPON_ALL_DEEP_LINK_PATTERN = re.compile(
+    r"^allw-([a-z0-9_]+)__([a-zA-Z0-9_\-]+)__([a-z0-9_]+)$"
+)
 
 # Allowed enumerated modes based on general app context
-ALLOWED_MODES = {'br', 'mp', 'zombies'}
+ALLOWED_MODES = {"br", "mp", "zombies"}
 
 
 def parse_attachment_deep_link(param: str) -> Tuple[Optional[int], str]:
@@ -20,17 +22,17 @@ def parse_attachment_deep_link(param: str) -> Tuple[Optional[int], str]:
     match = ATTACHMENT_DEEP_LINK_PATTERN.match(param)
     if not match:
         logger.warning(f"Invalid attachment deep-link format: {param}")
-        return None, 'br'
+        return None, "br"
 
     try:
         att_id = int(match.group(1))
         mode = match.group(2)
         if mode not in ALLOWED_MODES:
             logger.warning(f"Disallowed mode in attachment deep-link: {mode}")
-            mode = 'br'
+            mode = "br"
         return att_id, mode
     except ValueError:
-        return None, 'br'
+        return None, "br"
 
 
 def parse_all_weapons_deep_link(param: str) -> Tuple[Optional[str], Optional[str], str]:
@@ -41,7 +43,7 @@ def parse_all_weapons_deep_link(param: str) -> Tuple[Optional[str], Optional[str
     match = WEAPON_ALL_DEEP_LINK_PATTERN.match(param)
     if not match:
         logger.warning(f"Invalid all-weapons deep-link format: {param}")
-        return None, None, 'br'
+        return None, None, "br"
 
     category = match.group(1)
     weapon = match.group(2)
@@ -49,7 +51,7 @@ def parse_all_weapons_deep_link(param: str) -> Tuple[Optional[str], Optional[str
 
     if mode not in ALLOWED_MODES:
         logger.warning(f"Disallowed mode in all-weapons deep-link: {mode}")
-        mode = 'br'
+        mode = "br"
 
     return category, weapon, mode
 

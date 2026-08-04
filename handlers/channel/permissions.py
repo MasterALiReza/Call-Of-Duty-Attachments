@@ -9,7 +9,9 @@ from core.database.database_pg import DatabasePostgres
 from core.security.role_manager import RoleManager
 
 
-async def check_channel_management_permission_impl(user_id: int, context: CustomContext) -> bool:
+async def check_channel_management_permission_impl(
+    user_id: int, context: CustomContext
+) -> bool:
     """Check if a user can manage channels using RBAC with safe fallbacks."""
     from core.security.role_manager import Permission
 
@@ -28,4 +30,6 @@ async def check_channel_management_permission_impl(user_id: int, context: Custom
     if bool(await typed_role_manager.is_super_admin(user_id)):
         return True
 
-    return bool(await typed_role_manager.has_permission(user_id, Permission.MANAGE_SETTINGS))
+    return bool(
+        await typed_role_manager.has_permission(user_id, Permission.MANAGE_SETTINGS)
+    )

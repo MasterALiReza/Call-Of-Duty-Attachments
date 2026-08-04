@@ -1,6 +1,5 @@
 from core.context import CustomContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
 from handlers.user.base_user_handler import BaseUserHandler
 from managers.channel_manager import require_channel_membership
 from utils.language import get_user_lang, set_user_lang
@@ -8,7 +7,7 @@ from utils.i18n import t
 from utils.logger import get_logger
 from utils.telegram_safety import safe_edit_message_text
 
-logger = get_logger('user.settings.language', 'user.log')
+logger = get_logger("user.settings.language", "user.log")
 
 
 class LanguageHandler(BaseUserHandler):
@@ -21,11 +20,20 @@ class LanguageHandler(BaseUserHandler):
         if query:
             await query.answer()
 
-        lang = await get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or "fa"
 
         keyboard = [
-            [InlineKeyboardButton(t("settings.user.language", lang), callback_data="user_settings_language")],
-            [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="main_menu")]
+            [
+                InlineKeyboardButton(
+                    t("settings.user.language", lang),
+                    callback_data="user_settings_language",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.back", lang), callback_data="main_menu"
+                )
+            ],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -46,16 +54,20 @@ class LanguageHandler(BaseUserHandler):
         if query:
             await query.answer()
 
-        lang = await get_user_lang(update, context, self.db) or 'fa'
+        lang = await get_user_lang(update, context, self.db) or "fa"
         # نام زبان فعلی بر اساس i18n (نمایش در زبان کاربر)
-        current_lang_name = t("lang.fa", lang) if lang == 'fa' else t("lang.en", lang)
+        current_lang_name = t("lang.fa", lang) if lang == "fa" else t("lang.en", lang)
 
         keyboard = [
             [
                 InlineKeyboardButton(t("lang.fa", lang), callback_data="set_lang_fa"),
                 InlineKeyboardButton(t("lang.en", lang), callback_data="set_lang_en"),
             ],
-            [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="user_settings_menu")]
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.back", lang), callback_data="user_settings_menu"
+                )
+            ],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -78,11 +90,15 @@ class LanguageHandler(BaseUserHandler):
             return
 
         ok = await set_user_lang(update, context, self.db, new_lang)
-        lang_name = t("lang.fa", new_lang) if new_lang == 'fa' else t("lang.en", new_lang)
+        lang_name = (
+            t("lang.fa", new_lang) if new_lang == "fa" else t("lang.en", new_lang)
+        )
 
         if ok:
-            await query.answer(t("lang.saved", new_lang, lang_name=lang_name), show_alert=True)
-            
+            await query.answer(
+                t("lang.saved", new_lang, lang_name=lang_name), show_alert=True
+            )
+
             # شبیه‌سازی /start با ارسال keyboard (ReplyKeyboard) مانند دستور start
             try:
                 # Delete inline message
@@ -90,35 +106,61 @@ class LanguageHandler(BaseUserHandler):
                     await query.message.delete()
                 except Exception:
                     pass
-                
+
                 # Import needed modules
                 from telegram import ReplyKeyboardMarkup
                 from utils.i18n import kb
                 from managers.cms_manager import CMSManager
-                
+
                 user_id = update.effective_user.id
-                
+
                 # Build keyboard exactly like start() does
                 keyboard = [
-                    [kb("menu.buttons.game_settings", new_lang), kb("menu.buttons.get", new_lang)]
+                    [
+                        kb("menu.buttons.game_settings", new_lang),
+                        kb("menu.buttons.get", new_lang),
+                    ]
                 ]
-                
+
                 # Check UA system
-                ua_system_enabled = await self.db.settings.get_ua_setting('system_enabled') or '1'
-                if ua_system_enabled in ('1', 'true', 'True'):
-                    keyboard.append([kb("menu.buttons.ua", new_lang), kb("menu.buttons.suggested", new_lang)])
+                ua_system_enabled = (
+                    await self.db.settings.get_ua_setting("system_enabled") or "1"
+                )
+                if ua_system_enabled in ("1", "true", "True"):
+                    keyboard.append(
+                        [
+                            kb("menu.buttons.ua", new_lang),
+                            kb("menu.buttons.suggested", new_lang),
+                        ]
+                    )
                 else:
                     keyboard.append([kb("menu.buttons.suggested", new_lang)])
-                
-                keyboard.extend([
-                    [kb("menu.buttons.season_list", new_lang), kb("menu.buttons.season_top", new_lang)],
-                    [kb("menu.buttons.notify", new_lang), kb("menu.buttons.search", new_lang)],
-                    [kb("menu.buttons.contact", new_lang), kb("menu.buttons.help", new_lang)]
-                ])
-                
+
+                keyboard.extend(
+                    [
+                        [
+                            kb("menu.buttons.season_list", new_lang),
+                            kb("menu.buttons.season_top", new_lang),
+                        ],
+                        [
+                            kb("menu.buttons.notify", new_lang),
+                            kb("menu.buttons.search", new_lang),
+                        ],
+                        [
+                            kb("menu.buttons.contact", new_lang),
+                            kb("menu.buttons.help", new_lang),
+                        ],
+                    ]
+                )
+
                 # Check CMS
                 try:
-                    cms_enabled = str(await self.db.settings.get_setting('cms_enabled', 'false')).lower() == 'true'
+                    cms_enabled = (
+                        str(
+                            await self.db.settings.get_setting("cms_enabled", "false")
+                        ).lower()
+                        == "true"
+                    )
                 except Exception:
                     cms_enabled = False
                 if cms_enabled:
@@ -128,23 +170,21 @@ class LanguageHandler(BaseUserHandler):
                         cms_total = 0
                     if cms_total > 0:
                         keyboard.append([kb("menu.buttons.cms", new_lang)])
-                
+
                 keyboard.append([kb("menu.buttons.user_settings", new_lang)])
-                
+
                 # Check admin
                 if await self.db.users.is_admin(user_id):
                     keyboard.append([kb("menu.buttons.admin", new_lang)])
-                
+
                 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
                 welcome_text = t("welcome", new_lang, app_name=t("app.name", new_lang))
-                
+
                 # Send message with keyboard (works from callback_query)
                 await query.message.reply_text(
-                    welcome_text,
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
+                    welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
                 )
-                
+
             except Exception as e:
                 logger.error(f"Error showing keyboard after language change: {e}")
                 try:

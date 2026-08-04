@@ -9,4 +9,4 @@ Data health and quality reports:
 
 from .data_health_report import DataHealthReportHandler
 
-__all__ = ['DataHealthReportHandler']
+__all__ = ["DataHealthReportHandler"]

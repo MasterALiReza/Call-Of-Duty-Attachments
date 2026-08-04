@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================================
-# CODM Bot - Advanced Deployment & Management Script
+# OX_LOADOUT Bot - Advanced Deployment & Management Script
 # ============================================================================
 # This script handles installation, uninstallation, updates, and management of the bot
 #
@@ -40,14 +40,14 @@ fi
 # Configuration
 # ============================================================================
 
-INSTALL_DIR="/opt/codm-bot"
-BOT_USER="codm-bot"
-SERVICE_NAME="codm-bot"
+INSTALL_DIR="/opt/ox_loadout-bot"
+BOT_USER="ox_loadout-bot"
+SERVICE_NAME="ox_loadout-bot"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default database credentials
-DEFAULT_DB_NAME="codm_bot"
-DEFAULT_DB_USER="codm_admin"
+DEFAULT_DB_NAME="ox_loadout_bot"
+DEFAULT_DB_USER="ox_loadout_admin"
 
 # ============================================================================
 # Utility Functions
@@ -58,7 +58,7 @@ print_banner() {
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════════════════════════╗"
     echo "║                                                                    ║"
-    echo "║    ${WHITE}🎮 CODM Attachments Bot - Management System${CYAN}                    ║"
+    echo "║    ${WHITE}🎮 OX_LOADOUT Attachments Bot - Management System${CYAN}                    ║"
     echo "║                  ${YELLOW}Advanced Edition${CYAN}                                 ║"
     echo "║                                                                    ║"
     echo "╚════════════════════════════════════════════════════════════════════╝"
@@ -241,13 +241,13 @@ auto_https_setup_if_enabled() {
     local ssl_conf
 
     if [ -d "$avail_dir" ]; then
-        local site_name="codm-bot-webhook-${domain}"
+        local site_name="ox_loadout-bot-webhook-${domain}"
         challenge_conf="$avail_dir/${site_name}.http"
         ssl_conf="$avail_dir/${site_name}"
     else
         # conf.d usually includes only *.conf
-        challenge_conf="$conf_d_dir/codm-bot-webhook-${domain}-acme.conf"
-        ssl_conf="$conf_d_dir/codm-bot-webhook-${domain}.conf"
+        challenge_conf="$conf_d_dir/ox_loadout-bot-webhook-${domain}-acme.conf"
+        ssl_conf="$conf_d_dir/ox_loadout-bot-webhook-${domain}.conf"
     fi
 
     print_step "Writing Nginx HTTP challenge site for ${domain}..."
@@ -833,7 +833,7 @@ setup_database() {
         
         # Create user
         if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1; then
-            sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" >/dev/null
+            echo "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" | sudo -u postgres psql >/dev/null
             print_success "User $DB_USER created"
         fi
         
@@ -859,10 +859,10 @@ setup_database() {
             POSTGRES_DB="$DB_NAME" \
             POSTGRES_USER="$DB_USER" \
             POSTGRES_PASSWORD="$DB_PASS" \
-            "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/scripts/setup_database.py" --migrate-only >/tmp/codm-setup-db.log 2>&1; then
+            "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/scripts/setup_database.py" --migrate-only >/tmp/ox_loadout-setup-db.log 2>&1; then
             print_success "Database schema created from canonical migrations"
         else
-            print_error "Failed applying canonical migrations (see /tmp/codm-setup-db.log)"
+            print_error "Failed applying canonical migrations (see /tmp/ox_loadout-setup-db.log)"
             return 1
         fi
     fi
@@ -979,7 +979,7 @@ create_env_file() {
     
     cat > "$INSTALL_DIR/.env" <<EOF
 # ============================================================================
-# CODM Bot Configuration
+# OX_LOADOUT Bot Configuration
 # Created: $(date '+%Y-%m-%d %H:%M:%S')
 # ============================================================================
 
@@ -1065,7 +1065,7 @@ EOF
 
 install_bot() {
     print_banner
-    print_header "Installing CODM Attachments Bot"
+    print_header "Installing OX_LOADOUT Attachments Bot"
     
     # Check if already installed
     if systemctl is-active --quiet $SERVICE_NAME; then
@@ -1145,7 +1145,7 @@ install_bot() {
     
     cat > "/etc/systemd/system/$SERVICE_NAME.service" <<EOF
 [Unit]
-Description=CODM Attachments Telegram Bot
+Description=OX_LOADOUT Attachments Telegram Bot
 After=network.target postgresql.service
 Wants=postgresql.service
 
@@ -1176,10 +1176,10 @@ EOF
     systemctl enable $SERVICE_NAME >/dev/null 2>&1
     print_success "Systemd service created"
     
-    # Install wx-attach CLI tool
-    print_step "Installing management tool (wx-attach)..."
-    cp "$SCRIPT_DIR/scripts/wx-attach" /usr/local/bin/wx-attach
-    chmod +x /usr/local/bin/wx-attach
+    # Install ox-loadout CLI tool
+    print_step "Installing management tool (ox-loadout)..."
+    cp "$SCRIPT_DIR/scripts/ox-loadout" /usr/local/bin/ox-loadout
+    chmod +x /usr/local/bin/ox-loadout
     print_success "Management tool installed"
     
     # Step 9: Create directories
@@ -1213,7 +1213,7 @@ EOF
 
 uninstall_bot() {
     print_banner
-    print_header "Uninstall CODM Attachments Bot"
+    print_header "Uninstall OX_LOADOUT Attachments Bot"
     
     print_warning "This operation will remove all bot files and configurations"
     print_warning "PostgreSQL database and user will also be removed"
@@ -1248,7 +1248,7 @@ uninstall_bot() {
     # Backup before delete
     if [ -d "$INSTALL_DIR" ]; then
         print_step "Creating backup before removal..."
-        backup_dir="/tmp/codm-bot-backup-$(date +%Y%m%d_%H%M%S)"
+        backup_dir="/tmp/ox_loadout-bot-backup-$(date +%Y%m%d_%H%M%S)"
         mkdir -p "$backup_dir"
         
         if [ -f "$INSTALL_DIR/.env" ]; then
@@ -1447,11 +1447,11 @@ backup_bot() {
     print_banner
     print_header "Backup Bot and Database"
     
-    backup_dir="/opt/codm-bot-backups"
+    backup_dir="/opt/ox_loadout-bot-backups"
     mkdir -p "$backup_dir"
     
     timestamp=$(date +%Y%m%d_%H%M%S)
-    backup_name="codm-bot-backup-$timestamp"
+    backup_name="ox_loadout-bot-backup-$timestamp"
     backup_path="$backup_dir/$backup_name"
     
     print_step "Creating backup directory..."

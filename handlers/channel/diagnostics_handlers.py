@@ -24,7 +24,10 @@ async def test_channel_access_impl(
     """Run a diagnostic check for bot access to a required channel."""
     query = update.callback_query
     try:
-        lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+        lang = (
+            await get_user_lang(update, context, context.bot_data.get("database"))
+            or "fa"
+        )
     except Exception:
         lang = "fa"
     await query.answer(t("admin.channels.test.running", lang))
@@ -36,7 +39,10 @@ async def test_channel_access_impl(
 
     if not channel:
         try:
-            lang = await get_user_lang(update, context, context.bot_data.get("database")) or "fa"
+            lang = (
+                await get_user_lang(update, context, context.bot_data.get("database"))
+                or "fa"
+            )
         except Exception:
             lang = "fa"
         await query.answer(t("admin.channels.not_found", lang), show_alert=True)
@@ -44,7 +50,9 @@ async def test_channel_access_impl(
 
     test_results: list[str] = []
     test_results.append(t("admin.channels.test.header", lang))
-    test_results.append(t("admin.channels.test.channel_title", lang, title=channel["title"]))
+    test_results.append(
+        t("admin.channels.test.channel_title", lang, title=channel["title"])
+    )
 
     try:
         chat = await context.bot.get_chat(channel_id)
@@ -57,18 +65,35 @@ async def test_channel_access_impl(
 
             if bot_member.status in ["administrator", "creator"]:
                 test_results.append(t("admin.channels.test.step2.bot_is_admin", lang))
-                test_results.append(t("admin.channels.test.step2.role", lang, role=bot_member.status))
+                test_results.append(
+                    t("admin.channels.test.step2.role", lang, role=bot_member.status)
+                )
 
                 if hasattr(bot_member, "can_post_messages"):
                     if bot_member.can_post_messages:
-                        test_results.append(t("admin.channels.test.step2.can_post_true", lang))
+                        test_results.append(
+                            t("admin.channels.test.step2.can_post_true", lang)
+                        )
                     else:
-                        test_results.append(t("admin.channels.test.step2.can_post_false", lang))
+                        test_results.append(
+                            t("admin.channels.test.step2.can_post_false", lang)
+                        )
 
-                if hasattr(bot_member, "can_invite_users") and bot_member.can_invite_users:
-                    test_results.append(t("admin.channels.test.step2.can_invite_true", lang))
+                if (
+                    hasattr(bot_member, "can_invite_users")
+                    and bot_member.can_invite_users
+                ):
+                    test_results.append(
+                        t("admin.channels.test.step2.can_invite_true", lang)
+                    )
             else:
-                test_results.append(t("admin.channels.test.step2.not_admin", lang, role=bot_member.status))
+                test_results.append(
+                    t(
+                        "admin.channels.test.step2.not_admin",
+                        lang,
+                        role=bot_member.status,
+                    )
+                )
                 test_results.append(t("admin.channels.test.step2.must_be_admin", lang))
 
         except Exception as e:
@@ -83,15 +108,29 @@ async def test_channel_access_impl(
             if username.startswith("+"):
                 test_results.append(t("admin.channels.test.step3.link_private", lang))
             else:
-                test_results.append(t("admin.channels.test.step3.link_public_user", lang, username=username))
+                test_results.append(
+                    t(
+                        "admin.channels.test.step3.link_public_user",
+                        lang,
+                        username=username,
+                    )
+                )
         else:
             test_results.append(t("admin.channels.test.step3.link_invalid", lang))
 
         try:
             member_count = await context.bot.get_chat_member_count(channel_id)
-            test_results.append(t("admin.channels.test.step4.members_count", lang, n=f"{member_count:,}"))
+            test_results.append(
+                t(
+                    "admin.channels.test.step4.members_count",
+                    lang,
+                    n=f"{member_count:,}",
+                )
+            )
         except Exception as e:
-            logger.warning("[channel] Failed to get member count for %s: %s", channel_id, e)
+            logger.warning(
+                "[channel] Failed to get member count for %s: %s", channel_id, e
+            )
 
         test_results.append(t("admin.channels.test.summary.success", lang))
 
@@ -105,7 +144,13 @@ async def test_channel_access_impl(
         test_results.append(t("admin.channels.test.suggestions.bot_admin", lang))
         test_results.append(t("admin.channels.test.suggestions.channel_active", lang))
 
-    keyboard = [[InlineKeyboardButton(t("menu.buttons.back", lang), callback_data=f"view_channel_{channel_id}")]]
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.back", lang), callback_data=f"view_channel_{channel_id}"
+            )
+        ]
+    ]
     await safe_edit_message_text(
         query,
         "\n".join(test_results),

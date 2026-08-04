@@ -5,7 +5,13 @@
 from core.audit import AuditLogger
 from core.context import CustomContext
 from telegram import Update
-from telegram.ext import ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import (
+    ConversationHandler,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+)
 from handlers.admin.admin_handlers_modular import AdminHandlers
 from utils.language import get_user_lang
 from utils.i18n import t
@@ -74,7 +80,10 @@ REORDER_CHANNELS = "REORDER_CHANNELS"
 
 audit_logger = AuditLogger()
 
-async def check_channel_management_permission(user_id: int, context: CustomContext) -> bool:
+
+async def check_channel_management_permission(
+    user_id: int, context: CustomContext
+) -> bool:
     """بررسی دسترسی مدیریت کانال‌ها با استفاده از RBAC."""
     return await check_channel_management_permission_impl(user_id, context)
 
@@ -90,6 +99,7 @@ async def audit_channel_permission_denied(user_id: int) -> None:
         reason="permission_denied",
         details={"source": "channel_management_menu"},
     )
+
 
 CHANNELS_PER_PAGE = 8  # تعداد کانال در هر صفحه
 
@@ -109,7 +119,10 @@ async def cancel(update: Update, context: CustomContext):
         translate=t,
     )
 
-async def channel_management_menu(update: Update, context: CustomContext, page: int = 1):
+
+async def channel_management_menu(
+    update: Update, context: CustomContext, page: int = 1
+):
     """منوی اصلی مدیریت کانال‌ها (با Pagination)."""
     return await channel_management_menu_impl(
         update=update,
@@ -137,10 +150,14 @@ async def clear_channels(update: Update, context: CustomContext):
 
 async def handle_page_navigation(update: Update, context: CustomContext):
     """هندلر برای navigation بین صفحات کانال‌ها."""
-    return await handle_page_navigation_impl(update, context, channel_management_menu=channel_management_menu)
+    return await handle_page_navigation_impl(
+        update, context, channel_management_menu=channel_management_menu
+    )
 
 
-async def view_channel_details(update: Update, context: CustomContext, channel_id: str = None):
+async def view_channel_details(
+    update: Update, context: CustomContext, channel_id: str = None
+):
     """نمایش جزئیات یک کانال."""
     return await view_channel_details_impl(
         update,
@@ -153,7 +170,9 @@ async def view_channel_details(update: Update, context: CustomContext, channel_i
 
 async def add_channel_start(update: Update, context: CustomContext):
     """شروع فرآیند افزودن کانال جدید."""
-    return await add_channel_start_impl(update, context, add_channel_id_state=ADD_CHANNEL_ID)
+    return await add_channel_start_impl(
+        update, context, add_channel_id_state=ADD_CHANNEL_ID
+    )
 
 
 async def add_channel_id(update: Update, context: CustomContext):
@@ -168,7 +187,9 @@ async def add_channel_id(update: Update, context: CustomContext):
 
 async def use_default_title(update: Update, context: CustomContext):
     """استفاده از نام پیش‌فرض کانال."""
-    return await use_default_title_impl(update, context, add_channel_url_state=ADD_CHANNEL_URL)
+    return await use_default_title_impl(
+        update, context, add_channel_url_state=ADD_CHANNEL_URL
+    )
 
 
 async def add_channel_title(update: Update, context: CustomContext):
@@ -193,7 +214,9 @@ async def add_channel_url(update: Update, context: CustomContext):
 
 async def save_channel_confirm(update: Update, context: CustomContext):
     """ذخیره نهایی کانال پس از تایید."""
-    return await save_channel_confirm_impl(update, context, channel_menu_state=CHANNEL_MENU)
+    return await save_channel_confirm_impl(
+        update, context, channel_menu_state=CHANNEL_MENU
+    )
 
 
 async def edit_channel_start(update: Update, context: CustomContext):
@@ -208,12 +231,16 @@ async def edit_channel_start(update: Update, context: CustomContext):
 
 async def edit_channel_select(update: Update, context: CustomContext):
     """انتخاب فیلد برای ویرایش."""
-    return await edit_channel_select_impl(update, context, edit_field_state=EDIT_CHANNEL_FIELD)
+    return await edit_channel_select_impl(
+        update, context, edit_field_state=EDIT_CHANNEL_FIELD
+    )
 
 
 async def edit_channel_field(update: Update, context: CustomContext):
     """دریافت فیلد برای ویرایش."""
-    return await edit_channel_field_impl(update, context, edit_value_state=EDIT_CHANNEL_VALUE)
+    return await edit_channel_field_impl(
+        update, context, edit_value_state=EDIT_CHANNEL_VALUE
+    )
 
 
 async def edit_channel_value(update: Update, context: CustomContext):
@@ -235,14 +262,19 @@ async def delete_channel_start(update: Update, context: CustomContext):
         delete_state=DELETE_CHANNEL_CONFIRM,
     )
 
+
 async def delete_channel_confirm(update: Update, context: CustomContext):
     """تایید حذف کانال."""
-    return await delete_channel_confirm_impl(update, context, delete_state=DELETE_CHANNEL_CONFIRM)
+    return await delete_channel_confirm_impl(
+        update, context, delete_state=DELETE_CHANNEL_CONFIRM
+    )
 
 
 async def delete_channel_execute(update: Update, context: CustomContext):
     """اجرای حذف کانال."""
-    return await delete_channel_execute_impl(update, context, channel_menu_state=CHANNEL_MENU)
+    return await delete_channel_execute_impl(
+        update, context, channel_menu_state=CHANNEL_MENU
+    )
 
 
 async def toggle_channel_status(update: Update, context: CustomContext):
@@ -267,22 +299,30 @@ async def show_single_channel_stats(update: Update, context: CustomContext):
 
 async def show_channel_stats(update: Update, context: CustomContext):
     """نمایش آمار همه کانال‌های اجباری (dashboard کلی)."""
-    return await show_channel_stats_impl(update, context, channel_menu_state=CHANNEL_MENU)
+    return await show_channel_stats_impl(
+        update, context, channel_menu_state=CHANNEL_MENU
+    )
 
 
 async def show_funnel_analysis(update: Update, context: CustomContext):
     """نمایش تحلیل قیف تبدیل."""
-    return await show_funnel_analysis_impl(update, context, channel_menu_state=CHANNEL_MENU)
+    return await show_funnel_analysis_impl(
+        update, context, channel_menu_state=CHANNEL_MENU
+    )
 
 
 async def show_period_report(update: Update, context: CustomContext):
     """نمایش گزارش دوره‌ای (7 روز گذشته)."""
-    return await show_period_report_impl(update, context, channel_menu_state=CHANNEL_MENU)
+    return await show_period_report_impl(
+        update, context, channel_menu_state=CHANNEL_MENU
+    )
 
 
 async def export_analytics_csv(update: Update, context: CustomContext):
     """Export آمار به CSV و ارسال فایل‌ها."""
-    return await export_analytics_csv_impl(update, context, channel_menu_state=CHANNEL_MENU)
+    return await export_analytics_csv_impl(
+        update, context, channel_menu_state=CHANNEL_MENU
+    )
 
 
 async def test_channel_access(update: Update, context: CustomContext):
@@ -317,7 +357,9 @@ async def handle_move_channel(update: Update, context: CustomContext):
 
 async def show_channel_history(update: Update, context: CustomContext):
     """نمایش تاریخچه کانال‌های حذف شده."""
-    return await show_channel_history_impl(update, context, channel_menu_state=CHANNEL_MENU)
+    return await show_channel_history_impl(
+        update, context, channel_menu_state=CHANNEL_MENU
+    )
 
 
 async def return_to_admin_menu(update: Update, context: CustomContext):
@@ -335,8 +377,10 @@ def get_channel_management_handler():
     """ایجاد ConversationHandler برای مدیریت کانال‌ها"""
     return ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(channel_management_menu, pattern="^channel_management$"),
-            CallbackQueryHandler(channel_management_menu, pattern="^channel_menu$")
+            CallbackQueryHandler(
+                channel_management_menu, pattern="^channel_management$"
+            ),
+            CallbackQueryHandler(channel_management_menu, pattern="^channel_menu$"),
         ],
         states={
             CHANNEL_MENU: [
@@ -344,70 +388,82 @@ def get_channel_management_handler():
                 CallbackQueryHandler(handle_page_navigation, pattern="^ch_page_"),
                 CallbackQueryHandler(view_channel_details, pattern="^view_channel_"),
                 CallbackQueryHandler(toggle_channel_status, pattern="^toggle_channel_"),
-                CallbackQueryHandler(show_single_channel_stats, pattern="^channel_stat_"),
+                CallbackQueryHandler(
+                    show_single_channel_stats, pattern="^channel_stat_"
+                ),
                 CallbackQueryHandler(test_channel_access, pattern="^test_channel_"),
                 CallbackQueryHandler(add_channel_start, pattern="^add_channel$"),
                 CallbackQueryHandler(edit_channel_start, pattern="^edit_channel$"),
                 CallbackQueryHandler(delete_channel_start, pattern="^delete_channel$"),
-                CallbackQueryHandler(reorder_channels_menu, pattern="^reorder_channels$"),
+                CallbackQueryHandler(
+                    reorder_channels_menu, pattern="^reorder_channels$"
+                ),
                 CallbackQueryHandler(clear_channels, pattern="^clear_channels$"),
                 CallbackQueryHandler(clear_channels, pattern="^clear_yes$"),
                 CallbackQueryHandler(show_channel_stats, pattern="^channel_stats$"),
                 CallbackQueryHandler(show_channel_history, pattern="^channel_history$"),
                 # Phase 2 handlers
                 CallbackQueryHandler(show_funnel_analysis, pattern="^channel_funnel$"),
-                CallbackQueryHandler(show_period_report, pattern="^channel_period_report$"),
-                CallbackQueryHandler(export_analytics_csv, pattern="^channel_export_csv$"),
+                CallbackQueryHandler(
+                    show_period_report, pattern="^channel_period_report$"
+                ),
+                CallbackQueryHandler(
+                    export_analytics_csv, pattern="^channel_export_csv$"
+                ),
             ],
             REORDER_CHANNELS: [
                 CallbackQueryHandler(noop_cb, pattern="^noop$"),
                 CallbackQueryHandler(handle_move_channel, pattern="^move_(up|down)_"),
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             ],
             ADD_CHANNEL_ID: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_channel_id),
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             ],
             ADD_CHANNEL_TITLE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_channel_title),
                 CallbackQueryHandler(use_default_title, pattern="^use_default_title$"),
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             ],
             ADD_CHANNEL_URL: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_channel_url),
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             ],
             ADD_CHANNEL_CONFIRM: [
                 CallbackQueryHandler(save_channel_confirm, pattern="^save_channel$"),
-                CallbackQueryHandler(add_channel_start, pattern="^add_channel$"), # Restart
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
+                CallbackQueryHandler(
+                    add_channel_start, pattern="^add_channel$"
+                ),  # Restart
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             ],
             EDIT_CHANNEL_SELECT: [
                 CallbackQueryHandler(edit_channel_select, pattern="^edit_select_"),
                 CallbackQueryHandler(edit_channel_start, pattern="^edit_channel$"),
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             ],
             EDIT_CHANNEL_FIELD: [
                 CallbackQueryHandler(edit_channel_field, pattern="^edit_field_"),
                 CallbackQueryHandler(edit_channel_start, pattern="^edit_channel$"),
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             ],
             EDIT_CHANNEL_VALUE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, edit_channel_value),
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             ],
             DELETE_CHANNEL_CONFIRM: [
                 CallbackQueryHandler(delete_channel_confirm, pattern="^del_confirm_"),
                 CallbackQueryHandler(delete_channel_execute, pattern="^del_yes$"),
-                CallbackQueryHandler(cancel, pattern="^channel_menu$")
-            ]
+                CallbackQueryHandler(cancel, pattern="^channel_menu$"),
+            ],
         },
         fallbacks=[
-            CallbackQueryHandler(channel_management_menu, pattern="^channel_management$"),
+            CallbackQueryHandler(
+                channel_management_menu, pattern="^channel_management$"
+            ),
             CallbackQueryHandler(cancel, pattern="^channel_menu$"),
             # بازگشت به منوی ادمین و پایان این مکالمه
             CallbackQueryHandler(return_to_admin_menu, pattern="^ch_admin_return$"),
-            CommandHandler("cancel", cancel)
+            CommandHandler("cancel", cancel),
         ],
-        per_message=False
+        per_message=False,
     )
