@@ -32,6 +32,7 @@ from utils.i18n import t
 from utils.language import get_user_lang
 from utils.logger import get_logger, log_admin_action
 from utils.telegram_safety import safe_edit_message_text
+from utils.validators import escape_markdown
 
 logger = get_logger("admin_mgmt", "admin.log")
 
@@ -261,7 +262,7 @@ class AdminManagementHandler(BaseAdminHandler):
                             "admin.admin_mgmt.roles.stats.line",
                             lang,
                             icon=icon_value,
-                            name=name_local,
+                            name=escape_markdown(name_local),
                             n=n_local,
                         )
                         text += line_local + "\n"
@@ -309,18 +310,18 @@ class AdminManagementHandler(BaseAdminHandler):
                 # عنوان ردیف: شماره، آیکن، نام
                 idx_fa = _fa(idx) if (lang == "fa") else str(idx)
                 if username:
-                    title = f"{idx_fa}) {icons_str} **@{username}**"
+                    title = f"{idx_fa}) {icons_str} *@{escape_markdown(username)}*"
                 elif display_name:
-                    title = f"{idx_fa}) {icons_str} **{display_name}**"
+                    title = f"{idx_fa}) {icons_str} *{escape_markdown(display_name)}*"
                 elif first_name:
-                    title = f"{idx_fa}) {icons_str} **{first_name}**"
+                    title = f"{idx_fa}) {icons_str} *{escape_markdown(first_name)}*"
                 else:
                     title = f"{idx_fa}) {icons_str} `User_{user_id_str}`"
 
                 # خط نقش‌ها: «۲ نقش: ...»
                 if roles_count > 0:
                     joiner = "، " if lang == "fa" else ", "
-                    roles_line = joiner.join(role_names_local[:4])
+                    roles_line = joiner.join([escape_markdown(r) for r in role_names_local[:4]])
                     more = roles_count - 4
                     if more > 0:
                         roles_line += t(
@@ -827,11 +828,11 @@ class AdminManagementHandler(BaseAdminHandler):
         first_name = admin_data.get("first_name", "")
 
         if username:
-            text += f"👤 ادمین: **@{username}** (`{admin_user_id}`)\n"
+            text += f"👤 ادمین: *@{escape_markdown(username)}* (`{admin_user_id}`)\n"
         elif display_name:
-            text += f"👤 ادمین: **{display_name}** (`{admin_user_id}`)\n"
+            text += f"👤 ادمین: *{escape_markdown(display_name)}* (`{admin_user_id}`)\n"
         elif first_name:
-            text += f"👤 ادمین: **{first_name}** (`{admin_user_id}`)\n"
+            text += f"👤 ادمین: *{escape_markdown(first_name)}* (`{admin_user_id}`)\n"
         else:
             text += f"👤 ادمین: `{admin_user_id}`\n"
         text += "\n" + t("admin.admin_mgmt.manage_roles.current_roles", lang) + "\n"
@@ -964,7 +965,7 @@ class AdminManagementHandler(BaseAdminHandler):
 
         lang = await get_user_lang(update, context, self.db) or "fa"
         msg = t("admin.admin_mgmt.add_role.success.title", lang) + "\n\n"
-        name_line = display_name if display_name else f"`{admin_user_id}`"
+        name_line = escape_markdown(display_name) if display_name else f"`{admin_user_id}`"
         msg += (
             t(
                 "admin.admin_mgmt.labels.admin_line",
@@ -1058,7 +1059,7 @@ class AdminManagementHandler(BaseAdminHandler):
         if len(current_roles) <= 1:
             role = current_roles[0]
             lang = await get_user_lang(update, context, self.db) or "fa"
-            name_line = display_name if display_name else f"`{admin_user_id}`"
+            name_line = escape_markdown(display_name) if display_name else f"`{admin_user_id}`"
 
             # Get role display name safely
             if isinstance(role, str):
@@ -1108,11 +1109,11 @@ class AdminManagementHandler(BaseAdminHandler):
         first_name = admin_data.get("first_name", "")
 
         if username:
-            name_line = f"@{username}"
+            name_line = f"@{escape_markdown(username)}"
         elif display_name:
-            name_line = display_name
+            name_line = escape_markdown(display_name)
         elif first_name:
-            name_line = first_name
+            name_line = escape_markdown(first_name)
         else:
             name_line = f"`{admin_user_id}`"
         text += (
@@ -1252,7 +1253,7 @@ class AdminManagementHandler(BaseAdminHandler):
             role_lines.append(f"  {role_disp}")
 
         msg = t("admin.admin_mgmt.del_role.success.title", lang) + "\n\n"
-        name_line = display_name if display_name else f"`{admin_user_id}`"
+        name_line = escape_markdown(display_name) if display_name else f"`{admin_user_id}`"
         msg += (
             t(
                 "admin.admin_mgmt.labels.admin_line",
@@ -1488,8 +1489,8 @@ class AdminManagementHandler(BaseAdminHandler):
                 "temp_remove_admin_data", None
             ) or await self.db.users.get_admin(admin_id)
             display_name = (
-                admin_data.get("display_name", f"`{admin_id}`")
-                if admin_data
+                escape_markdown(admin_data.get("display_name"))
+                if admin_data and admin_data.get("display_name")
                 else f"`{admin_id}`"
             )
             # جلوگیری از حذف تنها سوپرادمین سیستم
