@@ -543,6 +543,7 @@ class AllAttachmentsHandler(BaseUserHandler):
 
         # Track view
         if att_id:
+            from core.container import get_container
             await get_container().analytics.track_attachment_view(
                 user_id=query.from_user.id, attachment_id=att_id
             )
@@ -550,8 +551,6 @@ class AllAttachmentsHandler(BaseUserHandler):
         # ساخت keyboard با دکمه‌های بازخورد
         keyboard = []
         if att_id:
-            from core.container import get_container
-
             fb_handler = get_container().feedback_handler
             keyboard.extend(
                 fb_handler.build_attachment_keyboard(
