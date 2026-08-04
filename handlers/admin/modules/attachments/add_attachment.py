@@ -637,8 +637,7 @@ class AddAttachmentHandler(BaseAdminHandler):
                     "mode": mode,
                     "is_top": is_top,
                     "is_season_top": is_season_top,
-                },
-                ip_address=None,  # Could be extracted if web, but here it's TG
+                }
             )
             # پاک کردن cache برای نمایش فوری اتچمنت جدید
             try:
