@@ -613,8 +613,15 @@ class EditAttachmentHandler(BaseAdminHandler):
                 await update.message.reply_text(f"❌ Validation Error: {str(e)}")
                 return await self.admin_menu_return(update, context)
 
+            att_id = current_att.get("id") if current_att else None
             ok = await self.db.attachments.update_attachment(
-                category, weapon, code, new_name=new_name, new_image=None, mode=mode
+                attachment_id=att_id,
+                category=category,
+                weapon_name=weapon,
+                code=code,
+                name=new_name,
+                image=None,
+                mode=mode
             )
 
             if ok:
@@ -712,7 +719,12 @@ class EditAttachmentHandler(BaseAdminHandler):
             mode = context.user_data.get("edit_att_mode", "br")
             code = context.user_data["edit_att_code"]
             ok = await self.db.attachments.update_attachment(
-                category, weapon, code, new_name=None, new_image=new_image, mode=mode
+                category=category,
+                weapon_name=weapon,
+                code=code,
+                name=None,
+                image=new_image,
+                mode=mode
             )
             if ok:
                 # پاک کردن cache
