@@ -531,7 +531,9 @@ WITH new_weapons (cat_name, w_name) AS (
         ('assault_rifle', 'Oden'), ('assault_rifle', 'Peacekeeper MK2'), ('assault_rifle', 'Type 25'), 
         ('assault_rifle', 'AS VAL'), ('assault_rifle', 'Swordfish'), ('assault_rifle', 'Maddox'), 
         ('assault_rifle', 'Groza'), ('assault_rifle', 'Type 19'), ('assault_rifle', 'BP50'), 
-        ('assault_rifle', 'LAG 53'),
+        ('assault_rifle', 'LAG 53'), ('assault_rifle', 'XM4'), ('assault_rifle', 'Vargo-S'), 
+        ('assault_rifle', 'RAM-7'), ('assault_rifle', 'Lachmann-556'), ('assault_rifle', 'BAL-27'), 
+        ('assault_rifle', 'Cronen Squall'),
         
         -- SMGs
         ('smg', 'AGR 556'), ('smg', 'CBR4'), ('smg', 'Chicom'), ('smg', 'Cordite'), 
@@ -541,30 +543,36 @@ WITH new_weapons (cat_name, w_name) AS (
         ('smg', 'PPSh-41'), ('smg', 'QXR'), ('smg', 'QQ9'), ('smg', 'Razorback'), 
         ('smg', 'RUS-79U'), ('smg', 'Switchblade X9'), ('smg', 'Striker 45'), 
         ('smg', 'CX-9'), ('smg', 'Tec-9'), ('smg', 'ISO'), ('smg', 'USS 9'),
+        ('smg', 'VMP'), ('smg', 'Sten'), ('smg', 'LC10'), ('smg', 'FSS Hurricane'), 
+        ('smg', 'MicroMG 9mm'),
 
         -- LMGs
         ('lmg', 'Chopper'), ('lmg', 'Hades'), ('lmg', 'Holger 26'), ('lmg', 'M4LMG'), 
         ('lmg', 'RPD'), ('lmg', 'S36'), ('lmg', 'UL736'), ('lmg', 'Dingo'), 
-        ('lmg', 'Bruen MK9'), ('lmg', 'MG42'),
+        ('lmg', 'Bruen MK9'), ('lmg', 'MG42'), ('lmg', 'PKM'), 
+        ('lmg', 'RAAL MG'), ('lmg', 'MG 82'), ('lmg', 'DP27'),
 
         -- Snipers
         ('sniper', 'Arctic .50'), ('sniper', 'DL Q33'), ('sniper', 'Koshka'), ('sniper', 'Locus'), 
         ('sniper', 'M21 EBR'), ('sniper', 'NA-45'), ('sniper', 'Outlaw'), ('sniper', 'Rytec AMR'), 
         ('sniper', 'SVD'), ('sniper', 'XPR-50'), ('sniper', 'ZRG 20mm'), ('sniper', 'HDR'), 
-        ('sniper', 'LW3-Tundra'),
+        ('sniper', 'LW3-Tundra'), ('sniper', '3-Line Rifle'),
 
         -- Marksman
         ('marksman', 'Kilo Bolt-Action'), ('marksman', 'MK2'), ('marksman', 'SKS'), 
-        ('marksman', 'SP-R 208'),
+        ('marksman', 'SP-R 208'), ('marksman', 'Type 63'), ('marksman', 'M1 Garand'), 
+        ('marksman', 'SO-14'),
 
         -- Shotguns
         ('shotgun', 'BY15'), ('shotgun', 'Echo'), ('shotgun', 'HS0405'), ('shotgun', 'HS2126'), 
         ('shotgun', 'JAK-12'), ('shotgun', 'KRM-262'), ('shotgun', 'R9-0'), ('shotgun', 'Shorty'), 
-        ('shotgun', 'Striker'), ('shotgun', 'Argus'),
+        ('shotgun', 'Striker'), ('shotgun', 'Argus'), ('shotgun', 'VLK Rogue'), 
+        ('shotgun', 'Einhorn Revolving'), ('shotgun', 'MX Guardian'),
 
         -- Pistols
         ('pistol', '.50 GS'), ('pistol', 'J358'), ('pistol', 'L-CAR 9'), ('pistol', 'MW11'), 
-        ('pistol', 'Renetti'), ('pistol', 'Dobvra'), ('pistol', 'Nail Gun'),
+        ('pistol', 'Renetti'), ('pistol', 'Dobvra'), ('pistol', 'Nail Gun'), 
+        ('pistol', 'Crossbow'), ('pistol', 'Machine Pistol'),
 
         -- Launchers
         ('launcher', 'FHJ-18'), ('launcher', 'SMRS'), ('launcher', 'Thumper'), ('launcher', 'D13 Sector')
