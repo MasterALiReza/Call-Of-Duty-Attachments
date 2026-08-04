@@ -5,6 +5,8 @@
 import os
 import json
 import shutil
+import asyncio
+import csv
 from datetime import datetime
 from typing import Dict, Any, Optional
 import logging
@@ -37,9 +39,7 @@ class BackupManager:
                 return explicit_path
 
             # 2) Use PATH
-            import shutil as _sh
-
-            which_path = _sh.which(tool_name)
+            which_path = shutil.which(tool_name)
             if which_path:
                 return which_path
 
@@ -89,8 +89,6 @@ class BackupManager:
     async def _backup_postgres(self) -> Optional[str]:
         """Backup PostgreSQL database با pg_dump"""
         try:
-            import subprocess
-
             timestamp = self._get_timestamp()
             backup_file = os.path.join(self.backup_dir, f"postgres_{timestamp}.dump")
 
@@ -112,12 +110,14 @@ class BackupManager:
             cmd = [pg_dump, "-Fc", "-f", backup_file, db_url]
 
             logger.info("Starting PostgreSQL backup...")
-            # subprocess.run is blocking, but there isn't an easy way to make pg_dump async
-            # without complex wrapper. For simplicity we keep it like this but wrap in executor if needed.
-            # In this project context, keeping it simple but making the caller aware it's 'async' is better for consistency.
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
 
-            if result.returncode == 0:
+            if process.returncode == 0:
                 # Backup فایل‌های جانبی (channel stats, etc.)
                 backup_subdir = os.path.join(self.backup_dir, f"pg_backup_{timestamp}")
                 os.makedirs(backup_subdir)
@@ -155,7 +155,7 @@ class BackupManager:
                 logger.info(f"PostgreSQL backup created: {zip_file}")
                 return zip_file
             else:
-                logger.error(f"pg_dump failed: {result.stderr}")
+                logger.error(f"pg_dump failed: {stderr.decode('utf-8', errors='replace')}")
                 return None
 
         except FileNotFoundError:
@@ -170,8 +170,6 @@ class BackupManager:
     async def restore_postgres_backup(self, backup_file: str) -> bool:
         """بازیابی از PostgreSQL backup"""
         try:
-            import subprocess
-
             if not os.path.exists(backup_file):
                 logger.error(f"Backup file not found: {backup_file}")
                 return False
@@ -205,28 +203,38 @@ class BackupManager:
 
                     dump_file = os.path.join(temp_dir, dump_files[0])
 
-                    # Restore با pg_restore
-                    cmd = [pg_restore, "-d", db_url, "-c", "--if-exists", dump_file]
+                    # Restore با pg_restore (تراکنش یکپارچه)
+                    cmd = [pg_restore, "-d", db_url, "-1", "-c", "--if-exists", dump_file]
 
                     logger.info("Starting PostgreSQL restore...")
-                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, stderr = await process.communicate()
 
-                    if result.returncode == 0:
+                    if process.returncode == 0:
                         logger.info("PostgreSQL restore completed successfully")
                         return True
                     else:
-                        logger.error(f"pg_restore failed: {result.stderr}")
+                        logger.error(f"pg_restore failed: {stderr.decode('utf-8', errors='replace')}")
                         return False
             else:
                 # فایل مستقیم .dump
-                cmd = [pg_restore, "-d", db_url, "-c", "--if-exists", backup_file]
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                cmd = [pg_restore, "-d", db_url, "-1", "-c", "--if-exists", backup_file]
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
 
-                if result.returncode == 0:
+                if process.returncode == 0:
                     logger.info("PostgreSQL restore completed successfully")
                     return True
                 else:
-                    logger.error(f"pg_restore failed: {result.stderr}")
+                    logger.error(f"pg_restore failed: {stderr.decode('utf-8', errors='replace')}")
                     return False
 
         except FileNotFoundError:
@@ -375,8 +383,6 @@ class BackupManager:
     async def export_to_csv(self, output_dir: str = None) -> Optional[str]:
         """Export دیتا به فرمت CSV"""
         try:
-            import csv
-
             if output_dir is None:
                 output_dir = os.path.join(
                     self.backup_dir, f"csv_export_{self._get_timestamp()}"
