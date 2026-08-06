@@ -22,12 +22,30 @@ from telegram.ext import (
     filters,
 )
 from utils.content_validator import get_validator
-from utils.i18n import t
+from utils.i18n import t, build_regex_for_keys
 from utils.language import get_user_lang
 from utils.logger import get_logger
 from utils.telegram_safety import safe_edit_message_text
 
 logger = get_logger("user_attachments", "user.log")
+
+MENU_KEYS = [
+    "menu.buttons.get",
+    "menu.buttons.search",
+    "menu.buttons.season_top",
+    "menu.buttons.season_list",
+    "menu.buttons.suggested",
+    "menu.buttons.game_settings",
+    "menu.buttons.user_settings",
+    "menu.buttons.notify",
+    "menu.buttons.contact",
+    "menu.buttons.help",
+    "menu.buttons.cms",
+    "menu.buttons.admin",
+    "menu.buttons.ua",
+    "menu.buttons.leaderboard",
+]
+_MENU_EXCLUSION_PATTERN = build_regex_for_keys(MENU_KEYS)
 
 # Conversation states
 (
@@ -1137,26 +1155,34 @@ async def back_to_category(update: Update, context: CustomContext):
 
 async def cancel_submission(update: Update, context: CustomContext):
     """لغو فرآیند"""
-    query = update.callback_query
     lang = await get_user_lang(update, context, db) or "fa"
-    await query.answer(t("ua.cancelled", lang))
-
     _clear_submission_data(context)
 
-    await safe_edit_message_text(
-        query,
-        t("ua.cancelled", lang),
-        reply_markup=InlineKeyboardMarkup(
-            [
+    query = update.callback_query
+    if query:
+        await query.answer(t("ua.cancelled", lang))
+        await safe_edit_message_text(
+            query,
+            t("ua.cancelled", lang),
+            reply_markup=InlineKeyboardMarkup(
                 [
-                    InlineKeyboardButton(
-                        t("menu.buttons.back", lang), callback_data="ua_menu"
-                    )
+                    [
+                        InlineKeyboardButton(
+                            t("menu.buttons.back", lang), callback_data="ua_menu"
+                        )
+                    ]
                 ]
-            ]
-        ),
-    )
+            ),
+        )
+    elif update.message:
+        await update.message.reply_text(t("ua.cancelled", lang))
 
+    return ConversationHandler.END
+
+
+async def cancel_submission_silent(update: Update, context: CustomContext):
+    """پاکسازی داده‌ها و خروج خاموش از مکالمه برای پردازش دکمه‌های منوی اصلی"""
+    _clear_submission_data(context)
     return ConversationHandler.END
 
 
@@ -1170,12 +1196,29 @@ user_attachment_conv_handler = ConversationHandler(
             CallbackQueryHandler(weapon_selected, pattern="^ua_weapon_")
         ],
         UA_ATTACHMENT_NAME: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, name_entered)
+            MessageHandler(
+                filters.TEXT
+                & ~filters.COMMAND
+                & ~filters.Regex(_MENU_EXCLUSION_PATTERN),
+                name_entered,
+            )
         ],
         UA_IMAGE: [MessageHandler(filters.PHOTO, image_uploaded)],
-        UA_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, code_entered)],
+        UA_CODE: [
+            MessageHandler(
+                filters.TEXT
+                & ~filters.COMMAND
+                & ~filters.Regex(_MENU_EXCLUSION_PATTERN),
+                code_entered,
+            )
+        ],
         UA_DESCRIPTION: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, description_entered)
+            MessageHandler(
+                filters.TEXT
+                & ~filters.COMMAND
+                & ~filters.Regex(_MENU_EXCLUSION_PATTERN),
+                description_entered,
+            )
         ],
         UA_CONFIRM: [CallbackQueryHandler(final_confirm, pattern="^ua_final_confirm$")],
     },
@@ -1185,6 +1228,8 @@ user_attachment_conv_handler = ConversationHandler(
         CallbackQueryHandler(back_to_category, pattern="^ua_back_to_category$"),
         CallbackQueryHandler(cancel_submission, pattern="^ua_cancel$"),
         MessageHandler(filters.Regex("^/cancel$"), cancel_submission),
+        MessageHandler(filters.Regex(_MENU_EXCLUSION_PATTERN), cancel_submission_silent),
+        MessageHandler(filters.Regex("^/start$"), cancel_submission_silent),
     ],
     name="user_attachment_submission",
     persistent=False,
