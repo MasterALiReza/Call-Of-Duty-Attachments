@@ -221,7 +221,8 @@ class TicketHandler(BaseAdminHandler):
     async def admin_tickets_menu(self, update: Update, context: CustomContext):
         """منوی مدیریت تیکت‌ها"""
         query = update.callback_query
-        await query.answer()
+        if query:
+            await query.answer()
 
         # بررسی دسترسی
         user_id = update.effective_user.id
@@ -236,7 +237,10 @@ class TicketHandler(BaseAdminHandler):
                 permission=Permission.MANAGE_TICKETS,
                 source="admin_tickets_menu",
             )
-            await safe_edit_message_text(query, t("common.no_permission", lang))
+            if query:
+                await safe_edit_message_text(query, t("common.no_permission", lang))
+            elif update.effective_message:
+                await update.effective_message.reply_text(t("common.no_permission", lang))
             return ADMIN_MENU
 
         # دریافت آمار
@@ -331,9 +335,14 @@ class TicketHandler(BaseAdminHandler):
             ]
         )
 
-        await safe_edit_message_text(
-            query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
-        )
+        if query:
+            await safe_edit_message_text(
+                query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
+            )
+        elif update.effective_message:
+            await update.effective_message.reply_text(
+                text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
+            )
 
         return ADMIN_MENU
 
