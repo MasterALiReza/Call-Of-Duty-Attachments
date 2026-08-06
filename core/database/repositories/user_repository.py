@@ -474,10 +474,20 @@ class UserRepository(BaseRepository):
     async def get_user_role(self, user_id: int) -> Optional[str]:
         """دریافت نام نقش کاربر از جدول ادمین‌ها"""
         try:
-            query = "SELECT role FROM admins WHERE user_id = %s LIMIT 1"
+            query = """
+                SELECT r.name AS role 
+                FROM admin_roles ar 
+                JOIN roles r ON ar.role_id = r.id 
+                WHERE ar.user_id = %s 
+                LIMIT 1
+            """
             result = await self.execute_query(query, (user_id,), fetch_one=True)
-            if result:
+            if result and result.get("role"):
                 return result.get("role")
+
+            if await self.is_admin(user_id):
+                return "admin"
+
             return "user"  # پیش‌فرض برای کاربران عادی
         except Exception as e:
             log_exception(logger, e, f"get_user_role({user_id})")

@@ -349,16 +349,25 @@ async def show_approved_list(update: Update, context: CustomContext):
         )
     except Exception as exc:
         log_exception(logger, exc, "ua_stats.show_approved_list.edit_message")
-        # اگه پیام photo بود (از view_approved_attachment برگشته)
         try:
-            await query.message.delete()
-        except Exception as delete_exc:
-            log_exception(
-                logger, delete_exc, "ua_stats.show_approved_list.delete_source"
+            await query.edit_message_text(
+                message, reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        await update.effective_chat.send_message(
-            message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        except Exception:
+            try:
+                await query.message.delete()
+            except Exception as delete_exc:
+                log_exception(
+                    logger, delete_exc, "ua_stats.show_approved_list.delete_source"
+                )
+            try:
+                await update.effective_chat.send_message(
+                    message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception:
+                await update.effective_chat.send_message(
+                    message, reply_markup=InlineKeyboardMarkup(keyboard)
+                )
 
 
 async def show_rejected_list(update: Update, context: CustomContext):

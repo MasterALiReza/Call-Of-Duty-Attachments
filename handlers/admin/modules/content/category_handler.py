@@ -15,6 +15,7 @@ from core.security.role_manager import require_permission, Permission
 from utils.logger import log_admin_action, get_logger
 from config.config import (
     WEAPON_CATEGORIES,
+    WEAPON_CATEGORIES_IDS,
     GAME_MODES,
     get_category_setting,
     set_category_enabled,
