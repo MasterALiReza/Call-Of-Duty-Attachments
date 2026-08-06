@@ -11,6 +11,8 @@ from config.config import CATEGORIES
 from utils.logger import log_user_action, get_logger
 from utils.i18n import t
 from utils.language import get_user_lang
+from utils.telegram_safety import safe_edit_message_text
+from handlers.admin.admin_states import ADMIN_MENU
 from handlers.admin.modules.base_handler import BaseAdminHandler
 from datetime import datetime
 import urllib.parse
@@ -106,9 +108,10 @@ class FeedbackAdminHandler(BaseAdminHandler):
                 ),
             ],
         ]
-        await query.edit_message_text(
-            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        await safe_edit_message_text(
+            query, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
+        return ADMIN_MENU
 
     @log_user_action("feedback_top_attachments")
     async def show_top_attachments(self, update: Update, context: CustomContext):
@@ -182,11 +185,13 @@ class FeedbackAdminHandler(BaseAdminHandler):
                     )
                 ],
             ]
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             text[:4096],
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
+        return ADMIN_MENU
 
     @log_user_action("feedback_bottom_attachments")
     async def show_bottom_attachments(self, update: Update, context: CustomContext):
@@ -242,11 +247,13 @@ class FeedbackAdminHandler(BaseAdminHandler):
                     )
                 ],
             ]
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             text[:4096],
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
+        return ADMIN_MENU
 
     @log_user_action("feedback_search_menu")
     async def show_search_menu(self, update: Update, context: CustomContext):
@@ -302,9 +309,10 @@ class FeedbackAdminHandler(BaseAdminHandler):
                 )
             ]
         )
-        await query.edit_message_text(
-            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        await safe_edit_message_text(
+            query, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
+        return ADMIN_MENU
 
     @log_user_action("feedback_search_exec")
     async def execute_search_query(self, update: Update, context: CustomContext):
@@ -343,11 +351,13 @@ class FeedbackAdminHandler(BaseAdminHandler):
                 )
             ],
         ]
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             text[:4096],
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
+        return ADMIN_MENU
 
     async def filter_mode_menu(self, update: Update, context: CustomContext):
         """نمایش منوی فیلتر مود (BR/MP/همه)"""
@@ -370,11 +380,13 @@ class FeedbackAdminHandler(BaseAdminHandler):
                 )
             ],
         ]
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             t("mode.choose", lang),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )
+        return ADMIN_MENU
 
     async def set_mode_filter(self, update: Update, context: CustomContext):
         """تنظیم فیلتر مود و بازگشت به گزارش محبوب‌ترین"""
@@ -385,7 +397,7 @@ class FeedbackAdminHandler(BaseAdminHandler):
             context.user_data.pop("fb_mode", None)
         else:
             context.user_data["fb_mode"] = mode
-        await self.show_top_attachments(update, context)
+        return await self.show_top_attachments(update, context)
 
     async def filter_category_menu(self, update: Update, context: CustomContext):
         """نمایش منوی فیلتر دسته‌ها"""
@@ -412,11 +424,13 @@ class FeedbackAdminHandler(BaseAdminHandler):
         keyboard.append(
             [InlineKeyboardButton(t("menu.buttons.back", lang), callback_data="fb_top")]
         )
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             t("category.choose", lang),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )
+        return ADMIN_MENU
 
     async def set_category_filter(self, update: Update, context: CustomContext):
         """تنظیم فیلتر دسته و بازگشت به گزارش محبوب‌ترین"""
@@ -427,7 +441,7 @@ class FeedbackAdminHandler(BaseAdminHandler):
             context.user_data.pop("fb_category", None)
         else:
             context.user_data["fb_category"] = data
-        await self.show_top_attachments(update, context)
+        return await self.show_top_attachments(update, context)
 
     @log_user_action("feedback_comments")
     async def show_user_comments(self, update: Update, context: CustomContext):
@@ -543,12 +557,14 @@ class FeedbackAdminHandler(BaseAdminHandler):
                 ]
             )
 
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             text[:4096],
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard),
             disable_web_page_preview=True,
         )
+        return ADMIN_MENU
 
     @log_user_action("feedback_weekly_trend")
     async def show_weekly_trend(self, update: Update, context: CustomContext):
@@ -635,6 +651,7 @@ class FeedbackAdminHandler(BaseAdminHandler):
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
+        return ADMIN_MENU
 
     @log_user_action("feedback_change_period")
     async def change_period(self, update: Update, context: CustomContext):
@@ -670,9 +687,10 @@ class FeedbackAdminHandler(BaseAdminHandler):
                 )
             ],
         ]
-        await query.edit_message_text(
-            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        await safe_edit_message_text(
+            query, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
+        return ADMIN_MENU
 
     async def set_period(self, update: Update, context: CustomContext):
         """ذخیره بازه زمانی انتخابی"""
@@ -688,7 +706,7 @@ class FeedbackAdminHandler(BaseAdminHandler):
             period = int(period_str)
             context.user_data["fb_period"] = period
             await query.answer(t("admin.feedback.period.set_days", lang, days=period))
-        await self.show_top_attachments(update, context)
+        return await self.show_top_attachments(update, context)
 
     @log_user_action("feedback_toggle_suggested")
     async def toggle_suggested_only(self, update: Update, context: CustomContext):
@@ -697,4 +715,4 @@ class FeedbackAdminHandler(BaseAdminHandler):
         await query.answer()
         current = context.user_data.get("fb_suggested_only", False)
         context.user_data["fb_suggested_only"] = not current
-        await self.show_feedback_dashboard(update, context)
+        return await self.show_feedback_dashboard(update, context)
