@@ -610,6 +610,23 @@ async def weapon_selected(update: Update, context: CustomContext):
     return UA_ATTACHMENT_NAME
 
 
+async def safe_reply_text(update: Update, text: str, **kwargs) -> None:
+    """ارسال ایمن پاسخ متنی با fallback در صورت خطای پارس مارک‌داون"""
+    if not update.message:
+        return
+    try:
+        await update.message.reply_text(text, **kwargs)
+    except Exception as e:
+        if "parse" in str(e).lower():
+            kwargs.pop("parse_mode", None)
+            try:
+                await update.message.reply_text(text, **kwargs)
+            except Exception as e2:
+                logger.error(f"Failed to send reply_text even without parse_mode: {e2}")
+        else:
+            raise
+
+
 async def name_entered(update: Update, context: CustomContext):
     """دریافت نام اتچمنت"""
     text = update.message.text.strip()
@@ -647,14 +664,15 @@ async def name_entered(update: Update, context: CustomContext):
                     user_id=user_id,
                     reason=f"استفاده {stats['violation_count']} بار از کلمات نامناسب",
                 )
-                await update.message.reply_text(
-                    t("ua.banned_simple", lang), parse_mode="Markdown"
+                await safe_reply_text(
+                    update, t("ua.banned_simple", lang), parse_mode="Markdown"
                 )
                 return ConversationHandler.END
 
             elif stats["strike_count"] >= 2.0:
                 # اخطار جدی
-                await update.message.reply_text(
+                await safe_reply_text(
+                    update,
                     t(
                         "ua.violation.name_serious",
                         lang,
@@ -667,7 +685,8 @@ async def name_entered(update: Update, context: CustomContext):
 
             else:
                 # اخطار معمولی
-                await update.message.reply_text(
+                await safe_reply_text(
+                    update,
                     t(
                         "ua.violation.name_warning",
                         lang,
@@ -679,8 +698,10 @@ async def name_entered(update: Update, context: CustomContext):
                 return UA_ATTACHMENT_NAME
 
         # خطای معمولی (طول یا spam)
-        await update.message.reply_text(
-            t("ua.violation.name_try_again", lang, reason=reason), parse_mode="Markdown"
+        await safe_reply_text(
+            update,
+            t("ua.violation.name_try_again", lang, reason=reason),
+            parse_mode="Markdown",
         )
         return UA_ATTACHMENT_NAME
 
@@ -693,7 +714,8 @@ async def name_entered(update: Update, context: CustomContext):
     category_name = t(f"category.{context.user_data['category']}", "en")
     weapon_name = context.user_data["weapon_name"]
 
-    await update.message.reply_text(
+    await safe_reply_text(
+        update,
         f"{mode_name} > {category_name} > {weapon_name}\n" + t("ua.prompt.image", lang),
         parse_mode="Markdown",
     )
