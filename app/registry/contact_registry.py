@@ -228,6 +228,6 @@ class ContactHandlerRegistry(BaseHandlerRegistry):
                 ),
                 CommandHandler("start", self.main_menu_handler.start),
             ],
-            per_message=True,
+            per_message=False,
         )
         self.application.add_handler(contact_conv)

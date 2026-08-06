@@ -1188,6 +1188,6 @@ user_attachment_conv_handler = ConversationHandler(
     ],
     name="user_attachment_submission",
     persistent=False,
-    per_message=True,
+    per_message=False,
     allow_reentry=True,
 )
