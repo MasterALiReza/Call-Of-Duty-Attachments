@@ -12,6 +12,8 @@ from utils.i18n import t
 from handlers.user.base_user_handler import BaseUserHandler
 from utils.telegram_safety import safe_edit_message_text
 
+from utils.ui_formatter import format_divider, format_mode_badge
+
 logger = get_logger("user", "user.log")
 
 
@@ -30,7 +32,7 @@ class GuidesHandler(BaseUserHandler):
         name = t(f"guides.{key}_short", lang)
         photos = guide.get("photos", []) or []
         videos = guide.get("videos", []) or []
-        mode_name = t(f"mode.{mode}_short", lang)
+        mode_title = format_mode_badge(mode, lang)
         code = (guide.get("code") or "").strip() if key in ["sens", "hud"] else ""
 
         # چک کردن اینکه محتوا داره یا نه
@@ -48,15 +50,15 @@ class GuidesHandler(BaseUserHandler):
 
         # اگر محتوا نداره
         if not has_content:
-            header = f"📚 {name}\n🎮 {t('mode.label', lang)}: {mode_name}\n\n"
+            header = f"📚 **{name}**\n🎮 **{t('mode.label', lang)}:** {mode_title}\n{format_divider()}\n\n"
             header += t("attachment.none", lang)
             await target_message.reply_text(header)
             return
 
         # اگر محتوا داره، ارسال کن
-        header = f"📚 {name}\n🎮 {t('mode.label', lang)}: {mode_name}"
+        header = f"📚 **{name}**\n🎮 **{t('mode.label', lang)}:** {mode_title}\n{format_divider()}"
         if code:
-            header += f"\n🔤 {t('attachment.code', lang)}: `{code}`"
+            header += f"\n📋 **{t('attachment.code', lang)}:** `{code}`"
         await target_message.reply_text(header, parse_mode="Markdown")
 
         # ارسال عکس‌ها

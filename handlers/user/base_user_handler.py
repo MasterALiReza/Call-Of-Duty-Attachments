@@ -9,6 +9,7 @@ from telegram import Update, InlineKeyboardButton, ReplyKeyboardMarkup
 from utils.subscribers_pg import SubscribersPostgres as Subscribers
 from utils.logger import get_logger
 from utils.i18n import t
+from utils.ui_formatter import format_button_label
 
 logger = get_logger("user", "user.log")
 
@@ -26,7 +27,7 @@ class BaseUserHandler:
 
     async def _track_user_info(self, update: Update):
         """
-        ذخیره/به\u200cروزرسانی اطلاعات کاربر در دیتابیس
+        ذخیره/به‌روزرسانی اطلاعات کاربر در دیتابیس
         Safe to call multiple times - idempotent
         """
         try:
@@ -44,8 +45,8 @@ class BaseUserHandler:
         self, top_count: int, all_count: int, lang: str = "fa"
     ) -> ReplyKeyboardMarkup:
         """ساخت کیبورد پایینی برای عملیات سلاح (i18n)"""
-        top_text = f"{t('weapon.menu.top', lang)} ({top_count})"
-        all_text = f"{t('weapon.menu.all', lang)} ({all_count})"
+        top_text = format_button_label(t("weapon.menu.top", lang), top_count, lang)
+        all_text = format_button_label(t("weapon.menu.all", lang), all_count, lang)
         keyboard = [
             [top_text, all_text],
             [t("menu.buttons.search", lang), t("menu.buttons.back", lang)],

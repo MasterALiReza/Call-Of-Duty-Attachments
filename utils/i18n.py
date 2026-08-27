@@ -84,7 +84,7 @@ def get_all_translations_for_key(key: str) -> list[str]:
 
 def build_regex_for_key(key: str) -> str:
     """Builds an exact-match Regex pattern matching ANY language's translation for the key.
-    Includes support for optional trailing count like (10).
+    Includes support for optional trailing count like (10) or (۱۰).
     """
     texts = get_all_translations_for_key(key)
     if not texts:
@@ -93,13 +93,13 @@ def build_regex_for_key(key: str) -> str:
     import re
 
     escaped = [re.escape(text) for text in texts]
-    # Match exact text OR text followed by optional count in parentheses
-    return r"^(" + "|".join(escaped) + r")(?:\s*\(\d+\))?$"
+    # Match exact text OR text followed by optional count in Latin or Persian digits
+    return r"^(" + "|".join(escaped) + r")(?:\s*\([\d۰-۹]+\))?$"
 
 
 def build_regex_for_keys(keys: list[str]) -> str:
     """Builds an exact-match Regex pattern matching ANY language's translation for ANY of the keys.
-    Includes support for optional trailing count like (10).
+    Includes support for optional trailing count like (10) or (۱۰).
     """
     all_texts = set()
     for key in keys:
@@ -111,7 +111,7 @@ def build_regex_for_keys(keys: list[str]) -> str:
     import re
 
     escaped = [re.escape(text) for text in all_texts]
-    return r"^(" + "|".join(escaped) + r")(?:\s*\(\d+\))?$"
+    return r"^(" + "|".join(escaped) + r")(?:\s*\([\d۰-۹]+\))?$"
 
 
 def reload_translations():

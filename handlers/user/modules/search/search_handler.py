@@ -11,6 +11,7 @@ from telegram.ext import ConversationHandler
 from utils.logger import log_user_action, get_logger, log_exception
 from utils.language import get_user_lang
 from utils.i18n import t
+from utils.ui_formatter import to_persian_digits, format_divider, format_mode_badge
 from handlers.user.base_user_handler import BaseUserHandler
 from utils.telegram_safety import safe_edit_message_text
 
@@ -98,9 +99,10 @@ class SearchHandler(BaseUserHandler):
                     "weapon": weapon,
                 }
         weapons_results = list(unique_weapons.values())
-
         total_results = len(attachments_results)
-        text = t("search.results", lang, query=query_text, count=total_results) + "\n\n"
+
+        p_total = to_persian_digits(total_results) if lang == "fa" else total_results
+        text = t("search.results", lang, query=query_text, count=p_total) + f"\n{format_divider()}\n\n"
         keyboard = []
         shown_all = set()
 
@@ -114,12 +116,12 @@ class SearchHandler(BaseUserHandler):
             pass
 
         if weapons_results:
-            text += f"**{t('search.weapons_header', lang)}**\n"
+            text += f"🔫 **{t('search.weapons_header', lang)}**\n"
             for item in weapons_results[:3]:
                 category_key = item["category"]
-                category_name = t(f"category.{category_key}", "en")
+                category_name = t(f"category.{category_key}", lang)
                 weapon_name = item["weapon"]
-                text += f"• {weapon_name} ({category_name})\n"
+                text += f"• `{weapon_name}` ({category_name})\n"
 
                 weapon_atts = [
                     a
@@ -129,8 +131,7 @@ class SearchHandler(BaseUserHandler):
 
                 for att in weapon_atts[:3]:
                     mode = att.get("mode", "br")
-                    mode_emoji = "🪂" if mode == "br" else "🎮"
-                    mode_text = t(f"mode.{mode}_short", lang)
+                    mode_title = format_mode_badge(mode, lang)
 
                     badge = ""
                     if att.get("is_season_top"):
@@ -138,7 +139,7 @@ class SearchHandler(BaseUserHandler):
                     elif att.get("is_top"):
                         badge = t("badge.top", lang)
 
-                    button_text = f"{mode_emoji} {mode_text} : {att['name']}"
+                    button_text = f"🎯 {att['name']} ({mode_title})"
                     if badge:
                         button_text += f" {badge}"
 
@@ -169,13 +170,13 @@ class SearchHandler(BaseUserHandler):
             text += "\n"
 
         if attachments_results:
-            text += f"**{t('search.attachments_header', lang)}**\n"
+            text += f"📎 **{t('search.attachments_header', lang)}**\n"
             for item in attachments_results[:5]:
                 weapon_name = item["weapon"]
                 name = item["name"]
                 code = item["code"]
 
-                text += f"• {name} (`{code}`) - {weapon_name}\n"
+                text += f"• {name} (`{code}`) — `{weapon_name}`\n"
 
                 key = (item["category"], weapon_name)
                 if key not in shown_all:

@@ -12,6 +12,12 @@ from utils.logger import log_user_action, get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+from utils.ui_formatter import (
+    format_weapon_card,
+    format_button_label,
+    format_divider,
+    format_mode_badge,
+)
 from handlers.user.base_user_handler import BaseUserHandler
 
 logger = get_logger("user", "user.log")
@@ -80,19 +86,17 @@ class WeaponHandler(BaseUserHandler):
         selected_mode = context.user_data.get("selected_mode")
         if selected_mode:
             # بازگشت به لیست سلاح‌ها با mode ذخیره شده
-            mode_btn = t(f"mode.{selected_mode}_btn", lang)
             mode_short = t(f"mode.{selected_mode}_short", lang)
-            back_text = (
-                f"{t('menu.buttons.back', lang)} ({t('mode.label', lang)}: {mode_btn})"
-            )
+            mode_title = format_mode_badge(selected_mode, lang)
+            back_text = f"{t('menu.buttons.back', lang)} ({mode_short})"
             keyboard.append(
                 [InlineKeyboardButton(back_text, callback_data=f"mode_{selected_mode}")]
             )
             # نمایش mode در header
-            category_name = t(f"category.{category}", "en")
+            category_name = t(f"category.{category}", lang)
             await safe_edit_message_text(
                 query,
-                f"📍 {t('mode.label', lang)}: {mode_short}\n**{category_name}**\n\n{t('weapon.choose', lang)}",
+                f"📂 **{category_name}**\n🎮 **{t('mode.label', lang)}:** {mode_title}\n{format_divider()}\n\n{t('weapon.choose', lang)}",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown",
             )
@@ -105,10 +109,10 @@ class WeaponHandler(BaseUserHandler):
                     )
                 ]
             )
-            category_name = t(f"category.{category}", "en")
+            category_name = t(f"category.{category}", lang)
             await safe_edit_message_text(
                 query,
-                f"**{category_name}**\n\n{t('weapon.choose', lang)}",
+                f"📂 **{category_name}**\n{format_divider()}\n\n{t('weapon.choose', lang)}",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown",
             )
@@ -176,7 +180,7 @@ class WeaponHandler(BaseUserHandler):
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"{t('weapon.menu.top', lang)} ({top_count})",
+                        format_button_label(t("weapon.menu.top", lang), top_count, lang),
                         callback_data="show_top",
                     )
                 ]
@@ -186,33 +190,35 @@ class WeaponHandler(BaseUserHandler):
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"{t('weapon.menu.all', lang)} ({all_count})",
+                        format_button_label(t("weapon.menu.all", lang), all_count, lang),
                         callback_data="show_all",
                     )
                 ]
             )
 
-            # دکمه بازگشت به لیست سلاح‌ها
+            # دکمه بازگشت و جستجو
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        t("menu.buttons.search", lang), callback_data="search_weapon"
+                        t("menu.buttons.back", lang), callback_data=f"cat_{category}"
                     ),
                     InlineKeyboardButton(
-                        t("menu.buttons.back", lang), callback_data=f"cat_{category}"
+                        t("menu.buttons.search", lang), callback_data="search_weapon"
                     ),
                 ]
             )
 
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            mode_short = t(f"mode.{selected_mode}_btn", lang)
-            mode_name = f"{t('mode.label', lang)}: {mode_short}"
-
-            if all_count == 0:
-                text = f"**🔫 {weapon_name}**\n**{mode_name}**\n\n{t('attachment.none', lang)}"
-            else:
-                text = f"**🔫 {weapon_name}**\n**{mode_name}**\n\n📊 {all_count}\n⭐ {top_count}"
+            category_name = t(f"category.{category}", lang) if category else ""
+            text = format_weapon_card(
+                weapon_name=weapon_name,
+                category_name=category_name,
+                mode=selected_mode,
+                all_count=all_count,
+                top_count=top_count,
+                lang=lang,
+            )
 
             await safe_edit_message_text(
                 query, text, reply_markup=reply_markup, parse_mode="Markdown"
@@ -339,7 +345,7 @@ class WeaponHandler(BaseUserHandler):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    f"{t('weapon.menu.top', lang)} ({top_count})",
+                    format_button_label(t("weapon.menu.top", lang), top_count, lang),
                     callback_data="show_top",
                 )
             ]
@@ -349,7 +355,7 @@ class WeaponHandler(BaseUserHandler):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    f"{t('weapon.menu.all', lang)} ({all_count})",
+                    format_button_label(t("weapon.menu.all", lang), all_count, lang),
                     callback_data="show_all",
                 )
             ]
@@ -369,25 +375,25 @@ class WeaponHandler(BaseUserHandler):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    t("menu.buttons.search", lang), callback_data="search_weapon"
+                    t("menu.buttons.back", lang), callback_data=back_callback
                 ),
                 InlineKeyboardButton(
-                    t("menu.buttons.back", lang), callback_data=back_callback
+                    t("menu.buttons.search", lang), callback_data="search_weapon"
                 ),
             ]
         )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        mode_short = t(f"mode.{mode}_short", lang)
-        mode_name = f"{t('mode.label', lang)}: {mode_short}"
-
-        if all_count == 0:
-            text = (
-                f"**🔫 {weapon_name}**\n**{mode_name}**\n\n{t('attachment.none', lang)}"
-            )
-        else:
-            text = f"**🔫 {weapon_name}**\n**{mode_name}**\n\n📊 {all_count}\n⭐ {top_count}"
+        category_name = t(f"category.{category}", lang) if category else ""
+        text = format_weapon_card(
+            weapon_name=weapon_name,
+            category_name=category_name,
+            mode=mode,
+            all_count=all_count,
+            top_count=top_count,
+            lang=lang,
+        )
 
         await safe_edit_message_text(
             query, text, reply_markup=reply_markup, parse_mode="Markdown"

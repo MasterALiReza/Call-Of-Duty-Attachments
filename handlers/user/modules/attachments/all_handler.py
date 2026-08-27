@@ -12,6 +12,7 @@ from utils.logger import log_user_action, get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+from utils.ui_formatter import to_persian_digits, format_divider, format_mode_badge
 from handlers.user.base_user_handler import BaseUserHandler
 from core.container import get_container
 import math
@@ -247,22 +248,26 @@ class AllAttachmentsHandler(BaseUserHandler):
         context.user_data["all_page"] = page
 
         # ساخت متن
+        p_page = to_persian_digits(page) if lang == "fa" else str(page)
+        p_total = to_persian_digits(total_pages) if lang == "fa" else str(total_pages)
         text = (
             t("attachment.all.title", lang, weapon=weapon_name, mode=mode_name) + "\n"
         )
-        text += t("pagination.page_of", lang, page=page, total=total_pages) + "\n\n"
+        text += f"{t('pagination.page_of', lang, page=p_page, total=p_total)}\n{format_divider()}\n\n"
 
         for i, att in enumerate(all_attachments[start_idx:end_idx], start_idx + 1):
-            text += f"**{i}.** {att['name']}\n"
-            text += f"   {t('attachment.code', lang)}: `{att['code']}`\n\n"
+            p_i = to_persian_digits(i) if lang == "fa" else str(i)
+            text += f"🔹 **{p_i}.** {att['name']}\n"
+            text += f"   📋 {t('attachment.code', lang)}: `{att['code']}`\n\n"
 
         # ساخت دکمه‌ها
         keyboard = []
         for i, att in enumerate(all_attachments[start_idx:end_idx], start_idx + 1):
+            p_i = to_persian_digits(i) if lang == "fa" else str(i)
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"{i}. {att['name']}", callback_data=f"att_{att['code']}"
+                        f"🎯 {p_i}. {att['name']}", callback_data=f"att_{att['code']}"
                     )
                 ]
             )
@@ -276,7 +281,7 @@ class AllAttachmentsHandler(BaseUserHandler):
                 )
             )
         nav_buttons.append(
-            InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop")
+            InlineKeyboardButton(f"{p_page} / {p_total}", callback_data="noop")
         )
         if page < total_pages:
             nav_buttons.append(
@@ -437,9 +442,13 @@ class AllAttachmentsHandler(BaseUserHandler):
             await safe_edit_message_text(query, t("attachment.not_found", lang))
             return
 
-        mode_short = t(f"mode.{mode}_short", lang)
-        mode_name = f"{t('mode.label', lang)}: {mode_short}"
-        caption = f"**{selected['name']}**\n{t('attachment.code', lang)}: `{selected['code']}`\n{mode_name}"
+        mode_title = format_mode_badge(mode, lang)
+        caption = (
+            f"🎯 **{selected['name']}**\n"
+            f"🎮 **{t('mode.label', lang)}:** {mode_title}\n"
+            f"{format_divider()}\n"
+            f"📋 **{t('attachment.code', lang)}:** `{selected['code']}`"
+        )
 
         # دریافت آمار بازخورد
         att_id = selected.get("id")
@@ -528,7 +537,13 @@ class AllAttachmentsHandler(BaseUserHandler):
             await safe_edit_message_text(query, t("attachment.not_found", lang))
             return
 
-        caption = f"**{selected['name']}**\n{t('attachment.code', lang)}: `{selected['code']}`"
+        mode_title = format_mode_badge(mode, lang)
+        caption = (
+            f"🎯 **{selected['name']}**\n"
+            f"🎮 **{t('mode.label', lang)}:** {mode_title}\n"
+            f"{format_divider()}\n"
+            f"📋 **{t('attachment.code', lang)}:** `{selected['code']}`"
+        )
 
         # دریافت آمار بازخورد
         att_id = selected.get("id")

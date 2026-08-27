@@ -10,9 +10,9 @@ from managers.channel_manager import require_channel_membership
 from utils.logger import log_user_action, get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
-from handlers.user.base_user_handler import BaseUserHandler
 from utils.telegram_safety import safe_edit_message_text
-
+from utils.ui_formatter import to_persian_digits, format_divider, format_mode_badge
+from handlers.user.base_user_handler import BaseUserHandler
 
 logger = get_logger("user", "user.log")
 
@@ -55,10 +55,17 @@ class TopAttachmentsHandler(BaseUserHandler):
             )
             return
 
+        mode_title = format_mode_badge(mode, lang)
         # ارسال اتچمنت‌ها با عکس
-        media_group = []
         for i, att in enumerate(top_attachments, 1):
-            caption = f"**#{i} - {att['name']}**\n{t('attachment.code', lang)}: `{att['code']}`"
+            p_i = to_persian_digits(i) if lang == "fa" else str(i)
+            caption = (
+                f"⭐ **#{p_i} — {att['name']}**\n"
+                f"🎮 **{t('mode.label', lang)}:** {mode_title}\n"
+                f"{format_divider()}\n"
+                f"📋 **{t('attachment.code', lang)}:** `{att['code']}`\n"
+                f"💡 {t('attachment.tap_to_copy', lang)}"
+            )
             # آمار بازخورد + ثبت بازدید
             att_id = att.get("id")
             stats = (
@@ -153,8 +160,16 @@ class TopAttachmentsHandler(BaseUserHandler):
         # اضافه کردن پیام بروزرسانی در اولین عکس
         now = datetime.now().strftime("%H:%M:%S")
 
+        mode_title = format_mode_badge(mode, lang)
         for i, att in enumerate(top_attachments, 1):
-            caption = f"**#{i} - {att['name']}** _{t('notification.updated', lang, time=now)}_\n{t('attachment.code', lang)}: `{att['code']}`\n\n{t('attachment.tap_to_copy', lang)}"
+            p_i = to_persian_digits(i) if lang == "fa" else str(i)
+            caption = (
+                f"⭐ **#{p_i} — {att['name']}**\n"
+                f"🎮 **{t('mode.label', lang)}:** {mode_title}\n"
+                f"{format_divider()}\n"
+                f"📋 **{t('attachment.code', lang)}:** `{att['code']}`\n"
+                f"💡 {t('attachment.tap_to_copy', lang)}"
+            )
             # آمار بازخورد + ثبت بازدید
             att_id = att.get("id")
             stats = (

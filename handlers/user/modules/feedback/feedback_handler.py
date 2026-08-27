@@ -13,6 +13,7 @@ from handlers.user.base_user_handler import BaseUserHandler
 from utils.i18n import t
 from utils.language import get_user_lang
 from utils.telegram_safety import safe_edit_message_text
+from utils.ui_formatter import to_persian_digits
 from utils.validators_enhanced import TextValidator
 import time
 import re
@@ -27,7 +28,7 @@ class FeedbackHandler(BaseUserHandler):
     """مدیریت بازخورد اتچمنت‌ها"""
 
     # Rate limiter: 1 vote per second per user
-    _vote_cooldown = {}
+    _vote_cooldown: dict[int, float] = {}
     VOTE_COOLDOWN_SECONDS = 1
 
     @require_channel_membership
@@ -517,13 +518,15 @@ class FeedbackHandler(BaseUserHandler):
         """
         ساخت کیبورد استاندارد شامل لایک، کپی کد و ثبت نظر
         """
+        p_like = to_persian_digits(like_count) if lang == "fa" else like_count
+        p_dislike = to_persian_digits(dislike_count) if lang == "fa" else dislike_count
         rows = [
             [
                 InlineKeyboardButton(
-                    f"👍 {like_count}", callback_data=f"att_like_{attachment_id}"
+                    f"👍 {p_like}", callback_data=f"att_like_{attachment_id}"
                 ),
                 InlineKeyboardButton(
-                    f"👎 {dislike_count}", callback_data=f"att_dislike_{attachment_id}"
+                    f"👎 {p_dislike}", callback_data=f"att_dislike_{attachment_id}"
                 ),
             ]
         ]

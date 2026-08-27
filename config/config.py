@@ -167,7 +167,9 @@ async def build_category_keyboard(
 
         if show_count and db:
             weapons_count = counts.get(key, 0)
-            button_text = f"{button_text} ({weapons_count})"
+            from utils.ui_formatter import format_button_label
+
+            button_text = format_button_label(button_text, weapons_count, lang)
 
         buttons.append(
             InlineKeyboardButton(button_text, callback_data=f"{callback_prefix}{key}")

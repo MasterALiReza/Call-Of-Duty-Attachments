@@ -12,6 +12,7 @@ from utils.error_handler import error_handler
 from utils.i18n import t
 from utils.language import get_user_lang
 from utils.logger import get_logger, log_exception
+from utils.ui_formatter import to_persian_digits, format_divider
 from utils.validation import safe_int
 
 logger = get_logger("my_attachments", "user.log")
@@ -67,28 +68,34 @@ async def my_attachments_menu(update: Update, context: CustomContext):
     rejected = [a for a in all_attachments if a["status"] == "rejected"]
 
     # پیام آمار
-    divider = "━━━━━━━━━━━━━━"
+    divider = format_divider()
     total = stats.get("total_submissions", 0)
     approved_n = stats.get("approved_count", 0)
     rejected_n = stats.get("rejected_count", 0)
     pending_n = len(pending)
 
+    p_total = to_persian_digits(total) if lang == "fa" else total
+    p_approved = to_persian_digits(approved_n) if lang == "fa" else approved_n
+    p_rejected = to_persian_digits(rejected_n) if lang == "fa" else rejected_n
+    p_pending = to_persian_digits(pending_n) if lang == "fa" else pending_n
+
     message = (
         f"{t('ua.my.title', lang)}\n"
         f"{divider}\n"
         f"{t('ua.my.stats_header', lang)}\n"
-        f"{t('ua.my.stats.total', lang, n=total)}\n"
-        f"{t('ua.my.stats.approved', lang, n=approved_n)}\n"
-        f"{t('ua.my.stats.rejected', lang, n=rejected_n)}\n"
-        f"{t('ua.my.stats.pending', lang, n=pending_n)}\n"
+        f"{t('ua.my.stats.total', lang, n=p_total)}\n"
+        f"{t('ua.my.stats.approved', lang, n=p_approved)}\n"
+        f"{t('ua.my.stats.rejected', lang, n=p_rejected)}\n"
+        f"{t('ua.my.stats.pending', lang, n=p_pending)}\n"
         f"{divider}\n"
     )
 
     if stats.get("is_banned"):
         message += t("ua.my.status.banned", lang) + "\n"
     elif stats.get("strike_count", 0) > 0:
+        strike_val = to_persian_digits(f"{stats['strike_count']:.1f}") if lang == "fa" else f"{stats['strike_count']:.1f}"
         message += (
-            t("ua.my.status.strikes", lang, strike=f"{stats['strike_count']:.1f}")
+            t("ua.my.status.strikes", lang, strike=strike_val)
             + "\n"
         )
 
@@ -99,7 +106,7 @@ async def my_attachments_menu(update: Update, context: CustomContext):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    t("ua.my.filter.pending", lang, n=len(pending)),
+                    t("ua.my.filter.pending", lang, n=p_pending),
                     callback_data="ua_my_pending",
                 )
             ]
@@ -109,7 +116,7 @@ async def my_attachments_menu(update: Update, context: CustomContext):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    t("ua.my.filter.approved", lang, n=len(approved)),
+                    t("ua.my.filter.approved", lang, n=p_approved),
                     callback_data="ua_my_approved",
                 )
             ]
@@ -119,7 +126,7 @@ async def my_attachments_menu(update: Update, context: CustomContext):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    t("ua.my.filter.rejected", lang, n=len(rejected)),
+                    t("ua.my.filter.rejected", lang, n=p_rejected),
                     callback_data="ua_my_rejected",
                 )
             ]

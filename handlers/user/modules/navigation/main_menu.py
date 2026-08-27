@@ -149,17 +149,23 @@ class MainMenuHandler(BaseUserHandler):
         )
 
         lang = await get_user_lang(update, context, self.db) or "fa"
+        reply_markup = await self._build_main_menu_keyboard(user_id, lang)
+        welcome_text = t("welcome", lang, app_name=t("app.name", lang))
+        await update.message.reply_text(
+            welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
+        )
 
+    async def _build_main_menu_keyboard(
+        self, user_id: int, lang: str
+    ) -> ReplyKeyboardMarkup:
+        """ساخت منوی اصلی یکپارچه و بهینه‌سازی‌شده برای تمامی کاربران"""
         keyboard = [
             [kb("menu.buttons.game_settings", lang), kb("menu.buttons.get", lang)]
         ]
 
-        # ردیف 2: بسته به فعال بودن سیستم اتچمنت کاربران
+        # ردیف 2: اتچمنت‌های کاربران و پیشنهادی
         ua_system_enabled = (
             await self.db.settings.get_ua_setting("system_enabled") or "1"
-        )
-        logger.info(
-            f"[DEBUG] UA system_enabled value: {repr(ua_system_enabled)} (type: {type(ua_system_enabled).__name__})"
         )
         if ua_system_enabled in ("1", "true", "True"):
             keyboard.append(
@@ -168,6 +174,7 @@ class MainMenuHandler(BaseUserHandler):
         else:
             keyboard.append([kb("menu.buttons.suggested", lang)])
 
+        # ردیف‌های 3 تا 5: برترها، اعلان‌ها، جستجو، راهنما و پشتیبانی
         keyboard.extend(
             [
                 [
@@ -179,7 +186,7 @@ class MainMenuHandler(BaseUserHandler):
             ]
         )
 
-        # ردیف CMS (نمایش مشروط به فعال بودن و داشتن محتوا)
+        # ردیف CMS (مشروط)
         try:
             cms_enabled = (
                 str(await self.db.settings.get_setting("cms_enabled", "false")).lower()
@@ -195,6 +202,7 @@ class MainMenuHandler(BaseUserHandler):
             if cms_total > 0:
                 keyboard.append([kb("menu.buttons.cms", lang)])
 
+        # ردیف تنظیمات کاربری و لیدربورد
         keyboard.append(
             [
                 kb("menu.buttons.leaderboard", lang),
@@ -202,16 +210,11 @@ class MainMenuHandler(BaseUserHandler):
             ]
         )
 
-        # اگر کاربر ادمین است، دکمه پنل ادمین را اضافه کن (بررسی از دیتابیس RBAC)
+        # پنل مدیریت برای ادمین‌ها
         if await self.db.users.is_admin(user_id):
             keyboard.append([kb("menu.buttons.admin", lang)])
 
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-        welcome_text = t("welcome", lang, app_name=t("app.name", lang))
-        await update.message.reply_text(
-            welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
-        )
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     async def back_msg(self, update: Update, context: CustomContext):
         """بازگشت به منوی اصلی از طریق پیام"""
@@ -225,58 +228,7 @@ class MainMenuHandler(BaseUserHandler):
         user_id = update.effective_user.id
         lang = await get_user_lang(update, context, self.db) or "fa"
 
-        # ساخت همان کیبورد reply
-        keyboard = [
-            [kb("menu.buttons.game_settings", lang), kb("menu.buttons.get", lang)]
-        ]
-
-        ua_system_enabled = (
-            await self.db.settings.get_ua_setting("system_enabled") or "1"
-        )
-        if ua_system_enabled in ("1", "true", "True"):
-            keyboard.append(
-                [kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)]
-            )
-        else:
-            keyboard.append([kb("menu.buttons.suggested", lang)])
-
-        keyboard.extend(
-            [
-                [
-                    kb("menu.buttons.season_list", lang),
-                    kb("menu.buttons.season_top", lang),
-                ],
-                [kb("menu.buttons.notify", lang), kb("menu.buttons.search", lang)],
-                [kb("menu.buttons.contact", lang), kb("menu.buttons.help", lang)],
-            ]
-        )
-
-        try:
-            cms_enabled = (
-                str(await self.db.settings.get_setting("cms_enabled", "false")).lower()
-                == "true"
-            )
-        except Exception:
-            cms_enabled = False
-        if cms_enabled:
-            try:
-                cms_total = CMSManager(self.db).count_published_content(None)
-            except Exception:
-                cms_total = 0
-            if cms_total > 0:
-                keyboard.append([kb("menu.buttons.cms", lang)])
-
-        keyboard.append(
-            [
-                kb("menu.buttons.leaderboard", lang),
-                kb("menu.buttons.user_settings", lang),
-            ]
-        )
-
-        if await self.db.users.is_admin(user_id):
-            keyboard.append([kb("menu.buttons.admin", lang)])
-
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        reply_markup = await self._build_main_menu_keyboard(user_id, lang)
         welcome_text = t("welcome", lang, app_name=t("app.name", lang))
 
         # حذف پیام inline قبلی (اگر ممکن بود)

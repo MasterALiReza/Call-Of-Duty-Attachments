@@ -12,6 +12,7 @@ from utils.logger import log_user_action
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+from utils.ui_formatter import to_persian_digits, format_divider, format_mode_badge, format_button_label
 from handlers.user.base_user_handler import BaseUserHandler
 from typing import Tuple
 import math
@@ -35,19 +36,18 @@ class SuggestedHandler(BaseUserHandler):
         mp_count = await self.db.attachments.get_suggested_count("mp")
 
         keyboard = []
-        # دکمه‌ها به صورت دو ستونه - BR راست، MP چپ
         mode_row = []
         if br_count > 0:
             mode_row.append(
                 InlineKeyboardButton(
-                    f"{t('mode.br_btn', lang)} ({br_count})",
+                    format_button_label(t("mode.br_btn", lang), br_count, lang),
                     callback_data="suggested_mode_br",
                 )
             )
         if mp_count > 0:
             mode_row.append(
                 InlineKeyboardButton(
-                    f"{t('mode.mp_btn', lang)} ({mp_count})",
+                    format_button_label(t("mode.mp_btn", lang), mp_count, lang),
                     callback_data="suggested_mode_mp",
                 )
             )
@@ -112,19 +112,19 @@ class SuggestedHandler(BaseUserHandler):
         mp_count = await self.db.attachments.get_suggested_count("mp")
 
         keyboard = []
-        # دکمه‌ها به صورت دو ستونه - BR راست، MP چپ
+        # دکمه‌ها به صورت دو ستونه
         mode_row = []
         if br_count > 0:
             mode_row.append(
                 InlineKeyboardButton(
-                    f"{t('mode.br_btn', lang)} ({br_count})",
+                    format_button_label(t("mode.br_btn", lang), br_count, lang),
                     callback_data="suggested_mode_br",
                 )
             )
         if mp_count > 0:
             mode_row.append(
                 InlineKeyboardButton(
-                    f"{t('mode.mp_btn', lang)} ({mp_count})",
+                    format_button_label(t("mode.mp_btn", lang), mp_count, lang),
                     callback_data="suggested_mode_mp",
                 )
             )
@@ -217,21 +217,23 @@ class SuggestedHandler(BaseUserHandler):
                     "count": 0,
                     "total_likes": 0,
                 }
-            weapons_dict[key]["count"] += 1
-            weapons_dict[key]["total_likes"] += attachment.get("likes", 0)
+            weapons_dict[key]["count"] = int(weapons_dict[key].get("count") or 0) + 1
+            weapons_dict[key]["total_likes"] = int(weapons_dict[key].get("total_likes") or 0) + int(attachment.get("likes") or 0)
 
         # ساخت کیبورد دو ستونه
         keyboard = []
-        weapons_list = sorted(weapons_dict.items(), key=lambda x: x[1]["weapon"])
+        weapons_list = sorted(weapons_dict.items(), key=lambda x: str(x[1].get("weapon", "")))
 
         for i in range(0, len(weapons_list), 2):
             row = []
             key1, data1 = weapons_list[i]
-            cat_emoji = WEAPON_CATEGORIES.get(data1["category"], "🔫").split()[0]
-            likes1 = data1["total_likes"]
-            button_text1 = f"{cat_emoji} {data1['weapon']} ({data1['count']})"
+            cat_emoji = WEAPON_CATEGORIES.get(str(data1["category"]), "🔫").split()[0]
+            likes1 = int(data1.get("total_likes") or 0)
+            count1 = to_persian_digits(data1.get("count", 0)) if lang == "fa" else data1.get("count", 0)
+            button_text1 = f"{cat_emoji} {data1.get('weapon', '')} ({count1})"
             if likes1 > 0:
-                button_text1 += f" 👍{likes1}"
+                p_likes1 = to_persian_digits(likes1) if lang == "fa" else likes1
+                button_text1 += f" 👍{p_likes1}"
             row.append(
                 InlineKeyboardButton(
                     button_text1, callback_data=f"sugg_wpn_{mode}_{key1}"
@@ -240,11 +242,13 @@ class SuggestedHandler(BaseUserHandler):
 
             if i + 1 < len(weapons_list):
                 key2, data2 = weapons_list[i + 1]
-                cat_emoji2 = WEAPON_CATEGORIES.get(data2["category"], "🔫").split()[0]
-                likes2 = data2["total_likes"]
-                button_text2 = f"{cat_emoji2} {data2['weapon']} ({data2['count']})"
+                cat_emoji2 = WEAPON_CATEGORIES.get(str(data2["category"]), "🔫").split()[0]
+                likes2 = int(data2.get("total_likes") or 0)
+                count2 = to_persian_digits(data2.get("count", 0)) if lang == "fa" else data2.get("count", 0)
+                button_text2 = f"{cat_emoji2} {data2.get('weapon', '')} ({count2})"
                 if likes2 > 0:
-                    button_text2 += f" 👍{likes2}"
+                    p_likes2 = to_persian_digits(likes2) if lang == "fa" else likes2
+                    button_text2 += f" 👍{p_likes2}"
                 row.append(
                     InlineKeyboardButton(
                         button_text2, callback_data=f"sugg_wpn_{mode}_{key2}"
@@ -420,22 +424,25 @@ class SuggestedHandler(BaseUserHandler):
             return
 
         # ارسال اتچمنت
-        cat_name_en = t(f"category.{target_category}", "en")
+        cat_name = t(f"category.{target_category}", lang)
         priority_emoji = self._get_priority_emoji_for_suggested(
             target_attachment.get("priority", 500)
         )
+        mode_title = format_mode_badge(mode, lang)
 
         caption = (
-            f"{priority_emoji} **{target_weapon}** ({cat_name_en})\n"
-            f"📎 {target_attachment['name']}\n"
-            f"{t('attachment.code', lang)}: `{target_attachment['code']}`\n"
-            f"{mode_name}"
+            f"{priority_emoji} **{target_weapon}** ({cat_name})\n"
+            f"🎯 **{target_attachment['name']}**\n"
+            f"🎮 **{t('mode.label', lang)}:** {mode_title}\n"
+            f"{format_divider()}\n"
+            f"📋 **{t('attachment.code', lang)}:** `{target_attachment['code']}`"
         )
 
         # اضافه کردن دلیل پیشنهاد
         reason = target_attachment.get("reason")
         if reason:
-            caption += f"\n💭 {reason}"
+            caption += f"\n💡 {reason}"
+        caption += f"\n\n💡 {t('attachment.tap_to_copy', lang)}"
 
         # دریافت آمار بازخورد
         stats = await self.db.analytics.get_attachment_stats(att_id, period="all")

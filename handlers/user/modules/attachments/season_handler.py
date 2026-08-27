@@ -11,6 +11,7 @@ from utils.logger import log_user_action
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+from utils.ui_formatter import to_persian_digits, format_divider, format_mode_badge
 from handlers.user.base_user_handler import BaseUserHandler
 from typing import Tuple
 import math
@@ -104,12 +105,21 @@ class SeasonTopHandler(BaseUserHandler):
             await query.message.reply_text(t("attachment.none", lang))
             return
         await safe_edit_message_text(query, t("season.title", lang, mode=mode_name))
+        mode_title = format_mode_badge(mode, lang)
         for i, raw_item in enumerate(items, 1):
             item = raw_item
             att = item["attachment"]
             weapon = item["weapon"]
-            cat_name = t(f"category.{item['category']}", "en")
-            caption = f"**#{i} - {att['name']}**\n{t('attachment.code', lang)}: `{att['code']}`\n{t('weapon.label', lang)}: {weapon} ({cat_name})\n{mode_name}\n\n{t('attachment.tap_to_copy', lang)}"
+            cat_name = t(f"category.{item['category']}", lang)
+            p_i = to_persian_digits(i) if lang == "fa" else str(i)
+            caption = (
+                f"⭐ **#{p_i} — {att['name']}**\n"
+                f"🔫 **{t('weapon.label', lang)}:** `{weapon}` ({cat_name})\n"
+                f"🎮 **{t('mode.label', lang)}:** {mode_title}\n"
+                f"{format_divider()}\n"
+                f"📋 **{t('attachment.code', lang)}:** `{att['code']}`\n"
+                f"💡 {t('attachment.tap_to_copy', lang)}"
+            )
             att_id = att.get("id")
             stats = (
                 await self.db.analytics.get_attachment_stats(att_id, period="all")
@@ -181,8 +191,9 @@ class SeasonTopHandler(BaseUserHandler):
     async def _season_top_cache(self, context: CustomContext, mode: str = None) -> list:
         """ذخیره اتچمنت\u200cهای برتر فصل با mode مشخص در cache"""
         items = await self.db.attachments.get_season_top_attachments(mode=mode)
-        context.user_data["season_top_cache"] = items
-        return items
+        res = list(items or [])
+        context.user_data["season_top_cache"] = res
+        return res
 
     def _season_top_build_page(
         self, items: list, page: int, mode: str = None, lang: str = "fa"
@@ -193,27 +204,25 @@ class SeasonTopHandler(BaseUserHandler):
         page = max(1, min(page, total_pages))
         start_idx = (page - 1) * ITEMS_PER_PAGE
         end_idx = min(start_idx + ITEMS_PER_PAGE, total_items)
-        mode_name = (
-            f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
-            if mode
-            else f"{t('mode.label', lang)}: {t('mode.all', lang)}"
-        )
+        mode_title = format_mode_badge(mode, lang) if mode else t("mode.all", lang)
+        p_page = to_persian_digits(page) if lang == "fa" else str(page)
+        p_total = to_persian_digits(total_pages) if lang == "fa" else str(total_pages)
         text = (
-            t("season.list_title", lang, mode=mode_name)
-            + "\n"
-            + t("pagination.page_of", lang, page=page, total=total_pages)
-            + "\n\n"
+            f"⭐ **{t('season.list_title', lang, mode=mode_title)}**\n"
+            f"{t('pagination.page_of', lang, page=p_page, total=p_total)}\n"
+            f"{format_divider()}\n\n"
         )
         keyboard = []
         for i, raw_item in enumerate(items[start_idx:end_idx], start_idx + 1):
             item = raw_item
             att = item["attachment"]
             weapon = item["weapon"]
-            text += f"**{i}.** {att['name']} — {weapon}\n{t('attachment.code', lang)}: `{att['code']}`\n\n"
+            p_i = to_persian_digits(i) if lang == "fa" else str(i)
+            text += f"🔹 **{p_i}.** {att['name']} — `{weapon}`\n   📋 {t('attachment.code', lang)}: `{att['code']}`\n\n"
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"{i}. {att['name']} ({weapon})", callback_data=f"satt_{i}"
+                        f"🎯 {p_i}. {att['name']} ({weapon})", callback_data=f"satt_{i}"
                     )
                 ]
             )
@@ -224,7 +233,7 @@ class SeasonTopHandler(BaseUserHandler):
                     t("nav.prev", lang), callback_data=f"slist_page_{page - 1}"
                 )
             )
-        nav.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+        nav.append(InlineKeyboardButton(f"{p_page} / {p_total}", callback_data="noop"))
         if page < total_pages:
             nav.append(
                 InlineKeyboardButton(
@@ -400,9 +409,9 @@ class SeasonTopHandler(BaseUserHandler):
         query = update.callback_query
         await query.answer()
         lang = await get_user_lang(update, context, self.db) or "fa"
-        items = context.user_data.get("season_top_cache") or self._season_top_cache(
-            context
-        )
+        items = context.user_data.get("season_top_cache")
+        if not items:
+            items = await self._season_top_cache(context)
         try:
             idx = int(query.data.replace("satt_", ""))
         except Exception:
@@ -415,10 +424,18 @@ class SeasonTopHandler(BaseUserHandler):
         item = raw_item
         att = item["attachment"]
         weapon = item["weapon"]
-        cat_name = t(f"category.{item['category']}", "en")
-        mode_short = t(f"mode.{item['mode']}_short", lang)
-        mode_name = f"{t('mode.label', lang)}: {mode_short}"
-        caption = f"**{att['name']}**\n{t('attachment.code', lang)}: `{att['code']}`\n{t('weapon.label', lang)}: {weapon} ({cat_name})\n{mode_name}"
+        cat_name = t(f"category.{item['category']}", lang)
+        item_mode = item.get("mode", "br")
+        mode_title = format_mode_badge(item_mode, lang)
+        p_idx = to_persian_digits(idx) if lang == "fa" else idx
+        caption = (
+            f"⭐ **#{p_idx} — {att['name']}**\n"
+            f"🔫 **{t('weapon.label', lang)}:** `{weapon}` ({cat_name})\n"
+            f"🎮 **{t('mode.label', lang)}:** {mode_title}\n"
+            f"{format_divider()}\n"
+            f"📋 **{t('attachment.code', lang)}:** `{att['code']}`\n\n"
+            f"💡 {t('attachment.tap_to_copy', lang)}"
+        )
         att_id = att.get("id")
         stats = (
             await self.db.analytics.get_attachment_stats(att_id, period="all")

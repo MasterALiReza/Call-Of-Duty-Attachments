@@ -83,11 +83,11 @@ class NotificationHandler:
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    t("mode.br_short", lang) + (" ✅" if "br" in modes else " ❌"),
+                    ("✅ " if "br" in modes else "❌ ") + t("mode.br_short", lang),
                     callback_data="user_notif_mode_br",
                 ),
                 InlineKeyboardButton(
-                    t("mode.mp_short", lang) + (" ✅" if "mp" in modes else " ❌"),
+                    ("✅ " if "mp" in modes else "❌ ") + t("mode.mp_short", lang),
                     callback_data="user_notif_mode_mp",
                 ),
             ]
@@ -315,12 +315,18 @@ class NotificationHandler:
 
         # ارسال اتچمنت
         lang = await get_user_lang(update, context, self.db) or "fa"
-        mode_short = t(f"mode.{mode}_btn", lang)
-        cat_name = t(f"category.{category}", "en")
-        caption = f"**{selected['name']}**\n"
-        caption += f"{t('weapon.label', lang)}: {weapon} ({cat_name})\n"
-        caption += f"{t('mode.label', lang)}: {mode_short}\n"
-        caption += f"{t('attachment.code', lang)}: `{selected['code']}`\n\n{t('attachment.tap_to_copy', lang)}"
+        from utils.ui_formatter import format_divider, format_mode_badge
+
+        cat_name = t(f"category.{category}", lang)
+        mode_title = format_mode_badge(mode, lang)
+        caption = (
+            f"🎯 **{selected['name']}**\n"
+            f"🔫 **{t('weapon.label', lang)}:** `{weapon}` ({cat_name})\n"
+            f"🎮 **{t('mode.label', lang)}:** {mode_title}\n"
+            f"{format_divider()}\n"
+            f"📋 **{t('attachment.code', lang)}:** `{selected['code']}`\n\n"
+            f"💡 {t('attachment.tap_to_copy', lang)}"
+        )
         # آمار بازخورد + ثبت بازدید
         att_id = selected.get("id")
         stats = (

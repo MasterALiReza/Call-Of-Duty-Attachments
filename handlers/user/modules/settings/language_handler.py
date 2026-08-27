@@ -107,77 +107,11 @@ class LanguageHandler(BaseUserHandler):
                 except Exception:
                     pass
 
-                # Import needed modules
-                from telegram import ReplyKeyboardMarkup
-                from utils.i18n import kb
-                from managers.cms_manager import CMSManager
+                from handlers.user.modules.navigation.main_menu import MainMenuHandler
 
                 user_id = update.effective_user.id
-
-                # Build keyboard exactly like start() does
-                keyboard = [
-                    [
-                        kb("menu.buttons.game_settings", new_lang),
-                        kb("menu.buttons.get", new_lang),
-                    ]
-                ]
-
-                # Check UA system
-                ua_system_enabled = (
-                    await self.db.settings.get_ua_setting("system_enabled") or "1"
-                )
-                if ua_system_enabled in ("1", "true", "True"):
-                    keyboard.append(
-                        [
-                            kb("menu.buttons.ua", new_lang),
-                            kb("menu.buttons.suggested", new_lang),
-                        ]
-                    )
-                else:
-                    keyboard.append([kb("menu.buttons.suggested", new_lang)])
-
-                keyboard.extend(
-                    [
-                        [
-                            kb("menu.buttons.season_list", new_lang),
-                            kb("menu.buttons.season_top", new_lang),
-                        ],
-                        [
-                            kb("menu.buttons.notify", new_lang),
-                            kb("menu.buttons.search", new_lang),
-                        ],
-                        [
-                            kb("menu.buttons.contact", new_lang),
-                            kb("menu.buttons.help", new_lang),
-                        ],
-                    ]
-                )
-
-                # Check CMS
-                try:
-                    cms_enabled = (
-                        str(
-                            await self.db.settings.get_setting("cms_enabled", "false")
-                        ).lower()
-                        == "true"
-                    )
-                except Exception:
-                    cms_enabled = False
-                if cms_enabled:
-                    try:
-                        cms_total = CMSManager(self.db).count_published_content(None)
-                    except Exception:
-                        cms_total = 0
-                    if cms_total > 0:
-                        keyboard.append([kb("menu.buttons.cms", new_lang)])
-
-                keyboard.append([kb("menu.buttons.user_settings", new_lang)])
-
-                # Check admin
-                if await self.db.users.is_admin(user_id):
-                    keyboard.append([kb("menu.buttons.admin", new_lang)])
-
-                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                main_menu_handler = MainMenuHandler(self.db)
+                reply_markup = await main_menu_handler._build_main_menu_keyboard(user_id, new_lang)
                 welcome_text = t("welcome", new_lang, app_name=t("app.name", new_lang))
 
                 # Send message with keyboard (works from callback_query)

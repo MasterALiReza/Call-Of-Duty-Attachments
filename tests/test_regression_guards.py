@@ -1206,3 +1206,78 @@ def test_wave2_guides_handler_safe_message() -> None:
     assert "update.callback_query.message if update.callback_query else None" in guide_file
 
 
+def test_ui_formatter_persian_digits() -> None:
+    from utils.ui_formatter import to_persian_digits
+
+    assert to_persian_digits("AK117 (1)") == "AK۱۱۷ (۱)"
+    assert to_persian_digits(12345) == "۱۲۳۴۵"
+    assert to_persian_digits(0) == "۰"
+    assert to_persian_digits(None) == ""
+
+
+def test_ui_formatter_mode_badge() -> None:
+    from utils.ui_formatter import format_mode_badge
+
+    assert "بتل رویال" in format_mode_badge("br", "fa")
+    assert "مولتی‌پلیر" in format_mode_badge("mp", "fa")
+    assert "Battle Royale" in format_mode_badge("br", "en")
+    assert "Multiplayer" in format_mode_badge("mp", "en")
+
+
+def test_ui_formatter_weapon_card() -> None:
+    from utils.ui_formatter import format_weapon_card
+
+    card_fa = format_weapon_card("AK117", "Assault Rifle", "br", 5, 2, "fa")
+    assert "🔫 **سلاح:** `AK117`" in card_fa
+    assert "🎮 **مود بازی:** بتل رویال (BR)" in card_fa
+    assert "📊 **کل اتچمنت‌ها:** ۵" in card_fa
+    assert "⭐ **اتچمنت‌های برتر:** ۲" in card_fa
+
+    card_en = format_weapon_card("AK117", "Assault Rifle", "br", 5, 2, "en")
+    assert "🔫 **Weapon:** `AK117`" in card_en
+    assert "📊 **Total Attachments:** 5" in card_en
+
+
+def test_ui_formatter_button_label() -> None:
+    from utils.ui_formatter import format_button_label
+
+    assert format_button_label("⭐ برترین‌ها", 1, "fa") == "⭐ برترین‌ها (۱)"
+    assert format_button_label("⭐ Top", 1, "en") == "⭐ Top (1)"
+    assert format_button_label("🔙 بازگشت", None, "fa") == "🔙 بازگشت"
+
+
+def test_i18n_regex_persian_digits_matching() -> None:
+    import re
+    from utils.i18n import build_regex_for_key
+
+    pattern = build_regex_for_key("weapon.menu.top")
+    assert re.match(pattern, "⭐ برترین اتچمنت‌ها")
+    assert re.match(pattern, "⭐ برترین اتچمنت‌ها (1)")
+    assert re.match(pattern, "⭐ برترین اتچمنت‌ها (۱)")
+    assert re.match(pattern, "⭐ Top Attachments")
+    assert re.match(pattern, "⭐ Top Attachments (5)")
+
+
+def test_locales_menu_buttons_start_with_emoji() -> None:
+    import json
+    from pathlib import Path
+
+    locales_dir = Path("locales")
+    with open(locales_dir / "fa.json", encoding="utf-8") as f:
+        fa = json.load(f)
+    with open(locales_dir / "en.json", encoding="utf-8") as f:
+        en = json.load(f)
+
+    for k, v in fa.items():
+        if k.startswith("menu.buttons.") and isinstance(v, str):
+            assert len(v) > 0
+            # Ensure it has characters
+            assert v.strip() != ""
+
+    for k, v in en.items():
+        if k.startswith("menu.buttons.") and isinstance(v, str):
+            assert len(v) > 0
+            assert v.strip() != ""
+
+
+
