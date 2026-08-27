@@ -18,10 +18,12 @@ from handlers.admin.admin_states import (
     SET_TOP_ATTACHMENT,
     SET_TOP_CONFIRM,
 )
-from utils.logger import log_admin_action
+from utils.logger import log_admin_action, get_logger
 from utils.language import get_user_lang
 from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
+
+logger = get_logger("top_attachments", "admin.log")
 
 
 class TopAttachmentsHandler(BaseAdminHandler):
@@ -645,8 +647,11 @@ class TopAttachmentsHandler(BaseAdminHandler):
         """ارسال اعلان خودکار"""
         try:
             from managers.notification_manager import NotificationManager
+            from utils.subscribers_pg import SubscribersPostgres as Subscribers
 
-            notif_manager = NotificationManager(self.db, None)
-            await notif_manager.send_notification(context, event, payload)
-        except Exception:
-            pass
+            subs = Subscribers(db_adapter=self.db)
+            notif_manager = NotificationManager(self.db, subs)
+            await notif_manager.queue_notification(context, event, payload)
+        except Exception as e:
+            logger.warning(f"Failed to queue auto notification for {event}: {e}")
+

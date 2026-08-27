@@ -1675,9 +1675,9 @@ class DataHealthReportHandler(BaseAdminHandler):
                     if pg_pass:
                         fd, pgpass_file = tempfile.mkstemp(prefix="pgpass_")
                         os.close(fd)
-                        with open(pgpass_file, "w", encoding="utf-8") as f:
+                        with open(pgpass_file, "w", encoding="utf-8") as pgpass_fh:
                             # Use wildcard for port and db to ensure it connects
-                            f.write(f"{pg_host}:*:*:{pg_user}:{pg_pass}\n")
+                            pgpass_fh.write(f"{pg_host}:*:*:{pg_user}:{pg_pass}\n")
                         try:
                             os.chmod(pgpass_file, 0o600)
                         except Exception:

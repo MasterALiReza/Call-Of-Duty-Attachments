@@ -83,6 +83,11 @@ class AlertSystem:
             self.last_alerts[alert_key] = now
 
             async def _send():
+                if not SUPER_ADMIN_ID:
+                    logger.warning(
+                        "SUPER_ADMIN_ID is not configured in settings. Skipping Telegram alert dispatch."
+                    )
+                    return
                 try:
                     # Send to Telegram
                     await self.bot.send_message(

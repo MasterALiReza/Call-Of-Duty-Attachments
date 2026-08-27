@@ -17,12 +17,22 @@ class BackupScheduler:
         self.db = db_adapter
         self.backup_manager = BackupManager(db_adapter)
         self.job_name = "auto_backup_job"
+        self._running = False
+        self._application = None
+
+    def is_alive(self) -> bool:
+        """بررسی وضعیت فعال بودن زمان‌بند"""
+        if self._application and self._application.job_queue:
+            jobs = self._application.job_queue.get_jobs_by_name(self.job_name)
+            return len(jobs) > 0 or self._running
+        return self._running
 
     async def start(self, application: Application):
         """
         Initializes the scheduler by reading settings from DB and scheduling the job if enabled.
         Should be called during bot startup (post_init).
         """
+        self._application = application
         try:
             # Load settings
             enabled = (
@@ -32,11 +42,14 @@ class BackupScheduler:
 
             if enabled:
                 await self.schedule_job(application, interval)
+                self._running = True
                 logger.info(f"Auto-backup scheduler started with interval: {interval}")
             else:
+                self._running = False
                 logger.info("Auto-backup is disabled in settings.")
 
         except Exception as e:
+            self._running = False
             logger.error(f"Failed to start backup scheduler: {e}")
 
     async def schedule_job(self, application: Application, interval_str: str):
@@ -75,6 +88,7 @@ class BackupScheduler:
 
     async def stop(self, application: Application):
         """Stops the backup job."""
+        self._running = False
         job_queue = application.job_queue
         if job_queue:
             current_jobs = job_queue.get_jobs_by_name(self.job_name)

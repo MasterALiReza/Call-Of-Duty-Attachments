@@ -828,8 +828,11 @@ class AddAttachmentHandler(BaseAdminHandler):
         """ارسال اعلان خودکار"""
         try:
             from managers.notification_manager import NotificationManager
+            from utils.subscribers_pg import SubscribersPostgres as Subscribers
 
-            notif_manager = NotificationManager(self.db, None)
-            await notif_manager.send_notification(context, event, payload)
-        except Exception:
-            pass
+            subs = Subscribers(db_adapter=self.db)
+            notif_manager = NotificationManager(self.db, subs)
+            await notif_manager.queue_notification(context, event, payload)
+        except Exception as e:
+            logger.warning(f"Failed to queue auto notification for {event}: {e}")
+

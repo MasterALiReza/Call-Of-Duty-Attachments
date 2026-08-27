@@ -136,7 +136,7 @@ async def seed_faqs():
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (question, language) DO NOTHING
             """
-            result = await db.execute_query(
+            await db.execute_query(
                 query, (faq["question"], faq["answer"], faq["category"], faq["lang"])
             )
             print(f"(+) Added: {faq['question'][:20]}... ({faq['lang']})")
@@ -152,6 +152,6 @@ if __name__ == "__main__":
     if sys.stdout.encoding != "utf-8":
         try:
             sys.stdout.reconfigure(encoding="utf-8")
-        except:
+        except Exception:
             pass
     asyncio.run(seed_faqs())

@@ -686,10 +686,10 @@ class AttachmentsDashboardHandler(BaseAdminHandler):
                 InputFile(data, filename=filename),
                 caption=t("admin.analytics.weekly.title", lang),
             )
-        except Exception:
+        except Exception as e:
             from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
-        return ADMIN_MENU
+            await error_handler.handle_telegram_error(update, context, e)
+            return ADMIN_MENU
 
     async def weapon_details(self, update: Update, context: CustomContext) -> int:
         """نمایش جزئیات یک اتچمنت بر اساس شناسه در callback_data: weapon_details_<id>"""
@@ -875,10 +875,10 @@ class AttachmentsDashboardHandler(BaseAdminHandler):
             await query.message.reply_text(
                 "\n".join(lines), parse_mode=ParseMode.MARKDOWN
             )
-        except Exception:
+        except Exception as e:
             from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
-        return ADMIN_MENU
+            await error_handler.handle_telegram_error(update, context, e)
+            return ADMIN_MENU
 
     async def att_download_csv(self, update: Update, context: CustomContext) -> int:
         """دانلود CSV روزانه ۷ روز اخیر برای یک اتچمنت خاص: att_download_csv_<id>"""
@@ -932,14 +932,10 @@ class AttachmentsDashboardHandler(BaseAdminHandler):
                 InputFile(data_buf, filename=filename),
                 caption=t("admin.analytics.daily.title", lang),
             )
-        except Exception:
+        except Exception as e:
             from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
-        return ADMIN_MENU
-
-    async def view_user_behavior(self, update: Update, context: CustomContext) -> int:
-        """آنالیز رفتار کاربران (خلاصه + هایلایت‌ها)"""
-        query = update.callback_query
+            await error_handler.handle_telegram_error(update, context, e)
+            return ADMIN_MENU
 
     async def view_user_behavior(self, update: Update, context: CustomContext) -> int:
         """آنالیز رفتار کاربران (خلاصه + هایلایت‌ها)"""
@@ -1311,6 +1307,9 @@ class AttachmentsDashboardHandler(BaseAdminHandler):
     async def ws_choose_mode(self, update: Update, context: CustomContext) -> int:
         """پس از انتخاب مود، نمایش لیست دسته‌های سلاح"""
         query = update.callback_query
+        if query:
+            await query.answer()
+        data = query.data if query and query.data else "analytics_ws_mode_all"
         lang = await get_user_lang(update, context, self.db) or "fa"
         mode_map = {
             "analytics_ws_mode_br": t("admin.analytics.weapon_stats.buttons.br", lang),

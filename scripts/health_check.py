@@ -87,7 +87,7 @@ def check_database() -> dict:
                 )
                 cur.execute(query)
                 counts[table] = cur.fetchone()["count"]
-            except:
+            except Exception:
                 counts[table] = -1
 
         conn.close()

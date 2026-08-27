@@ -16,6 +16,7 @@ from handlers.admin.admin_states import (
     SUGGESTED_ADD_WEAPON,
     SUGGESTED_ADD_ATTACHMENT,
     SUGGESTED_REMOVE_CONFIRM,
+    SUGGESTED_REMOVE_MODE,
 )
 from utils.logger import log_admin_action, log_performance, performance_logger
 from utils.language import get_user_lang

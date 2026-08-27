@@ -17,15 +17,42 @@ from utils.i18n import t
 class NotificationManager:
     """مدیریت و ارسال نوتیفیکیشن‌ها با قابلیت ترکیب پیام‌ها"""
 
-    def __init__(self, db, subscribers, broadcaster=None):
+    def __init__(self, db, subscribers=None, broadcaster=None):
         self.db = db
-        self.subscribers = subscribers
+        if subscribers is None:
+            from utils.subscribers_pg import SubscribersPostgres as Subscribers
+
+            self.subscribers = Subscribers(db_adapter=self.db)
+        else:
+            self.subscribers = subscribers
         self.pending_notifications = {}  # ذخیره نوتیف‌های در انتظار
         self.batch_delay = 3  # تاخیر 3 ثانیه برای ترکیب پیام‌ها
         self._batch_tasks = {}  # ذخیره task های در حال اجرا
         self.broadcaster = broadcaster or OptimizedBroadcaster(
             max_concurrent=30, delay_between_batches=1.0
         )
+
+    async def send_notification(
+        self, context: ContextTypes.DEFAULT_TYPE, event_type: str, payload: dict
+    ):
+        """ارسال اعلان خودکار (نام مستعار جهت سازگاری کامل)"""
+        await self.queue_notification(context, event_type, payload)
+
+    async def flush_pending_notifications(
+        self, context: Optional[ContextTypes.DEFAULT_TYPE] = None
+    ):
+        """پردازش و ارسال فوری تمام نوتیفیکیشن‌های در صف"""
+        tasks = list(self._batch_tasks.values())
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._batch_tasks.clear()
+            self.pending_notifications.clear()
+
+    async def process_pending_notifications(
+        self, context: Optional[ContextTypes.DEFAULT_TYPE] = None
+    ):
+        """نام مستعار برای سازگاری با متد قدیمی cleanup"""
+        await self.flush_pending_notifications(context)
 
     async def queue_notification(
         self, context: ContextTypes.DEFAULT_TYPE, event_type: str, payload: dict

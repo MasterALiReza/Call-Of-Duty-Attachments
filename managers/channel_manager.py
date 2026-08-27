@@ -4,7 +4,7 @@
 """
 
 from functools import wraps
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from collections import OrderedDict
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -37,7 +37,9 @@ def clean_expired_cache():
         now = datetime.now()
         expired_keys = []
 
-        for user_id, (is_member, timestamp) in _membership_cache.items():
+        for user_id, entry in _membership_cache.items():
+            is_member = entry[0]
+            timestamp = entry[-1]
             # TTL متغیر بر اساس وضعیت عضویت
             ttl = MEMBER_CACHE_DURATION if is_member else NON_MEMBER_CACHE_DURATION
             if now - timestamp >= ttl:
@@ -52,7 +54,7 @@ def clean_expired_cache():
         return len(expired_keys)
 
 
-def _add_to_cache(user_id: int, is_member: bool):
+def _add_to_cache(user_id: int, is_member: bool, not_joined: Optional[List[Dict[str, str]]] = None):
     """✅ اضافه کردن به cache با LRU eviction برای جلوگیری از memory leak"""
     global _membership_cache
     with _cache_lock:
@@ -64,8 +66,8 @@ def _add_to_cache(user_id: int, is_member: bool):
                 f"Cache full ({MAX_CACHE_SIZE}), evicted oldest user: {oldest_user}"
             )
 
-        # اضافه کردن user جدید
-        _membership_cache[user_id] = (is_member, datetime.now())
+        # اضافه کردن user جدید همراه با لیست کانال‌های عضو نشده
+        _membership_cache[user_id] = (is_member, not_joined or [], datetime.now())
 
         # انتقال به آخر (mark as recently used)
         _membership_cache.move_to_end(user_id)
@@ -186,7 +188,10 @@ class ChannelManager:
 
             # بررسی Smart Cache با TTL متغیر
             if use_cache and user_id in _membership_cache:
-                is_member, timestamp = _membership_cache[user_id]
+                entry = _membership_cache[user_id]
+                is_member = entry[0]
+                not_joined_cached = entry[1] if len(entry) >= 3 else []
+                timestamp = entry[-1]
                 now = datetime.now()
 
                 # TTL بر اساس وضعیت
@@ -199,15 +204,14 @@ class ChannelManager:
                     # عضوها: cache طولانی مدت (30 دقیقه) بدون re-check
                     if is_member:
                         return True, []
-                    # غیرعضوها: دوباره چک کن (شاید عضو شده‌اند) - اما cache کوتاه‌مدت
-                    # برای non-members هم اگر تو TTL باشن برگردون (2 دقیقه)
-                    return False, []  # برای non-member هم از cache استفاده کن
+                    # غیرعضوها: بازگرداندن لیست دقیق کانال‌های عضو نشده از کش
+                    return False, not_joined_cached
 
         # فقط کانال‌های فعال رو چک می‌کنیم
         channels = await self.db.cms.get_required_channels()
 
         if not channels:
-            _add_to_cache(user_id, True)
+            _add_to_cache(user_id, True, [])
             return True, []
 
         # بررسی موازی همه کانال‌ها با asyncio.gather برای سرعت بیشتر
@@ -244,7 +248,7 @@ class ChannelManager:
 
         # ذخیره در cache با LRU management
         is_all_member = len(not_joined) == 0
-        _add_to_cache(user_id, is_all_member)
+        _add_to_cache(user_id, is_all_member, not_joined)
 
         return is_all_member, not_joined
 

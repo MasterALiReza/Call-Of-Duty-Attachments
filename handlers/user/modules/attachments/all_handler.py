@@ -460,18 +460,17 @@ class AllAttachmentsHandler(BaseUserHandler):
         # ساخت keyboard با دکمه‌های بازخورد
         keyboard = []
         if att_id:
-            from core.container import get_container
-
             fb_handler = get_container().feedback_handler
-            keyboard.extend(
-                fb_handler.build_attachment_keyboard(
-                    att_id,
-                    like_count=like_count,
-                    dislike_count=dislike_count,
-                    lang=lang,
-                    mode=mode,
+            if fb_handler:
+                keyboard.extend(
+                    fb_handler.build_attachment_keyboard(
+                        att_id,
+                        like_count=like_count,
+                        dislike_count=dislike_count,
+                        lang=lang,
+                        mode=mode,
+                    )
                 )
-            )
         keyboard.append(
             [
                 InlineKeyboardButton(
@@ -543,7 +542,6 @@ class AllAttachmentsHandler(BaseUserHandler):
 
         # Track view
         if att_id:
-            from core.container import get_container
             await get_container().analytics.track_attachment_view(
                 user_id=query.from_user.id, attachment_id=att_id
             )
@@ -552,15 +550,16 @@ class AllAttachmentsHandler(BaseUserHandler):
         keyboard = []
         if att_id:
             fb_handler = get_container().feedback_handler
-            keyboard.extend(
-                fb_handler.build_attachment_keyboard(
-                    att_id,
-                    like_count=like_count,
-                    dislike_count=dislike_count,
-                    lang=lang,
-                    mode=mode,
+            if fb_handler:
+                keyboard.extend(
+                    fb_handler.build_attachment_keyboard(
+                        att_id,
+                        like_count=like_count,
+                        dislike_count=dislike_count,
+                        lang=lang,
+                        mode=mode,
+                    )
                 )
-            )
 
         # دکمه بازگشت به لیست همان صفحه
         page = context.user_data.get("all_page", 1)

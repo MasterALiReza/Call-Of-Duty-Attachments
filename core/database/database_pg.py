@@ -129,15 +129,17 @@ class DatabasePostgres:
 
     @asynccontextmanager
     async def get_connection(self):
-        """Context manager Ø¨Ø±Ø§ÛŒ Ø¯Ø±ÛŒØ§ÙØª connection Ø§Ø² pool"""
+        """Context manager برای دریافت connection از pool"""
         async with self._pool.connection() as conn:
             try:
                 yield conn
             finally:
-                # Always ensure rollback to clean up any aborted or pending transaction
+                # Always ensure autocommit is reset and rollback any pending/aborted transactions
                 # before returning the connection to the pool.
                 try:
                     if not conn.closed:
+                        if getattr(conn, "autocommit", False):
+                            await conn.set_autocommit(False)
                         await conn.rollback()
                 except Exception:
                     pass

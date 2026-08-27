@@ -500,9 +500,9 @@ class FeedbackHandler(BaseUserHandler):
                     ),
                     show_alert=True,
                 )
-        except Exception:
+        except Exception as e:
             from utils.error_handler import error_handler
-        await error_handler.handle_telegram_error(update, context, e)
+            await error_handler.handle_telegram_error(update, context, e)
 
     def build_attachment_keyboard(
         self,

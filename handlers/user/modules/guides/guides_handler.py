@@ -40,34 +40,40 @@ class GuidesHandler(BaseUserHandler):
         elif key == "sens" and code:
             has_content = True
 
+        target_message = update.effective_message or (
+            update.callback_query.message if update.callback_query else None
+        )
+        if not target_message:
+            return
+
         # اگر محتوا نداره
         if not has_content:
             header = f"📚 {name}\n🎮 {t('mode.label', lang)}: {mode_name}\n\n"
             header += t("attachment.none", lang)
-            await update.message.reply_text(header)
+            await target_message.reply_text(header)
             return
 
         # اگر محتوا داره، ارسال کن
         header = f"📚 {name}\n🎮 {t('mode.label', lang)}: {mode_name}"
         if code:
             header += f"\n🔤 {t('attachment.code', lang)}: `{code}`"
-        await update.message.reply_text(header, parse_mode="Markdown")
+        await target_message.reply_text(header, parse_mode="Markdown")
 
         # ارسال عکس‌ها
         for fid in photos:
             try:
-                await update.message.reply_photo(photo=fid)
+                await target_message.reply_photo(photo=fid)
             except Exception as e:
                 logger.warning(f"Error sending image {fid}: {e}")
         # ارسال ویدیوها
         for fid in videos:
             try:
-                await update.message.reply_video(video=fid)
+                await target_message.reply_video(video=fid)
             except Exception as e:
                 logger.warning(f"Error sending video {fid}: {e}")
 
         # پیام تایید نهایی
-        await update.message.reply_text(t("success.generic", lang))
+        await target_message.reply_text(t("success.generic", lang))
 
     async def guide_basic_msg(self, update: Update, context: CustomContext):
         return await self._send_guide(update, "basic", context=context)

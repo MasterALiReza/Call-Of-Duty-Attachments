@@ -51,16 +51,18 @@ class HealthServer:
         for sched in self.schedulers:
             name = sched.__class__.__name__
             is_alive = False
-            if hasattr(sched, "_running"):
-                is_alive = sched._running
+            if hasattr(sched, "is_alive") and callable(sched.is_alive):
+                try:
+                    is_alive = bool(sched.is_alive())
+                except Exception:
+                    is_alive = False
+            elif hasattr(sched, "_running"):
+                is_alive = bool(sched._running)
             elif hasattr(sched, "_task"):
                 is_alive = sched._task is not None and not sched._task.done()
 
-            health["services"]["schedulers"][name] = "alive" if is_alive else "dead"
-            if not is_alive:
-                health["status"] = (
-                    "degraded" if health["status"] == "pass" else health["status"]
-                )
+            health["services"]["schedulers"][name] = "alive" if is_alive else "inactive"
+
 
         # System Info
         try:

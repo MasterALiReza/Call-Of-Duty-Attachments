@@ -1149,3 +1149,60 @@ def test_td08_user_repository_json_aggregate_decoding_is_centralized() -> None:
     assert "self._decode_json_list(" in user_repo
     assert "import json as _json" not in user_repo
     assert "import json\n                    perms = json.loads(perms)" not in user_repo
+
+
+def test_wave1_notification_manager_contract() -> None:
+    notif_file = _read("managers/notification_manager.py")
+    add_att = _read("handlers/admin/modules/attachments/add_attachment.py")
+    edit_att = _read("handlers/admin/modules/attachments/edit_attachment.py")
+    del_att = _read("handlers/admin/modules/attachments/delete_attachment.py")
+    top_att = _read("handlers/admin/modules/attachments/top_attachments.py")
+
+    assert "def __init__(self, db, subscribers=None, broadcaster=None):" in notif_file
+    assert "async def queue_notification(" in notif_file
+    assert "async def send_notification(" in notif_file
+    assert "await notif_manager.queue_notification(context, event, payload)" in add_att
+    assert "await notif_manager.queue_notification(context, event, payload)" in edit_att
+    assert "await notif_manager.queue_notification(context, event, payload)" in del_att
+    assert "await notif_manager.queue_notification(context, event, payload)" in top_att
+
+
+def test_wave1_channel_manager_membership_cache_contract() -> None:
+    chan_mgr = _read("managers/channel_manager.py")
+
+    assert "_membership_cache[user_id] = (is_member, not_joined or [], datetime.now())" in chan_mgr
+    assert "not_joined_cached = entry[1] if len(entry) >= 3 else []" in chan_mgr
+    assert "return False, not_joined_cached" in chan_mgr
+
+
+def test_wave1_database_autocommit_safeguard() -> None:
+    health_check = _read("utils/data_health_check.py")
+    db_pg = _read("core/database/database_pg.py")
+
+    assert "set_autocommit" not in health_check
+    assert 'if getattr(conn, "autocommit", False):' in db_pg
+    assert "await conn.set_autocommit(False)" in db_pg
+
+
+def test_wave1_health_server_and_backup_scheduler_contract() -> None:
+    backup_sched = _read("managers/backup_scheduler.py")
+    health_srv = _read("core/monitoring/health_server.py")
+
+    assert "def is_alive(self) -> bool:" in backup_sched
+    assert 'if hasattr(sched, "is_alive") and callable(sched.is_alive):' in health_srv
+
+
+def test_wave2_smart_cache_async_support() -> None:
+    cache_file = _read("core/cache/smart_cache.py")
+
+    assert "async def warm_cache(self, db):" in cache_file
+    assert "if asyncio.iscoroutinefunction(func):" in cache_file
+
+
+def test_wave2_guides_handler_safe_message() -> None:
+    guide_file = _read("handlers/user/modules/guides/guides_handler.py")
+
+    assert "target_message = update.effective_message or (" in guide_file
+    assert "update.callback_query.message if update.callback_query else None" in guide_file
+
+

@@ -248,7 +248,7 @@ class SmartCacheManager:
             total += sys.getsizeof(entry)
         return total
 
-    def warm_cache(self, db):
+    async def warm_cache(self, db):
         """
         Pre-populate cache with frequently accessed data
         """
@@ -272,22 +272,27 @@ class SmartCacheManager:
                 key = self._make_key(
                     "get_weapons_in_category", (category,), {}, "weapon_list"
                 )
-                weapons = db.attachments.get_weapons_in_category(category)
+                if hasattr(db.attachments, "get_weapons_in_category"):
+                    weapons = await db.attachments.get_weapons_in_category(category)
+                else:
+                    weapons = []
                 self.set(key, weapons, "weapon_list")
 
                 # Cache top attachments for popular weapons (first 3)
-                for weapon in weapons[:3]:
-                    for mode in ["mp", "br"]:
-                        key = self._make_key(
-                            "get_top_attachments",
-                            (category, weapon, mode),
-                            {},
-                            "top_attachments",
-                        )
-                        attachments = db.attachments.get_top_attachments(
-                            category, weapon, mode
-                        )
-                        self.set(key, attachments, "top_attachments")
+                if weapons and isinstance(weapons, list):
+                    for weapon in weapons[:3]:
+                        weapon_name = weapon.get("name") if isinstance(weapon, dict) else str(weapon)
+                        for mode in ["mp", "br"]:
+                            key = self._make_key(
+                                "get_top_attachments",
+                                (category, weapon_name, mode),
+                                {},
+                                "top_attachments",
+                            )
+                            attachments = await db.attachments.get_top_attachments(
+                                category, weapon_name, mode
+                            )
+                            self.set(key, attachments, "top_attachments")
 
             logger.info(
                 f"Cache warming completed. {len(self._cache)} entries pre-loaded"
@@ -300,14 +305,15 @@ class SmartCacheManager:
 # Decorator for smart caching
 def smart_cached(data_type: str = "default", ttl: Optional[int] = None):
     """
-    Smart cache decorator with automatic TTL selection
+    Smart cache decorator with automatic TTL selection and async/sync support.
 
     Usage:
         @smart_cached('weapon_list')
-        def get_weapons(category):
+        async def get_weapons(category):
             # expensive database query
             return weapons
     """
+    import asyncio
 
     def decorator(func):
         # Get or create cache instance
@@ -316,29 +322,36 @@ def smart_cached(data_type: str = "default", ttl: Optional[int] = None):
 
         cache = smart_cached._cache
 
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Generate cache key
-            key = cache._make_key(func.__name__, args, kwargs, data_type)
+        if asyncio.iscoroutinefunction(func):
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                key = cache._make_key(func.__name__, args, kwargs, data_type)
+                cached_value = cache.get(key)
+                if cached_value is not None:
+                    return cached_value
 
-            # Try to get from cache
-            cached_value = cache.get(key)
-            if cached_value is not None:
-                return cached_value
+                result = await func(*args, **kwargs)
+                cache.set(key, result, data_type, ttl)
+                return result
 
-            # Execute function
-            result = func(*args, **kwargs)
+            async_wrapper.invalidate = lambda: cache.invalidate_pattern(func.__name__)
+            async_wrapper.cache = cache
+            return async_wrapper
+        else:
+            @wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                key = cache._make_key(func.__name__, args, kwargs, data_type)
+                cached_value = cache.get(key)
+                if cached_value is not None:
+                    return cached_value
 
-            # Store in cache
-            cache.set(key, result, data_type, ttl)
+                result = func(*args, **kwargs)
+                cache.set(key, result, data_type, ttl)
+                return result
 
-            return result
-
-        # Add invalidate method
-        wrapper.invalidate = lambda: cache.invalidate_pattern(func.__name__)
-        wrapper.cache = cache
-
-        return wrapper
+            sync_wrapper.invalidate = lambda: cache.invalidate_pattern(func.__name__)
+            sync_wrapper.cache = cache
+            return sync_wrapper
 
     return decorator
 

@@ -14,7 +14,7 @@ class AttachmentManagementHandler(BaseAdminHandler):
         query = update.callback_query
         try:
             await query.answer()
-        except:
+        except Exception:
             pass
 
         user_id = update.effective_user.id

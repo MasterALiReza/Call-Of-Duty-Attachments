@@ -66,7 +66,6 @@ class DataHealthChecker:
         """Check for attachments without images"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     await cursor.execute(
                         "\n                SELECT \n                    a.id,\n                    a.code,\n                    a.name,\n                    w.name as weapon,\n                    wc.name as category\n                FROM attachments a\n                JOIN weapons w ON a.weapon_id = w.id\n                JOIN weapon_categories wc ON w.category_id = wc.id\n                WHERE a.image_file_id IS NULL OR a.image_file_id = ''\n                ORDER BY wc.name, w.name, a.name\n            "
@@ -110,7 +109,6 @@ class DataHealthChecker:
         """Check for duplicate attachment codes (per weapon and globally)"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     # 1. Local duplicates (per weapon) - CRITICAL
                     await cursor.execute("""
@@ -195,7 +193,6 @@ class DataHealthChecker:
         """Check for weapons without any attachments"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     await cursor.execute(
                         "\n                SELECT \n                    w.id,\n                    w.name,\n                    wc.name as category\n                FROM weapons w\n                JOIN weapon_categories wc ON w.category_id = wc.id\n                LEFT JOIN attachments a ON a.weapon_id = w.id\n                WHERE a.id IS NULL\n                ORDER BY wc.name, w.name\n            "
@@ -248,7 +245,6 @@ class DataHealthChecker:
         """Verify presence of required indexes and extensions (read-only)."""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     try:
                         await cursor.execute(
@@ -297,7 +293,6 @@ class DataHealthChecker:
         tables = ["data_quality_metrics", "data_health_checks"]
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     for tbl in tables:
                         await cursor.execute(
@@ -365,7 +360,6 @@ class DataHealthChecker:
         }
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     missing = []
                     for table, cols in required.items():
@@ -391,7 +385,6 @@ class DataHealthChecker:
         """Check for weapons with very few attachments (<3)"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     await cursor.execute(
                         "\n                SELECT \n                    w.name as weapon,\n                    wc.name as category,\n                    COUNT(a.id) as attachment_count\n                FROM weapons w\n                JOIN weapon_categories wc ON w.category_id = wc.id\n                LEFT JOIN attachments a ON a.weapon_id = w.id\n                GROUP BY w.id, w.name, wc.name\n                HAVING COUNT(a.id) BETWEEN 1 AND 2\n                ORDER BY attachment_count ASC, wc.name, w.name\n            "
@@ -429,7 +422,6 @@ class DataHealthChecker:
         """Check for attachments pointing to non-existent weapons"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     await cursor.execute(
                         "\n                SELECT \n                    a.id,\n                    a.code,\n                    a.name,\n                    a.weapon_id\n                FROM attachments a\n                LEFT JOIN weapons w ON a.weapon_id = w.id\n                WHERE w.id IS NULL\n            "
@@ -469,7 +461,6 @@ class DataHealthChecker:
         """Check how recently data was updated"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     await cursor.execute(
                         "\n                SELECT \n                    MAX(created_at) as last_created\n                FROM attachments\n                WHERE created_at IS NOT NULL\n            "
@@ -500,7 +491,6 @@ class DataHealthChecker:
         """Calculate overall data quality metrics"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     metrics = {}
                     await cursor.execute(
@@ -874,7 +864,6 @@ class DataHealthChecker:
         """Check for attachments with suspicious or invalid Telegram file IDs"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     await cursor.execute("""
                         SELECT id, code, name, image_file_id 
@@ -914,7 +903,6 @@ class DataHealthChecker:
         """Check search history for frequent queries"""
         try:
             async with self.db.get_connection() as conn:
-                await conn.set_autocommit(True)
                 async with conn.cursor() as cursor:
                     await cursor.execute("""
                         SELECT query, COUNT(*) as count, AVG(length(query)) as avg_len
