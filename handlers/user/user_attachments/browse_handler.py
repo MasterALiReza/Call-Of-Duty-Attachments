@@ -19,6 +19,7 @@ from utils.error_handler import error_handler
 from utils.i18n import t
 from utils.language import get_user_lang
 from utils.logger import get_logger, log_exception
+from utils.ui_formatter import to_persian_digits, format_divider, format_mode_badge
 
 logger = get_logger("browse_attachments", "user.log")
 db = get_database_adapter()
@@ -270,7 +271,7 @@ async def show_attachments_page(update: Update, context: CustomContext):
         if not att.get("weapon_display") and att.get("custom_weapon_name"):
             att["weapon_display"] = att["custom_weapon_name"]
 
-    mode_name = t(f"mode.{mode}_btn", lang)
+    mode_name = format_mode_badge(mode, lang)
     cat_display = (
         t("ua.all_categories", lang)
         if category == "all"
@@ -281,13 +282,19 @@ async def show_attachments_page(update: Update, context: CustomContext):
     start_idx = page * ATTACHMENTS_PER_PAGE + 1
     end_idx = start_idx + len(attachments) - 1
 
+    p_page = to_persian_digits(page + 1) if lang == "fa" else page + 1
+    p_total = to_persian_digits(total_pages) if lang == "fa" else total_pages
+    p_start = to_persian_digits(start_idx) if lang == "fa" else start_idx
+    p_end = to_persian_digits(end_idx) if lang == "fa" else end_idx
+    p_count = to_persian_digits(total_count) if lang == "fa" else total_count
+
     # ساخت پیام
     message = (
-        f"*{t('ua.browse', lang)}*\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"{t('mode.label', lang)}: {mode_name}  |  {cat_display}\n"
-        f"{t('pagination.page_of', lang, page=page + 1, total=total_pages)}  •  "
-        f"{t('pagination.showing_range', lang, start=start_idx, end=end_idx, total=total_count)}\n"
+        f"👥 *{t('ua.browse', lang)}*\n"
+        f"{format_divider()}\n"
+        f"🎮 {t('mode.label', lang)}: {mode_name}  |  {cat_display}\n"
+        f"{t('pagination.page_of', lang, page=p_page, total=p_total)}  •  "
+        f"{t('pagination.showing_range', lang, start=p_start, end=p_end, total=p_count)}\n"
     )
 
     # ساخت کیبورد
@@ -310,7 +317,8 @@ async def show_attachments_page(update: Update, context: CustomContext):
 
         # نمایش لایک‌ها اگر وجود داشت
         if likes > 0:
-            button_text += f"  👍{likes}"
+            p_likes = to_persian_digits(likes) if lang == "fa" else likes
+            button_text += f"  👍{p_likes}"
 
         keyboard.append(
             [InlineKeyboardButton(button_text, callback_data=f"ua_view_{att['id']}")]

@@ -9,6 +9,7 @@ from telegram.ext import ConversationHandler
 from utils.i18n import t
 from utils.language import get_user_lang
 from utils.logger import get_logger, log_user_action
+from utils.ui_formatter import to_persian_digits, format_divider
 
 logger = get_logger("contact_handlers", "contact.log")
 
@@ -474,7 +475,7 @@ class ContactHandlers:
             )
             return CONTACT_MENU
 
-        text = t("contact.my_tickets.title", lang) + "\n\n"
+        text = t("contact.my_tickets.title", lang) + f"\n{format_divider()}\n\n"
         keyboard = []
 
         from utils.validators import escape_markdown
@@ -488,7 +489,8 @@ class ContactHandlers:
                 else "✅"
             )
             subject_safe = escape_markdown(ticket["subject"][:30])
-            text += f"{status_icon} `#{ticket['id']}` - {subject_safe}...\n"
+            p_tid = to_persian_digits(ticket["id"]) if lang == "fa" else ticket["id"]
+            text += f"{status_icon} `#{p_tid}` — {subject_safe}...\n"
 
             # برای دکمه، فقط کاراکترهای مشکل‌ساز رو پاک می‌کنیم
             subject_btn = (
@@ -501,7 +503,7 @@ class ContactHandlers:
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"#{ticket['id']} - {subject_btn}",
+                        f"#{p_tid} — {subject_btn}",
                         callback_data=f"ticket_view_{ticket['id']}",
                     )
                 ]
