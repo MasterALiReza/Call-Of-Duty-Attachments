@@ -353,17 +353,10 @@ def require_channel_membership(func):
             else:
                 return await func(self, update, context, *args, **kwargs)
 
-        # استثناء: اگر CallbackQuery از یک گروه/سوپرگروه است، بررسی عضویت را رد کن
-        # این مورد برای دکمه‌های فیدبک پیام‌های اینلاین در گروه‌ها لازم است
         try:
             chat_type = update.effective_chat.type if update.effective_chat else None
         except Exception:
             chat_type = None
-        if update.callback_query and chat_type in ("group", "supergroup"):
-            if update_or_context is None:
-                return await func(update, context, *args, **kwargs)
-            else:
-                return await func(self, update, context, *args, **kwargs)
 
         # دریافت database از context
         db = (
@@ -389,14 +382,13 @@ def require_channel_membership(func):
                 )
             return None
 
-        # قبل از گیت عضویت: در صورت فعال بودن onboarding، اطمینان از انتخاب زبان کاربر
-        if LANGUAGE_ONBOARDING:
+        # قبل از گیت عضویت: در صورت فعال بودن onboarding، اطمینان از انتخاب زبان کاربر (فقط در پی‌وی)
+        if LANGUAGE_ONBOARDING and chat_type not in ("group", "supergroup"):
             try:
                 ok = await ensure_language(update, context, db)
                 if not ok:
                     return None
             except Exception as e:
-                # در صورت بروز خطا در i18n، ادامه می‌دهیم تا جریان قطع نشود اما خطا را لاگ می‌کنیم
                 logger.error(f"Error during language onboarding: {e}")
 
         # ایجاد ChannelManager
@@ -407,21 +399,74 @@ def require_channel_membership(func):
             user_id, context.bot
         )
 
-        # اگر عضو همه کانال‌ها است، ادامه بده
+        # اگر عضو همه کانال‌ها است، کنترل مالکیت دکمه در گروه و ادامه کار
         if is_member:
+            # بررسی انزوای نشست (Button Ownership) در گروه‌ها برای جلوگیری از تداخل اعضا
+            if update.callback_query and chat_type in ("group", "supergroup"):
+                cb_data = update.callback_query.data or ""
+                public_prefixes = (
+                    "att_like_",
+                    "att_dislike_",
+                    "att_copy_",
+                    "ua_like_",
+                    "ua_report_",
+                    "check_membership",
+                )
+                if not cb_data.startswith(public_prefixes):
+                    reply_to = (
+                        update.callback_query.message.reply_to_message
+                        if update.callback_query.message
+                        else None
+                    )
+                    if reply_to and reply_to.from_user:
+                        owner_id = reply_to.from_user.id
+                        if owner_id != user_id:
+                            await update.callback_query.answer(
+                                "⚠️ این منو متعلق به کاربر دیگری است. برای استفاده، خودتان دستور /start را بفرستید.",
+                                show_alert=True,
+                            )
+                            return None
+
             if update_or_context is None:
                 return await func(update, context, *args, **kwargs)
             else:
                 return await func(self, update, context, *args, **kwargs)
 
         # ارسال پیام عضویت اجباری
-        # اگر از طریق پیام است (مثل /start)، پیام خوش‌آمدگویی نشان بده
-        is_first_time = update.message is not None
-        # زبان کاربر برای محلی‌سازی پیام‌ها
         try:
             lang = await get_user_lang(update, context, db) or DEFAULT_LANG
         except Exception:
             lang = DEFAULT_LANG
+
+        # در سوپرگروه/گروه: جلوگیری از خراب شدن پیام عمومی گروه با استفاده از پاپ‌آپ خصوصی (Alert)
+        if chat_type in ("group", "supergroup"):
+            channel_handles = [
+                f"@{ch['username']}"
+                for ch in not_joined
+                if ch.get("username")
+            ]
+            channels_str = "\n".join(f"📢 {h}" for h in channel_handles) if channel_handles else "کانال‌های اسپانسر"
+
+            if update.callback_query:
+                alert_text = (
+                    "⚠️ برای استفاده از ربات در گروه، ابتدا باید در کانال‌های زیر عضو شوید:\n\n"
+                    f"{channels_str}\n\n"
+                    "پس از عضویت، مجدداً دکمه را لمس کنید."
+                )
+                await update.callback_query.answer(alert_text[:200], show_alert=True)
+                return None
+            elif update.message:
+                user_mention = update.effective_user.mention_html()
+                group_msg = (
+                    f"⚠️ {user_mention} عزیز، برای استفاده از امکانات ربات در گروه، "
+                    "ابتدا باید در کانال‌های زیر عضو شوید:"
+                )
+                keyboard = channel_manager.create_join_keyboard(not_joined, lang=lang)
+                await update.message.reply_html(group_msg, reply_markup=keyboard)
+                return None
+
+        # در چت خصوصی (PV)
+        is_first_time = update.message is not None
         message = channel_manager.create_membership_message(
             not_joined, is_first_time=is_first_time, lang=lang
         )
@@ -459,7 +504,7 @@ async def _send_main_menu(query, context: ContextTypes.DEFAULT_TYPE, db, user_id
     """ارسال منوی اصلی به کاربر بعد از تایید عضویت
     این تابع کیبورد منو را می‌سازد و برای کاربر ارسال می‌کند
     """
-    from telegram import ReplyKeyboardMarkup
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
     from utils.subscribers_pg import SubscribersPostgres as Subscribers
 
     # ثبت کاربر برای نوتیفیکیشن
@@ -475,62 +520,72 @@ async def _send_main_menu(query, context: ContextTypes.DEFAULT_TYPE, db, user_id
     except Exception:
         lang = DEFAULT_LANG
 
-    # ساخت کیبورد منوی اصلی (محلی‌سازی شده)
-    keyboard = [[kb("menu.buttons.game_settings", lang), kb("menu.buttons.get", lang)]]
-
-    # بررسی فعال بودن سیستم اتچمنت کاربران
-    try:
-        ua_system_enabled = await db.settings.get_ua_setting("system_enabled") or "1"
-        logger.info(
-            f"[DEBUG channel_manager] UA system_enabled: {repr(ua_system_enabled)}"
-        )
-        if ua_system_enabled in ("1", "true", "True"):
-            keyboard.append(
-                [kb("menu.buttons.ua", lang), kb("menu.buttons.suggested", lang)]
-            )
-        else:
-            keyboard.append([kb("menu.buttons.suggested", lang)])
-    except Exception as e:
-        # در صورت خطا، UA رو نشون نده
-        logger.error(f"[ERROR] Exception in UA button check: {e}", exc_info=True)
-        keyboard.append([kb("menu.buttons.suggested", lang)])
-
-    keyboard.extend(
+    # ساخت کیبورد منوی اصلی اینلاین (۵ دکمه‌ای مدرن)
+    inline_keyboard = [
         [
-            [kb("menu.buttons.season_list", lang), kb("menu.buttons.season_top", lang)],
-            [kb("menu.buttons.notify", lang), kb("menu.buttons.search", lang)],
-            [kb("menu.buttons.contact", lang), kb("menu.buttons.help", lang)],
-        ]
-    )
+            InlineKeyboardButton(
+                t("menu.buttons.get", lang), callback_data="categories"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.meta_hub", lang), callback_data="nav_meta_hub"
+            ),
+            InlineKeyboardButton(
+                t("menu.buttons.ua", lang), callback_data="ua_menu"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu.buttons.search", lang), callback_data="search"
+            ),
+            InlineKeyboardButton(
+                t("menu.buttons.settings_hub", lang),
+                callback_data="nav_settings_hub",
+            ),
+        ],
+    ]
+    inline_markup = InlineKeyboardMarkup(inline_keyboard)
 
-    # دکمه تنظیمات ربات (کاربر)
-    keyboard.append([kb("menu.buttons.user_settings", lang)])
+    # ارسال پیام با کیبورد شیشه‌ای
+    welcome_text = t("welcome", lang, app_name=t("app.name", lang))
 
-    # اگر کاربر ادمین است، دکمه پنل ادمین را اضافه کن
+    # اگر کاربر ادمین است، کیبورد ریپلای پنل مدیریت را فعال کن
     try:
         if await db.users.is_admin(user_id):
-            keyboard.append([kb("menu.buttons.admin", lang)])
-    except Exception:
-        pass
+            admin_markup = ReplyKeyboardMarkup(
+                [[kb("menu.buttons.admin", lang)]],
+                resize_keyboard=True,
+                is_persistent=True,
+            )
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="👑",
+                reply_markup=admin_markup,
+            )
+    except Exception as e:
+        logger.debug(f"Admin check error in _send_main_menu: {e}")
 
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-    # حذف پیام قبلی (عضویت تایید شد) برای جلوگیری از loading stuck
+    # ویرایش پیام قبلی یا ارسال پیام جدید
     try:
-        await query.message.delete()
+        await query.message.edit_text(
+            text=welcome_text,
+            reply_markup=inline_markup,
+            parse_mode="Markdown",
+        )
     except Exception:
-        pass
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=welcome_text,
+            reply_markup=inline_markup,
+            parse_mode="Markdown",
+        )
 
-    # ارسال پیام خوش‌آمدگویی با منوی کیبورد
-    welcome_text = t("welcome", lang, app_name=t("app.name", lang))
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=welcome_text,
-        reply_markup=reply_markup,
-        parse_mode="Markdown",
-    )
-
-    logger.info(f"✅ Main menu sent to user {user_id} after membership verification")
+    logger.info(f"✅ Modern 5-button main menu sent to user {user_id} after membership verification")
 
 
 async def check_membership_callback(update, context: ContextTypes.DEFAULT_TYPE):

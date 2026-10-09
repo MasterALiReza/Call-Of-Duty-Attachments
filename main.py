@@ -237,6 +237,37 @@ class OX_LOADOUTAttachmentsBot:
         except Exception as e:
             logger.error(f"Failed to start alert system: {e}")
 
+        # Configure Telegram Bot Commands for Groups and Private chats
+        try:
+            from telegram import (
+                BotCommand,
+                BotCommandScopeAllGroupChats,
+                BotCommandScopeAllPrivateChats,
+                BotCommandScopeDefault,
+            )
+
+            group_commands = [
+                BotCommand("start", "🎮 منوی اتچمنت‌ها در گروه"),
+            ]
+            private_commands = [
+                BotCommand("start", "🏠 منوی اصلی"),
+                BotCommand("help", "ℹ️ راهنما"),
+                BotCommand("myid", "🆔 شناسه کاربری"),
+            ]
+
+            await application.bot.set_my_commands(
+                private_commands, scope=BotCommandScopeAllPrivateChats()
+            )
+            await application.bot.set_my_commands(
+                group_commands, scope=BotCommandScopeAllGroupChats()
+            )
+            await application.bot.set_my_commands(
+                private_commands, scope=BotCommandScopeDefault()
+            )
+            logger.info("✅ Telegram Bot Commands and Scopes configured successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to set Telegram bot commands: {e}")
+
     async def cleanup(self):
         """
         پاکسازی منابع و بستن کانکشن‌ها

@@ -224,20 +224,23 @@ class WeaponHandler(BaseUserHandler):
                 query, text, reply_markup=reply_markup, parse_mode="Markdown"
             )
 
-            # به‌روزرسانی کیبورد پایین
-            try:
-                last_key = context.user_data.get("kb_prompt_key")
-                current_key = f"{weapon_name}_{selected_mode}"
-                if last_key != current_key:
-                    await query.message.reply_text(
-                        t("success.generic", lang),
-                        reply_markup=self._weapon_reply_keyboard(
-                            top_count, all_count, lang
-                        ),
-                    )
-                    context.user_data["kb_prompt_key"] = current_key
-            except Exception as e:
-                logger.debug(f"خطا در ارسال guide prompt: {e}")
+            # به‌روزرسانی کیبورد پایین (فقط در چت خصوصی، هرگز در گروه‌ها ارسال نشود)
+            chat = update.effective_chat
+            chat_type = chat.type if chat else "private"
+            if chat_type not in ("group", "supergroup"):
+                try:
+                    last_key = context.user_data.get("kb_prompt_key")
+                    current_key = f"{weapon_name}_{selected_mode}"
+                    if last_key != current_key:
+                        await query.message.reply_text(
+                            t("success.generic", lang),
+                            reply_markup=self._weapon_reply_keyboard(
+                                top_count, all_count, lang
+                            ),
+                        )
+                        context.user_data["kb_prompt_key"] = current_key
+                except Exception as e:
+                    logger.debug(f"خطا در ارسال guide prompt: {e}")
 
             return
 
@@ -399,17 +402,20 @@ class WeaponHandler(BaseUserHandler):
             query, text, reply_markup=reply_markup, parse_mode="Markdown"
         )
 
-        # به‌روزرسانی کیبورد پایین
-        try:
-            last_key = context.user_data.get("kb_prompt_key")
-            current_key = f"{weapon_name}_{mode}"
-            if last_key != current_key:
-                await query.message.reply_text(
-                    t("weapon.keyboard_prompt", lang),
-                    reply_markup=self._weapon_reply_keyboard(
-                        top_count, all_count, lang
-                    ),
-                )
-                context.user_data["kb_prompt_key"] = current_key
-        except Exception as e:
-            logger.debug(f"خطا در ارسال guide prompt: {e}")
+        # به‌روزرسانی کیبورد پایین (فقط در چت خصوصی، هرگز در گروه‌ها ارسال نشود)
+        chat = update.effective_chat
+        chat_type = chat.type if chat else "private"
+        if chat_type not in ("group", "supergroup"):
+            try:
+                last_key = context.user_data.get("kb_prompt_key")
+                current_key = f"{weapon_name}_{mode}"
+                if last_key != current_key:
+                    await query.message.reply_text(
+                        t("weapon.keyboard_prompt", lang),
+                        reply_markup=self._weapon_reply_keyboard(
+                            top_count, all_count, lang
+                        ),
+                    )
+                    context.user_data["kb_prompt_key"] = current_key
+            except Exception as e:
+                logger.debug(f"خطا در ارسال guide prompt: {e}")

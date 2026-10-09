@@ -19,6 +19,30 @@ class AlertSystem:
         self.last_alerts = {}
         self.is_running = False
 
+    async def _sample_cpu(self, interval: float = 1.0) -> float:
+        """Measure CPU asynchronously in a worker thread to prevent blocking event loop."""
+        return await asyncio.to_thread(psutil.cpu_percent, interval)
+
+    async def _verify_sustained_high_cpu(self, initial_cpu: float) -> tuple[bool, list[float]]:
+        """
+        Verify if high CPU usage is sustained or just a transient 1-second burst/spike.
+        Returns (is_sustained, samples_list).
+        Takes additional samples over ~15 seconds. If CPU drops back to normal,
+        it's treated as a momentary spike and skipped without triggering false alerts.
+        """
+        samples = [initial_cpu]
+        for _ in range(2):
+            await asyncio.sleep(5)
+            if not self.is_running:
+                return False, samples
+            cpu_sample = await self._sample_cpu(interval=1.0)
+            samples.append(cpu_sample)
+
+        avg_cpu = sum(samples) / len(samples)
+        # Sustained only if average exceeds threshold and latest reading didn't drop below threshold
+        is_sustained = (avg_cpu >= self.thresholds["cpu_percent"]) and (samples[-1] >= (self.thresholds["cpu_percent"] - 5.0))
+        return is_sustained, samples
+
     async def check_and_alert(self):
         """Main monitoring loop."""
         self.is_running = True
@@ -26,17 +50,38 @@ class AlertSystem:
 
         while self.is_running:
             try:
-                # 1. CPU & Memory
-                cpu = psutil.cpu_percent(interval=1)
-                mem = psutil.Process().memory_info().rss / 1024 / 1024
+                # 1. CPU & Memory (Non-blocking sampling)
+                cpu = await self._sample_cpu(interval=1.0)
+                process = psutil.Process()
+                mem = process.memory_info().rss / 1024 / 1024
 
+                # High CPU Check: Filter out 1-second transient bursts
                 if cpu > self.thresholds["cpu_percent"]:
-                    await self._send_alert("HIGH_CPU", f"⚠️ High CPU Usage: {cpu}%")
+                    is_sustained, samples = await self._verify_sustained_high_cpu(cpu)
+                    if is_sustained:
+                        avg_cpu = sum(samples) / len(samples)
+                        max_cpu = max(samples)
+                        samples_str = ", ".join(f"{s:.1f}%" for s in samples)
+                        alert_msg = (
+                            f"⚠️ *Sustained High CPU Usage*\n"
+                            f"• Average: `{avg_cpu:.1f}%` (over 15s)\n"
+                            f"• Peak: `{max_cpu:.1f}%`\n"
+                            f"• Samples: `{samples_str}`"
+                        )
+                        await self._send_alert("HIGH_CPU", alert_msg)
+                    else:
+                        logger.debug(
+                            f"Transient CPU spike ({cpu}%) returned to normal {samples}. Alert suppressed."
+                        )
 
+                # High Memory Check: Verify if sustained
                 if mem > self.thresholds["memory_mb"]:
-                    await self._send_alert(
-                        "HIGH_MEM", f"⚠️ High Memory Usage: {mem:.1f} MB"
-                    )
+                    await asyncio.sleep(3)
+                    mem_verify = process.memory_info().rss / 1024 / 1024
+                    if mem_verify > self.thresholds["memory_mb"]:
+                        await self._send_alert(
+                            "HIGH_MEM", f"⚠️ High Memory Usage: {mem_verify:.1f} MB"
+                        )
 
                 # 2. Database Health
                 db_healthy = False

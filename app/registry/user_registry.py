@@ -123,6 +123,9 @@ class UserHandlerRegistry(BaseHandlerRegistry):
             CommandHandler("start", self.main_menu_handler.start)
         )
         self.application.add_handler(
+            CommandHandler("help", self.help_handler.help_command_msg)
+        )
+        self.application.add_handler(
             CommandHandler("myid", self.main_menu_handler.show_user_id)
         )
         self.application.add_handler(
@@ -133,38 +136,40 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         )
 
     def _register_message_handlers(self):
-        """ثبت message handlers"""
+        """ثبت message handlers (فقط در چت‌های خصوصی برای جلوگیری از تداخل در گروه‌ها)"""
+        p_filter = filters.ChatType.PRIVATE
+
         # هندلرهای پیام‌های متنی برای دکمه‌های کیبورد
         # دریافت اتچمنت - اول مود را می‌پرسد
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.get")),
+                filters.Regex(build_regex_for_key("menu.buttons.get")) & p_filter,
                 self.category_handler.show_mode_selection_msg,
             )
         )
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.help")),
+                filters.Regex(build_regex_for_key("menu.buttons.help")) & p_filter,
                 self.help_handler.help_command_msg,
             )
         )
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.game_settings")),
+                filters.Regex(build_regex_for_key("menu.buttons.game_settings")) & p_filter,
                 self.guides_handler.game_settings_menu,
             )
         )
         # تنظیمات ربات (کاربر)
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.user_settings")),
+                filters.Regex(build_regex_for_key("menu.buttons.user_settings")) & p_filter,
                 self.language_handler.open_user_settings,
             )
         )
         # محتوای CMS (پیام)
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.cms")),
+                filters.Regex(build_regex_for_key("menu.buttons.cms")) & p_filter,
                 self.cms_user_handler.cms_home_msg,
             )
         )
@@ -176,7 +181,7 @@ class UserHandlerRegistry(BaseHandlerRegistry):
 
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.ua")),
+                filters.Regex(build_regex_for_key("menu.buttons.ua")) & p_filter,
                 show_user_attachments_menu,
             )
         )
@@ -184,26 +189,26 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         # منوی راهنماها (Reply Keyboard) - برای backward compatibility
         self.application.add_handler(
             MessageHandler(
-                filters.Regex("^Basic$"), self.guides_handler.guide_basic_msg
+                filters.Regex("^Basic$") & p_filter, self.guides_handler.guide_basic_msg
             )
         )
         self.application.add_handler(
-            MessageHandler(filters.Regex("^Sens$"), self.guides_handler.guide_sens_msg)
+            MessageHandler(filters.Regex("^Sens$") & p_filter, self.guides_handler.guide_sens_msg)
         )
         self.application.add_handler(
-            MessageHandler(filters.Regex("^Hud$"), self.guides_handler.guide_hud_msg)
+            MessageHandler(filters.Regex("^Hud$") & p_filter, self.guides_handler.guide_hud_msg)
         )
 
         # منوی اصلی - برترهای فصل
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.season_top")),
+                filters.Regex(build_regex_for_key("menu.buttons.season_top")) & p_filter,
                 self.season_handler.season_top_media_msg,
             )
         )
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.season_list")),
+                filters.Regex(build_regex_for_key("menu.buttons.season_list")) & p_filter,
                 self.season_handler.season_top_list_msg,
             )
         )
@@ -211,25 +216,25 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         # کیبورد سطح سلاح
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("weapon.menu.top")),
+                filters.Regex(build_regex_for_key("weapon.menu.top")) & p_filter,
                 self.top_handler.show_top_attachments_msg,
             )
         )
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("weapon.menu.all")),
+                filters.Regex(build_regex_for_key("weapon.menu.all")) & p_filter,
                 self.all_handler.show_all_attachments_msg,
             )
         )
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.back")),
+                filters.Regex(build_regex_for_key("menu.buttons.back")) & p_filter,
                 self.main_menu_handler.back_msg,
             )
         )
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.leaderboard")),
+                filters.Regex(build_regex_for_key("menu.buttons.leaderboard")) & p_filter,
                 self.leaderboard_handler.show_leaderboard,
             )
         )
@@ -245,7 +250,7 @@ class UserHandlerRegistry(BaseHandlerRegistry):
                     self.search_handler.search_start, pattern="^search_weapon$"
                 ),
                 MessageHandler(
-                    filters.Regex(build_regex_for_key("menu.buttons.search")),
+                    filters.Regex(build_regex_for_key("menu.buttons.search")) & filters.ChatType.PRIVATE,
                     self.search_handler.search_start_msg,
                 ),
             ],
@@ -487,6 +492,24 @@ class UserHandlerRegistry(BaseHandlerRegistry):
                 self.main_menu_handler.main_menu, pattern="^main_menu$"
             )
         )
+        # زیرمنوهای مدرن منوی اصلی (Hubs)
+        self.application.add_handler(
+            CallbackQueryHandler(
+                self.main_menu_handler.nav_meta_hub, pattern="^nav_meta_hub$"
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                self.main_menu_handler.nav_settings_hub,
+                pattern="^nav_settings_hub$",
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                self.notification_handler.notification_settings,
+                pattern="^user_notif_menu$",
+            )
+        )
         # CMS (User)
         self.application.add_handler(
             CallbackQueryHandler(self.cms_user_handler.cms_home, pattern="^cms$")
@@ -635,7 +658,7 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         sugg_regex = build_regex_for_key("menu.buttons.suggested")
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(sugg_regex),
+                filters.Regex(sugg_regex) & filters.ChatType.PRIVATE,
                 self.suggested_handler.suggested_attachments_select_mode_msg,
             )
         )
@@ -653,7 +676,7 @@ class UserHandlerRegistry(BaseHandlerRegistry):
             states={
                 FEEDBACK_TEXT: [
                     MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
+                        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
                         self.feedback_handler.handle_feedback_text,
                     ),
                     CallbackQueryHandler(
@@ -696,7 +719,7 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         notif_regex = build_regex_for_key("menu.buttons.notify")
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(notif_regex),
+                filters.Regex(notif_regex) & filters.ChatType.PRIVATE,
                 self.notification_handler.notification_settings_with_check,
             ),
             group=10,
@@ -754,6 +777,7 @@ class UserHandlerRegistry(BaseHandlerRegistry):
             MessageHandler(
                 filters.TEXT
                 & ~filters.COMMAND
+                & filters.ChatType.PRIVATE
                 & ~filters.Regex(_MENU_EXCLUSION_PATTERN),
                 self.guides_handler.guide_dynamic_msg,
             ),

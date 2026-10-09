@@ -6,7 +6,7 @@ from core.context import CustomContext
 """
 
 import asyncio
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ConversationHandler
 from core.events import event_bus, EventTypes
 from managers.channel_manager import require_channel_membership
@@ -14,15 +14,97 @@ from handlers.user.base_user_handler import BaseUserHandler
 from utils.logger import get_logger
 from utils.language import get_user_lang
 from utils.i18n import t, kb
-from managers.cms_manager import CMSManager
 from managers.admin_notifier import AdminNotifier
 from utils.validation import parse_attachment_deep_link, parse_all_weapons_deep_link
+from utils.telegram_safety import safe_edit_message_text
 
 logger = get_logger("user", "user.log")
 
 
 class MainMenuHandler(BaseUserHandler):
-    """مدیریت منوی اصلی ربات"""
+    """مدیریت منوی اصلی ربات با طراحی اینلاین ۵ دکمه‌ای مدرن"""
+
+    async def build_main_inline_keyboard(
+        self, user_id: int, lang: str
+    ) -> InlineKeyboardMarkup:
+        """ساخت منوی اصلی شیشه‌ای ۵ دکمه‌ای مدرن و بهینه"""
+        keyboard = [
+            # ردیف ۱: دریافت اتچمنت و بیلدها (BR / MP)
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.get", lang), callback_data="categories"
+                )
+            ],
+            # ردیف ۲: برترهای فصل و متا + لوداوت‌های کاربران
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.meta_hub", lang), callback_data="nav_meta_hub"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.ua", lang), callback_data="ua_menu"
+                ),
+            ],
+            # ردیف ۳: جستجوی هوشمند سلاح + تنظیمات و پشتیبانی
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.search", lang), callback_data="search"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.settings_hub", lang),
+                    callback_data="nav_settings_hub",
+                ),
+            ],
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    async def build_group_inline_keyboard(
+        self, bot_username: str, lang: str
+    ) -> InlineKeyboardMarkup:
+        """ساخت منوی سبک، شیشه‌ای و بدون اسپم اختصاصی سوپرگروه‌ها"""
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.get", lang), callback_data="categories"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.search", lang), callback_data="search"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.season_top", lang), callback_data="season_top"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.suggested", lang),
+                    callback_data="suggested_attachments",
+                ),
+            ],
+        ]
+        if bot_username:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "💬 ورود به پی‌وی ربات (امکانات کامل) ↗️",
+                        url=f"https://t.me/{bot_username}?start=from_group",
+                    )
+                ]
+            )
+        return InlineKeyboardMarkup(keyboard)
+
+    async def build_admin_reply_keyboard(
+        self, user_id: int, lang: str
+    ) -> ReplyKeyboardMarkup | None:
+        """ساخت دکمه ریپلای کیبورد اختصاصی مدیریت برای ادمین‌ها در پایین چت"""
+        try:
+            if await self.db.users.is_admin(user_id):
+                return ReplyKeyboardMarkup(
+                    [[kb("menu.buttons.admin", lang)]],
+                    resize_keyboard=True,
+                    is_persistent=True,
+                )
+        except Exception as e:
+            logger.error(f"Error checking admin status for user {user_id}: {e}")
+        return None
 
     @require_channel_membership
     async def start(self, update: Update, context: CustomContext):
@@ -128,7 +210,7 @@ class MainMenuHandler(BaseUserHandler):
         admin_notifier = AdminNotifier(self.db)
         is_new_user = not await admin_notifier.is_existing_user(user_id)
 
-        # Track user info in database (NEW - for analytics)
+        # Track user info in database
         await self._track_user_info(update)
 
         # ثبت خودکار کاربر به عنوان مشترک برای دریافت نوتیفیکیشن‌ها
@@ -149,21 +231,165 @@ class MainMenuHandler(BaseUserHandler):
         )
 
         lang = await get_user_lang(update, context, self.db) or "fa"
-        reply_markup = await self._build_main_menu_keyboard(user_id, lang)
+
+        # تفکیک محیط سوپرگروه/گروه از پی‌وی (عدم ارسال Reply Keyboard در گروه)
+        chat_type = update.effective_chat.type if update.effective_chat else "private"
+        if chat_type in ("group", "supergroup"):
+            bot_username = context.bot.username or ""
+            if not bot_username:
+                try:
+                    me = await context.bot.get_me()
+                    bot_username = me.username or ""
+                except Exception:
+                    pass
+            group_markup = await self.build_group_inline_keyboard(bot_username, lang)
+            user_first = update.effective_user.first_name or "کاربر"
+            group_text = (
+                f"🎮 **{t('app.name', lang)}**\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"سلام [{user_first}](tg://user?id={user_id}) عزیز! خوش آمدید.\n"
+                "برای دریافت سریع اتچمنت‌ها یا جستجوی سلاح از گزینه‌های زیر استفاده کنید:"
+            )
+            if update.message:
+                await update.message.reply_text(
+                    group_text,
+                    reply_markup=group_markup,
+                    parse_mode="Markdown",
+                    reply_to_message_id=update.message.message_id,
+                )
+            return
+
+        inline_markup = await self.build_main_inline_keyboard(user_id, lang)
+        admin_markup = await self.build_admin_reply_keyboard(user_id, lang)
         welcome_text = t("welcome", lang, app_name=t("app.name", lang))
-        await update.message.reply_text(
-            welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
+
+        if update.message:
+            # ارسال کیبورد اختصاصی ادمین در پایین چت (در صورت ادمین بودن)
+            if admin_markup:
+                await update.message.reply_text(
+                    welcome_text,
+                    reply_markup=inline_markup,
+                    parse_mode="Markdown",
+                )
+                # ارسال ریپلای کیبورد پایینی برای ادمین
+                try:
+                    await update.message.reply_text(
+                        "👑", reply_markup=admin_markup
+                    )
+                except Exception:
+                    pass
+            else:
+                await update.message.reply_text(
+                    welcome_text,
+                    reply_markup=inline_markup,
+                    parse_mode="Markdown",
+                )
+
+    async def nav_meta_hub(self, update: Update, context: CustomContext):
+        """نمایش زیرمنوی برترهای فصل، متای بازی و پیشنهادی‌ها"""
+        query = update.callback_query
+        await query.answer()
+
+        lang = await get_user_lang(update, context, self.db) or "fa"
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.season_top", lang), callback_data="season_top"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.season_list", lang), callback_data="season_top_list"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.suggested", lang),
+                    callback_data="suggested_attachments",
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.leaderboard", lang), callback_data="leaderboard"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.back_to_main", lang), callback_data="main_menu"
+                )
+            ],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        text = t("menu.meta_hub.title", lang)
+        await safe_edit_message_text(
+            query, text, reply_markup=reply_markup, parse_mode="Markdown"
+        )
+
+    async def nav_settings_hub(self, update: Update, context: CustomContext):
+        """نمایش زیرمنوی تنظیمات، زبان، اعلان‌ها، پشتیبانی و راهنما"""
+        query = update.callback_query
+        await query.answer()
+
+        lang = await get_user_lang(update, context, self.db) or "fa"
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.game_settings", lang),
+                    callback_data="game_settings_menu",
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.notify", lang), callback_data="user_notif_menu"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    t("settings.user.language", lang),
+                    callback_data="user_settings_language",
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.contact", lang), callback_data="contact"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.help", lang), callback_data="help"
+                ),
+            ],
+        ]
+
+        # بررسی فعال بودن CMS
+        try:
+            cms_enabled = (
+                str(await self.db.settings.get_setting("cms_enabled", "false")).lower()
+                == "true"
+            )
+        except Exception:
+            cms_enabled = False
+
+        if cms_enabled:
+            keyboard[2].insert(
+                0,
+                InlineKeyboardButton(
+                    t("menu.buttons.cms", lang), callback_data="cms"
+                ),
+            )
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.back_to_main", lang), callback_data="main_menu"
+                )
+            ]
+        )
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        text = t("menu.settings_hub.title", lang)
+        await safe_edit_message_text(
+            query, text, reply_markup=reply_markup, parse_mode="Markdown"
         )
 
     async def _build_main_menu_keyboard(
         self, user_id: int, lang: str
     ) -> ReplyKeyboardMarkup:
-        """ساخت منوی اصلی یکپارچه و بهینه‌سازی‌شده برای تمامی کاربران"""
+        """ساخت منوی ریپلای قدیمی جهت پشتیبانی رو به عقب (Backwards Compatibility)"""
         keyboard = [
             [kb("menu.buttons.game_settings", lang), kb("menu.buttons.get", lang)]
         ]
-
-        # ردیف 2: اتچمنت‌های کاربران و پیشنهادی
         ua_system_enabled = (
             await self.db.settings.get_ua_setting("system_enabled") or "1"
         )
@@ -174,7 +400,6 @@ class MainMenuHandler(BaseUserHandler):
         else:
             keyboard.append([kb("menu.buttons.suggested", lang)])
 
-        # ردیف‌های 3 تا 5: برترها، اعلان‌ها، جستجو، راهنما و پشتیبانی
         keyboard.extend(
             [
                 [
@@ -185,35 +410,8 @@ class MainMenuHandler(BaseUserHandler):
                 [kb("menu.buttons.contact", lang), kb("menu.buttons.help", lang)],
             ]
         )
-
-        # ردیف CMS (مشروط)
-        try:
-            cms_enabled = (
-                str(await self.db.settings.get_setting("cms_enabled", "false")).lower()
-                == "true"
-            )
-        except Exception:
-            cms_enabled = False
-        if cms_enabled:
-            try:
-                cms_total = CMSManager(self.db).count_published_content(None)
-            except Exception:
-                cms_total = 0
-            if cms_total > 0:
-                keyboard.append([kb("menu.buttons.cms", lang)])
-
-        # ردیف تنظیمات کاربری و لیدربورد
-        keyboard.append(
-            [
-                kb("menu.buttons.leaderboard", lang),
-                kb("menu.buttons.user_settings", lang),
-            ]
-        )
-
-        # پنل مدیریت برای ادمین‌ها
         if await self.db.users.is_admin(user_id):
             keyboard.append([kb("menu.buttons.admin", lang)])
-
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     async def back_msg(self, update: Update, context: CustomContext):
@@ -221,26 +419,45 @@ class MainMenuHandler(BaseUserHandler):
         return await self.start(update, context)
 
     async def main_menu(self, update: Update, context: CustomContext):
-        """بازگشت به منوی اصلی (Inline) — کیبورد پایین را ری‌لود می‌کند"""
+        """بازگشت به منوی اصلی با ویرایش نرم پیام شیشه‌ای (بدون اسپم چت)"""
         query = update.callback_query
         await query.answer()
 
         user_id = update.effective_user.id
         lang = await get_user_lang(update, context, self.db) or "fa"
 
-        reply_markup = await self._build_main_menu_keyboard(user_id, lang)
-        welcome_text = t("welcome", lang, app_name=t("app.name", lang))
+        chat = update.effective_chat
+        chat_type = chat.type if chat else "private"
 
-        # حذف پیام inline قبلی (اگر ممکن بود)
+        if chat_type in ("group", "supergroup"):
+            bot_username = context.bot.username or ""
+            if not bot_username:
+                try:
+                    me = await context.bot.get_me()
+                    bot_username = me.username or ""
+                except Exception:
+                    pass
+            inline_markup = await self.build_group_inline_keyboard(bot_username, lang)
+            welcome_text = (
+                f"🎮 *{t('app.name', lang)}* | نسخه گروه\n\n"
+                "برای دریافت اتچمنت‌ها، جستجو یا تنظیمات از گزینه‌های زیر استفاده کنید:"
+            )
+        else:
+            inline_markup = await self.build_main_inline_keyboard(user_id, lang)
+            welcome_text = t("welcome", lang, app_name=t("app.name", lang))
+
         try:
-            await query.message.delete()
+            await safe_edit_message_text(
+                query, welcome_text, reply_markup=inline_markup, parse_mode="Markdown"
+            )
         except Exception:
-            pass
-
-        # ارسال پیام جدید با کیبورد reply در پایین چت
-        await query.message.chat.send_message(
-            welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
-        )
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await query.message.chat.send_message(
+                welcome_text, reply_markup=inline_markup, parse_mode="Markdown"
+            )
 
         return ConversationHandler.END
 

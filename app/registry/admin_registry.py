@@ -73,20 +73,25 @@ class AdminHandlerRegistry(BaseHandlerRegistry):
         # ساخت ConversationHandler - دقیقاً مثل main.py
         admin_conv = ConversationHandler(
             entry_points=[
-                CommandHandler("admin", self.admin_handlers.admin_start),
+                CommandHandler(
+                    "admin",
+                    self.admin_handlers.admin_start,
+                    filters=filters.ChatType.PRIVATE,
+                ),
                 MessageHandler(
-                    filters.Regex("^👨‍💼 پنل ادمین$"),
+                    filters.Regex(build_regex_for_key("menu.buttons.admin"))
+                    & filters.ChatType.PRIVATE,
                     self.admin_handlers.admin_start_msg,
                 ),
                 MessageHandler(
-                    filters.Regex("^.*Admin Panel$"),
+                    filters.Regex(build_regex_for_key("menu.buttons.admin_reply"))
+                    & filters.ChatType.PRIVATE,
                     self.admin_handlers.admin_start_msg,
                 ),
                 MessageHandler(
-                    filters.Regex("^پنل ادمین$"), self.admin_handlers.admin_start_msg
-                ),
-                MessageHandler(
-                    filters.Regex("^Admin Panel$"), self.admin_handlers.admin_start_msg
+                    filters.Regex("^(👑|👨‍💼)?\s*(پنل ادمین|پنل مدیریت|Admin Panel).*$")
+                    & filters.ChatType.PRIVATE,
+                    self.admin_handlers.admin_start_msg,
                 ),
                 CallbackQueryHandler(
                     self.admin_handlers.admin_menu_return, pattern="^admin_return$"

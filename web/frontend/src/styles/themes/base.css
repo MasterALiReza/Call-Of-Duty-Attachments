@@ -1,0 +1,103 @@
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * BASE DESIGN SYSTEM & BULLETPROOF UNIFIED TYPOGRAPHY (VAZIRMATN)
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+@import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
+
+*,
+*::before,
+*::after {
+  border-color: var(--border-main);
+  box-sizing: border-box;
+}
+
+/* Bulletproof Global Font & Persian Digits Feature */
+html,
+body,
+#root,
+*,
+*::before,
+*::after,
+input,
+button,
+select,
+textarea,
+h1, h2, h3, h4, h5, h6,
+p, span, div, a, label,
+table, thead, tbody, tr, th, td,
+ul, ol, li,
+code, pre {
+  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+  font-feature-settings: "cv02" 1, "cv03" 1, "cv04" 1, "cv11" 1, "ss01" 1 !important;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+html.light {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-main);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * GLASSMORPHISM UTILITY PRIMITIVES
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+.glass-panel {
+  background-color: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-main);
+  box-shadow: var(--shadow-card);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  background-color: var(--card-hover);
+  border-color: var(--border-highlight);
+  box-shadow: var(--shadow-card-elevated);
+}

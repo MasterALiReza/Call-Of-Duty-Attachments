@@ -81,3 +81,10 @@ archive/
 # Test outputs
 test_outputs/
 .agents/
+
+# Frontend & Web
+node_modules/
+*/node_modules/
+web/frontend/dist/
+web/frontend/.vite/
+

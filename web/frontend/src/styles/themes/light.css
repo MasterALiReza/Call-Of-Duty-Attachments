@@ -1,0 +1,78 @@
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * LIGHT THEME DESIGN TOKENS
+ * Palette: ColorHunt #f9f7f7dbe2ef3f72af112d4e
+ * 
+ * - Background Canvas: #F9F7F7 (249, 247, 247)
+ * - Card Surface & Subtle Borders: #DBE2EF (219, 226, 239)
+ * - Primary Action Brand Blue: #3F72AF (63, 114, 175)
+ * - Deep Midnight Navy (Text & Headings): #112D4E (17, 45, 78)
+ * - Warm Amber Accent & Warnings: #D97706 (217, 119, 6)
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+:root,
+[data-theme="light"] {
+  /* RGB Triplets for Tailwind opacity modifiers (e.g., bg-primary/20, bg-card-surface/50) */
+  --color-bg-main: 249 247 247;
+  --color-card-bg: 255 255 255;
+  --color-card-surface: 219 226 239;
+  --color-card-hover: 235 240 248;
+
+  --color-border-main: 219 226 239;
+  --color-border-subtle: 231 237 246;
+  --color-border-highlight: 63 114 175;
+
+  --color-primary: 63 114 175;
+  --color-primary-hover: 49 91 140;
+  --color-primary-active: 39 73 113;
+  --color-primary-text: 255 255 255;
+
+  --color-secondary: 17 45 78;
+  --color-secondary-hover: 26 62 107;
+  --color-secondary-text: 255 255 255;
+
+  --color-accent: 217 119 6;
+  --color-accent-hover: 180 83 9;
+  --color-accent-text: 255 255 255;
+
+  --color-text-main: 17 45 78;
+  --color-text-muted: 75 101 132;
+  --color-text-subtle: 121 142 156;
+
+  /* Standard CSS / Hex & RGBA references */
+  --bg-main: #F9F7F7;
+  --card-bg: #FFFFFF;
+  --card-surface: #DBE2EF;
+  --card-hover: #EBF0F8;
+
+  --border-main: #DBE2EF;
+  --border-subtle: #E7EDF6;
+  --border-highlight: #3F72AF;
+
+  --primary: #3F72AF;
+  --primary-hover: #315B8C;
+  --primary-active: #274971;
+  --primary-text: #FFFFFF;
+  --primary-glow: rgba(63, 114, 175, 0.35);
+
+  --secondary: #112D4E;
+  --secondary-hover: #1A3E6B;
+  --secondary-text: #FFFFFF;
+
+  --accent: #D97706;
+  --accent-hover: #B45309;
+  --accent-text: #FFFFFF;
+  --accent-glow: rgba(217, 119, 6, 0.25);
+
+  --text-main: #112D4E;
+  --text-muted: #4B6584;
+  --text-subtle: #798E9C;
+
+  /* Elevation & Glassmorphism */
+  --shadow-card: 0 4px 20px -2px rgba(17, 45, 78, 0.07);
+  --shadow-card-elevated: 0 10px 30px -4px rgba(17, 45, 78, 0.12);
+  --glass-bg: rgba(255, 255, 255, 0.92);
+  --glass-border: rgba(219, 226, 239, 0.85);
+  --glass-hover: rgba(240, 244, 250, 0.95);
+}

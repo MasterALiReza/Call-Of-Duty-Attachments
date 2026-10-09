@@ -1,0 +1,79 @@
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * DARK THEME DESIGN TOKENS
+ * Palette: ColorHunt #fdeb9e7ae2cf077a7d06202b (Balanced & Refined Dark Aesthetic)
+ * 
+ * - Abyssal Deep Canvas: #061822 (6, 24, 34)
+ * - Deep Slate Surfaces: #0A222E (10, 34, 46) / #0E2C3B (14, 44, 59)
+ * - Refined Deep Slate Border: #1A4356 (26, 67, 86)
+ * - Neon Mint Turquoise Action: #7AE2CF (122, 226, 207)
+ * - Sky Blue Secondary & Badges: #38BDF8 (56, 189, 248)
+ * - Warm Pastel Gold Accent: #FDEB9E (253, 235, 158)
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+.dark,
+[data-theme="dark"] {
+  /* RGB Triplets for Tailwind opacity modifiers (e.g., bg-primary/20, bg-card-surface/50) */
+  --color-bg-main: 6 24 34;
+  --color-card-bg: 10 34 46;
+  --color-card-surface: 14 44 59;
+  --color-card-hover: 20 56 75;
+
+  --color-border-main: 26 67 86;
+  --color-border-subtle: 20 50 65;
+  --color-border-highlight: 122 226 207;
+
+  --color-primary: 122 226 207;
+  --color-primary-hover: 98 200 181;
+  --color-primary-active: 78 179 160;
+  --color-primary-text: 6 24 34;
+
+  --color-secondary: 56 189 248;
+  --color-secondary-hover: 14 165 233;
+  --color-secondary-text: 6 24 34;
+
+  --color-accent: 253 235 158;
+  --color-accent-hover: 248 223 125;
+  --color-accent-text: 6 24 34;
+
+  --color-text-main: 241 245 249;
+  --color-text-muted: 148 168 184;
+  --color-text-subtle: 96 123 142;
+
+  /* Standard CSS / Hex & RGBA references */
+  --bg-main: #061822;
+  --card-bg: #0A222E;
+  --card-surface: #0E2C3B;
+  --card-hover: #14384B;
+
+  --border-main: #1A4356;
+  --border-subtle: rgba(26, 67, 86, 0.45);
+  --border-highlight: #7AE2CF;
+
+  --primary: #7AE2CF;
+  --primary-hover: #62C8B5;
+  --primary-active: #4EB3A0;
+  --primary-text: #061822;
+  --primary-glow: rgba(122, 226, 207, 0.3);
+
+  --secondary: #38BDF8;
+  --secondary-hover: #0EA5E9;
+  --secondary-text: #061822;
+
+  --accent: #FDEB9E;
+  --accent-hover: #F8DF7D;
+  --accent-text: #061822;
+  --accent-glow: rgba(253, 235, 158, 0.3);
+
+  --text-main: #F1F5F9;
+  --text-muted: #94A8B8;
+  --text-subtle: #607B8E;
+
+  /* Elevation & Glassmorphism */
+  --shadow-card: 0 4px 24px -2px rgba(0, 0, 0, 0.5);
+  --shadow-card-elevated: 0 10px 30px -4px rgba(0, 0, 0, 0.65);
+  --glass-bg: rgba(10, 34, 46, 0.85);
+  --glass-border: rgba(26, 67, 86, 0.65);
+  --glass-hover: rgba(14, 44, 59, 0.92);
+}
