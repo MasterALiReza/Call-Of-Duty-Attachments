@@ -97,6 +97,9 @@ RATE_LIMIT_MESSAGES_PER_MINUTE = 20
 RATE_LIMIT_SEARCHES_PER_MINUTE = 10
 RATE_LIMIT_FEEDBACK_PER_HOUR = 50
 
+# Group Action Rate Limits (inbound - per group)
+GROUP_SEASON_TOP_COOLDOWN_SECONDS = 300  # Default 5 minutes between season top requests in groups
+
 # Retry Configuration
 BROADCAST_MAX_RETRIES = 3
 

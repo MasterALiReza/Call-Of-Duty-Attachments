@@ -397,3 +397,141 @@ class SimpleRateLimiter:
         oldest_request = user_requests[0]
         remaining = win - (current_time - oldest_request)
         return max(0, remaining)
+
+
+class GroupActionRateLimiter:
+    """
+    Thread-safe group rate limiter for shared group operations.
+    Prevents chat spam when multiple users concurrently or repeatedly trigger
+    heavy/media commands (such as Season Top attachments) in group chats.
+    """
+
+    def __init__(
+        self,
+        cooldown_seconds: float = 300.0,
+        admin_cooldown_seconds: float = 5.0,
+        enabled: bool = True,
+    ):
+        self.cooldown = float(cooldown_seconds)
+        self.admin_cooldown = float(admin_cooldown_seconds)
+        self.enabled = bool(enabled)
+        self._history: Dict[int, float] = {}
+        self._locks: Dict[int, asyncio.Lock] = {}
+        self._global_lock = asyncio.Lock()
+        self._initialized: bool = False
+
+    def set_cooldown(self, seconds: float) -> None:
+        """Dynamically update cooldown duration."""
+        self.cooldown = max(1.0, float(seconds))
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Dynamically toggle rate limiter on or off."""
+        self.enabled = bool(enabled)
+
+    async def ensure_initialized(self, db) -> None:
+        """Ensure settings are synced from DB at least once."""
+        if not self._initialized:
+            async with self._global_lock:
+                if not self._initialized:
+                    await self.load_settings_from_db(db)
+                    self._initialized = True
+
+    async def load_settings_from_db(self, db) -> None:
+        """Load group rate limit settings from database."""
+        if db is None or not hasattr(db, "settings"):
+            return
+        try:
+            val = await db.settings.get_setting("group_season_top_cooldown")
+            if val is not None:
+                try:
+                    self.cooldown = max(1.0, float(val))
+                except (ValueError, TypeError):
+                    pass
+            en = await db.settings.get_setting("group_season_top_rl_enabled")
+            if en is not None:
+                self.enabled = str(en).strip().lower() in ("1", "true", "yes")
+        except Exception as e:
+            logger.warning(f"Could not load group rate limit settings: {e}")
+
+    async def _get_lock(self, chat_id: int) -> asyncio.Lock:
+        if chat_id not in self._locks:
+            async with self._global_lock:
+                if chat_id not in self._locks:
+                    self._locks[chat_id] = asyncio.Lock()
+        return self._locks[chat_id]
+
+    def _get_effective_cooldown(self, is_admin: bool = False) -> float:
+        return self.admin_cooldown if is_admin else self.cooldown
+
+    async def check_and_update(
+        self, chat_id: int, is_admin: bool = False
+    ) -> tuple[bool, int]:
+        """
+        Check if an action is allowed for the given chat.
+        If allowed, records the action timestamp and returns (True, 0).
+        If rate limited, returns (False, remaining_seconds).
+        """
+        if not self.enabled:
+            return True, 0
+
+        import math
+
+        lock = await self._get_lock(chat_id)
+        async with lock:
+            now = time.time()
+            effective_cooldown = self._get_effective_cooldown(is_admin)
+            last_time = self._history.get(chat_id, 0.0)
+
+            elapsed = now - last_time
+            if elapsed < effective_cooldown:
+                remaining = int(math.ceil(effective_cooldown - elapsed))
+                return False, max(1, remaining)
+
+            self._history[chat_id] = now
+            return True, 0
+
+    async def get_remaining_async(
+        self, chat_id: int, is_admin: bool = False
+    ) -> int:
+        """Get remaining cooldown in seconds without consuming it."""
+        if not self.enabled:
+            return 0
+        lock = await self._get_lock(chat_id)
+        async with lock:
+            return self.get_remaining(chat_id, is_admin)
+
+    def get_remaining(self, chat_id: int, is_admin: bool = False) -> int:
+        """Sync check for remaining cooldown without consuming."""
+        if not self.enabled:
+            return 0
+        import math
+
+        now = time.time()
+        effective_cooldown = self._get_effective_cooldown(is_admin)
+        last_time = self._history.get(chat_id, 0.0)
+        elapsed = now - last_time
+        if elapsed < effective_cooldown:
+            return max(1, int(math.ceil(effective_cooldown - elapsed)))
+        return 0
+
+    def reset(self, chat_id: Optional[int] = None) -> None:
+        """Reset cooldown for a specific chat or all chats (useful for testing/admins)."""
+        if chat_id is not None:
+            self._history.pop(chat_id, None)
+        else:
+            self._history.clear()
+
+
+# Default singleton instance for Season Top in groups
+try:
+    from config.constants import GROUP_SEASON_TOP_COOLDOWN_SECONDS
+
+    _default_season_top_cooldown = float(GROUP_SEASON_TOP_COOLDOWN_SECONDS)
+except Exception:
+    _default_season_top_cooldown = 300.0
+
+group_season_top_limiter = GroupActionRateLimiter(
+    cooldown_seconds=_default_season_top_cooldown,
+    admin_cooldown_seconds=5.0,
+    enabled=True,
+)

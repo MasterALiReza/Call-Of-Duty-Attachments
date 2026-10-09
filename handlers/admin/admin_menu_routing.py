@@ -78,6 +78,18 @@ async def route_data_management_actions(
     return await _dispatch_action(action, update, context, routes)
 
 
+async def route_attachment_actions(
+    action: str,
+    update: Update,
+    context: CustomContext,
+    routes: AdminActionMap,
+) -> AdminRouteResult:
+    """Route attachment callbacks."""
+    if not _matches_action(action, routes):
+        return None
+    return await _dispatch_action(action, update, context, routes)
+
+
 async def route_support_actions(
     action: str,
     update: Update,
@@ -184,6 +196,22 @@ def build_admin_menu_exact_routes(handler: Any) -> AdminActionMap:
         "role_stats": handler.role_stats,
         "um_noop": handler._admin_menu_noop,
         "admin_exit": handler._admin_menu_exit,
+        "admin_season_rate_limit": handler.season_rate_limit_menu,
+        "toggle_season_rl": handler.toggle_season_rate_limit,
+        "set_season_rl_60": handler.set_season_rate_limit_seconds,
+        "set_season_rl_120": handler.set_season_rate_limit_seconds,
+        "set_season_rl_300": handler.set_season_rate_limit_seconds,
+        "set_season_rl_600": handler.set_season_rate_limit_seconds,
+        "set_season_rl_900": handler.set_season_rate_limit_seconds,
+        "set_season_rl_1800": handler.set_season_rate_limit_seconds,
+    }
+
+
+def build_attachment_action_routes(handler: Any) -> AdminActionMap:
+    return {
+        "admin_season_rate_limit": handler.season_rate_limit_menu,
+        "toggle_season_rl": handler.toggle_season_rate_limit,
+        "set_season_rl_*": handler.set_season_rate_limit_seconds,
     }
 
 

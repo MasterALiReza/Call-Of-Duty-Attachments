@@ -13,12 +13,22 @@ from utils.i18n import t
 from utils.telegram_safety import safe_edit_message_text
 from utils.ui_formatter import to_persian_digits, format_divider, format_mode_badge
 from handlers.user.base_user_handler import BaseUserHandler
+from core.security.rate_limiter import group_season_top_limiter
 from typing import Tuple
 import math
 
 
 class SeasonTopHandler(BaseUserHandler):
     """مدیریت برترهای فصل"""
+
+    async def _check_user_is_admin(self, user_id: int) -> bool:
+        """بررسی اینکه کاربر ادمین است یا خیر"""
+        try:
+            if hasattr(self.db, "users") and hasattr(self.db.users, "is_admin"):
+                return bool(await self.db.users.is_admin(user_id))
+        except Exception:
+            pass
+        return False
 
     @require_channel_membership
     @log_user_action("season_top_select_mode_msg")
@@ -27,6 +37,21 @@ class SeasonTopHandler(BaseUserHandler):
         from datetime import datetime
 
         lang = await get_user_lang(update, context, self.db) or "fa"
+        chat = update.effective_chat
+        is_group = chat and chat.type in ("group", "supergroup")
+        if is_group:
+            user_id = update.effective_user.id
+            is_admin = await self._check_user_is_admin(user_id)
+            await group_season_top_limiter.ensure_initialized(self.db)
+            remaining = await group_season_top_limiter.get_remaining_async(
+                chat.id, is_admin=is_admin
+            )
+            if remaining > 0:
+                await update.message.reply_text(
+                    t("season.group_rate_limit", lang, seconds=remaining)
+                )
+                return
+
         keyboard = [
             [
                 InlineKeyboardButton(
@@ -58,8 +83,24 @@ class SeasonTopHandler(BaseUserHandler):
     async def season_top_select_mode(self, update: Update, context: CustomContext):
         """انتخاب mode برای برترهای فصل (از طریق inline)"""
         query = update.callback_query
-        await query.answer()
         lang = await get_user_lang(update, context, self.db) or "fa"
+        chat = update.effective_chat
+        is_group = chat and chat.type in ("group", "supergroup")
+        if is_group:
+            user_id = update.effective_user.id
+            is_admin = await self._check_user_is_admin(user_id)
+            await group_season_top_limiter.ensure_initialized(self.db)
+            remaining = await group_season_top_limiter.get_remaining_async(
+                chat.id, is_admin=is_admin
+            )
+            if remaining > 0:
+                await query.answer(
+                    t("season.group_rate_limit", lang, seconds=remaining),
+                    show_alert=True,
+                )
+                return
+
+        await query.answer()
         keyboard = [
             [
                 InlineKeyboardButton(
@@ -85,7 +126,7 @@ class SeasonTopHandler(BaseUserHandler):
     @require_channel_membership
     @log_user_action("season_top_media_msg")
     async def season_top_media_msg(self, update: Update, context: CustomContext):
-        """ارسال اتچمنت\u200cهای برتر فصل به صورت گالری (از طریق پیام)
+        """ارسال اتچمنت‌های برتر فصل به صورت گالری (از طریق پیام)
         این تابع قدیمی برای backward compatibility - اکنون از season_top_select_mode_msg استفاده کنید
         """
         return await self.season_top_select_mode_msg(update, context)
@@ -93,12 +134,28 @@ class SeasonTopHandler(BaseUserHandler):
     @require_channel_membership
     @log_user_action("season_top_media_with_mode")
     async def season_top_media_with_mode(self, update: Update, context: CustomContext):
-        """ارسال اتچمنت\u200cهای برتر فصل با mode مشخص شده (از طریق پیام)"""
+        """ارسال اتچمنت‌های برتر فصل با mode مشخص شده (از طریق پیام)"""
         query = update.callback_query
+        lang = await get_user_lang(update, context, self.db) or "fa"
+        chat = update.effective_chat
+        is_group = chat and chat.type in ("group", "supergroup")
+        if is_group:
+            user_id = update.effective_user.id
+            is_admin = await self._check_user_is_admin(user_id)
+            await group_season_top_limiter.ensure_initialized(self.db)
+            allowed, remaining = await group_season_top_limiter.check_and_update(
+                chat.id, is_admin=is_admin
+            )
+            if not allowed:
+                await query.answer(
+                    t("season.group_rate_limit", lang, seconds=remaining),
+                    show_alert=True,
+                )
+                return
+
         await query.answer()
         mode = query.data.replace("season_top_mode_", "")
         context.user_data["season_top_mode"] = mode
-        lang = await get_user_lang(update, context, self.db) or "fa"
         items = await self.db.attachments.get_season_top_attachments(mode=mode)
         mode_name = f"{t('mode.label', lang)}: {t(f'mode.{mode}_short', lang)}"
         if not items:

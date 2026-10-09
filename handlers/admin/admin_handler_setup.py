@@ -6,6 +6,7 @@ from handlers.admin.admin_menu_routing import (
     build_admin_management_action_routes,
     build_admin_menu_exact_routes,
     build_analytics_action_routes,
+    build_attachment_action_routes,
     build_content_action_routes,
     build_data_management_action_routes,
     build_feedback_action_routes,
@@ -15,6 +16,7 @@ from handlers.admin.admin_menu_routing import (
     build_user_management_action_routes,
     route_admin_management_actions,
     route_analytics_actions,
+    route_attachment_actions,
     route_content_actions,
     route_data_management_actions,
     route_feedback_actions,
@@ -67,7 +69,13 @@ def init_attachment_handlers(handler) -> None:
     handler.feedback_admin = FeedbackAdminHandler(handler.db)
 
     handler._bind_handler_methods(
-        handler.attachment_mgmt_handler, ("attachment_management_menu",)
+        handler.attachment_mgmt_handler,
+        (
+            "attachment_management_menu",
+            "season_rate_limit_menu",
+            "toggle_season_rate_limit",
+            "set_season_rate_limit_seconds",
+        ),
     )
     handler._bind_handler_methods(
         handler.add_attachment_handler,
@@ -463,9 +471,13 @@ def init_action_routes(handler) -> None:
     handler._user_management_action_routes = build_user_management_action_routes(
         handler
     )
+    handler._attachment_action_routes = build_attachment_action_routes(
+        handler.attachment_mgmt_handler
+    )
     handler._admin_menu_route_groups = (
         (route_notification_actions, handler._notification_action_routes),
         (route_data_management_actions, handler._data_management_action_routes),
+        (route_attachment_actions, handler._attachment_action_routes),
         (route_support_actions, handler._support_action_routes),
         (route_content_actions, handler._content_action_routes),
         (route_analytics_actions, handler._analytics_action_routes),
