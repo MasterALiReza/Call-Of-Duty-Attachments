@@ -29,34 +29,37 @@ class MainMenuHandler(BaseUserHandler):
     ) -> InlineKeyboardMarkup:
         """ساخت منوی اصلی شیشه‌ای ۵ دکمه‌ای مدرن و بهینه"""
         keyboard = [
-            # ردیف ۱: دریافت اتچمنت + تنظیمات کالاف (HUD/Sens)
-            [
-                InlineKeyboardButton(
-                    t("menu.buttons.get", lang), callback_data="categories"
-                ),
-                InlineKeyboardButton(
-                    t("menu.buttons.game_settings", lang),
-                    callback_data="game_settings_menu",
-                ),
-            ],
-            # ردیف ۲: برترهای فصل و متا + لوداوت‌های کاربران
+            # ردیف ۱: برترهای فصل و متا (چپ) + دریافت اتچمنت (راست)
             [
                 InlineKeyboardButton(
                     t("menu.buttons.meta_hub", lang), callback_data="nav_meta_hub"
                 ),
                 InlineKeyboardButton(
-                    t("menu.buttons.ua", lang), callback_data="ua_menu"
+                    t("menu.buttons.get", lang), callback_data="categories"
                 ),
             ],
-            # ردیف ۳: جستجوی سلاح + تنظیمات و پشتیبانی
+            # ردیف ۲: تنظیمات کالاف HUD/Sens (تمام‌عرض)
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.game_settings", lang),
+                    callback_data="game_settings_menu",
+                )
+            ],
+            # ردیف ۳: جستجوی سلاح (چپ) + لوداوت‌های کاربران (راست)
             [
                 InlineKeyboardButton(
                     t("menu.buttons.search", lang), callback_data="search"
                 ),
                 InlineKeyboardButton(
+                    t("menu.buttons.ua", lang), callback_data="ua_menu"
+                ),
+            ],
+            # ردیف ۴: پشتیبانی و تنظیمات (تمام‌عرض)
+            [
+                InlineKeyboardButton(
                     t("menu.buttons.settings_hub", lang),
                     callback_data="nav_settings_hub",
-                ),
+                )
             ],
         ]
         return InlineKeyboardMarkup(keyboard)
