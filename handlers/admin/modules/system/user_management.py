@@ -540,12 +540,29 @@ class UserManagementHandler(BaseAdminHandler):
             ]
         )
 
-        await safe_edit_message_text(
-            query,
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
-        )
+        try:
+            await safe_edit_message_text(
+                query,
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to safe_edit_message_text in user_detail: {e}, attempting fallback"
+            )
+            try:
+                await safe_edit_message_text(
+                    query,
+                    text.replace("*", "").replace("`", ""),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                )
+            except Exception:
+                if query.message:
+                    await query.message.reply_text(
+                        text.replace("*", "").replace("`", ""),
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                    )
         return USER_MGMT_DETAIL
 
     # ========== بن کاربر ==========

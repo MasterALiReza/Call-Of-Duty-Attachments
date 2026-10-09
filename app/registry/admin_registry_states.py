@@ -14,6 +14,14 @@ EXIT_SILENT_KEYS = [
     "menu.buttons.help",
 ]
 
+# Comprehensive callback pattern for admin menu routing and conversation entry points
+ADMIN_CALLBACK_PATTERN = (
+    r"^(admin_|adm_|gmode_|gsel_|gop_|cmm_|wmm_|wmcat_|wmwpn_|wmact_|wmconf_|text_edit_|cat_clear_|nav_back|"
+    r"fb_|manage_|add_|edit_|view_|role_|_admin|editadm_|addrole_|delrole_|newrole_|selrole_|delconfirm_|aconf_|"
+    r"dconf_|remove_|um_|notif_|sched_|tmpl_|notify_|nconf_|cms_|attachment_analytics|data_health|analytics_.*|"
+    r"health_.*|restore_backup|toggle_auto_backup|set_ab_interval_|fix_issues_menu)"
+)
+
 
 def get_admin_conversation_states(admin_handlers):
     """
@@ -132,7 +140,7 @@ def get_admin_conversation_states(admin_handlers):
             # Fallback menu proxy — گسترش رگکس برای پوشش کالبک‌های مدیریتی
             CallbackQueryHandler(
                 admin_handlers.admin_menu,
-                pattern="^(admin_|adm_|gmode_|gsel_|gop_|cmm_|wmm_|wmcat_|wmwpn_|wmact_|wmconf_|text_edit_|cat_clear_|nav_back|fb_|manage_|add_|edit_|view_|role_|_admin|editadm_|addrole_|delrole_|newrole_|selrole_|delconfirm_|aconf_|dconf_|remove_|um_|notif_|sched_|tmpl_|notify_|nconf_|attachment_analytics|data_health|analytics_.*|health_.*|restore_backup|toggle_auto_backup|set_ab_interval_|fix_issues_menu)",
+                pattern=ADMIN_CALLBACK_PATTERN,
             ),
         ],
         # ========== Attachment Management Flow ==========

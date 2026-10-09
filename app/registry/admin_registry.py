@@ -66,7 +66,10 @@ class AdminHandlerRegistry(BaseHandlerRegistry):
         ⚠️ هیچ تغییری در logic نداده است
         """
         # Import states helper
-        from .admin_registry_states import get_admin_conversation_states
+        from .admin_registry_states import (
+            ADMIN_CALLBACK_PATTERN,
+            get_admin_conversation_states,
+        )
 
         # Import admin states
 
@@ -89,7 +92,7 @@ class AdminHandlerRegistry(BaseHandlerRegistry):
                     self.admin_handlers.admin_start_msg,
                 ),
                 MessageHandler(
-                    filters.Regex("^(👑|👨‍💼)?\s*(پنل ادمین|پنل مدیریت|Admin Panel).*$")
+                    filters.Regex(r"^(👑|👨‍💼)?\s*(پنل ادمین|پنل مدیریت|Admin Panel).*$")
                     & filters.ChatType.PRIVATE,
                     self.admin_handlers.admin_start_msg,
                 ),
@@ -98,7 +101,7 @@ class AdminHandlerRegistry(BaseHandlerRegistry):
                 ),
                 CallbackQueryHandler(
                     self.admin_handlers.admin_menu,
-                    pattern="^(admin_|adm_|gmode_|gsel_|gop_|cmm_|wmm_|wmcat_|wmwpn_|wmact_|wmconf_|text_edit_|cat_clear_|nav_back|fb_|manage_|add_|view_|role_|notif_|sched_|tmpl_|add_admin|remove_admin|edit_admin)",
+                    pattern=ADMIN_CALLBACK_PATTERN,
                 ),
             ],
             states=get_admin_conversation_states(self.admin_handlers),
@@ -129,7 +132,11 @@ class AdminHandlerRegistry(BaseHandlerRegistry):
                 CallbackQueryHandler(
                     self.admin_handlers.admin_menu_return, pattern="^admin_menu_return$"
                 ),
+                CallbackQueryHandler(
+                    self.admin_handlers.admin_menu, pattern="^um_detail_\\d+$"
+                ),
             ],
+            allow_reentry=True,
             per_message=False,
             per_chat=True,
             per_user=True,

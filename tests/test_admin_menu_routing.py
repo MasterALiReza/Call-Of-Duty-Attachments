@@ -339,3 +339,68 @@ async def test_route_content_actions_handles_weapon_action_prefix() -> None:
 
     assert result == "weapon-action"
     weapon_handler.weapon_action_selected.assert_awaited_once()
+
+
+async def test_route_user_management_actions_handles_user_detail() -> None:
+    handler = SimpleNamespace(
+        user_mgmt_menu=AsyncMock(),
+        user_list=AsyncMock(),
+        user_search_start=AsyncMock(),
+        user_filter_banned=AsyncMock(),
+        user_detail=AsyncMock(return_value="user-detail-view"),
+        user_ban_start=AsyncMock(),
+        user_unban=AsyncMock(),
+    )
+    routes = admin_menu_routing.build_user_management_action_routes(handler)
+
+    result = await admin_menu_routing.route_user_management_actions(
+        "um_detail_7146968133",
+        SimpleNamespace(),
+        SimpleNamespace(),
+        routes,
+    )
+
+    assert result == "user-detail-view"
+    handler.user_detail.assert_awaited_once()
+
+
+def test_admin_callback_pattern_matches_user_management_and_alerts() -> None:
+    import re
+    from app.registry.admin_registry_states import ADMIN_CALLBACK_PATTERN
+
+    pattern = re.compile(ADMIN_CALLBACK_PATTERN)
+    # Ensure deep links from admin notifications and user management are matched
+    assert pattern.match("um_detail_7146968133")
+    assert pattern.match("um_list")
+    assert pattern.match("um_page_2")
+    assert pattern.match("um_ban_123")
+    assert pattern.match("um_unban_123")
+    assert pattern.match("admin_users")
+    assert pattern.match("cms_list")
+    assert pattern.match("analytics_view_trending")
+    assert pattern.match("health_view_full_report")
+    assert pattern.match("data_health")
+
+
+def test_admin_conversation_handler_has_allow_reentry_and_um_entry_point() -> None:
+    import re
+    from unittest.mock import MagicMock
+    from telegram.ext import CallbackQueryHandler, ConversationHandler
+    from app.registry.admin_registry import AdminHandlerRegistry
+
+    mock_app = MagicMock()
+    mock_db = MagicMock()
+    registry = AdminHandlerRegistry(mock_app, mock_db)
+    registry.admin_handlers = MagicMock()
+    registry._register_admin_conversation()
+
+    mock_app.add_handler.assert_called_once()
+    conv = mock_app.add_handler.call_args[0][0]
+    assert isinstance(conv, ConversationHandler)
+    assert conv.allow_reentry is True
+
+    # Check that entry_points has a CallbackQueryHandler with ADMIN_CALLBACK_PATTERN matching um_detail
+    cb_handlers = [h for h in conv.entry_points if isinstance(h, CallbackQueryHandler)]
+    matching = [h for h in cb_handlers if h.pattern and re.match(h.pattern, "um_detail_7146968133")]
+    assert len(matching) >= 1
+
