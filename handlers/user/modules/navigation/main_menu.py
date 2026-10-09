@@ -113,8 +113,8 @@ class MainMenuHandler(BaseUserHandler):
         if context.args and len(context.args) > 0:
             context.user_data["start_param"] = context.args[0]
 
-        # Deep-link actions
-        param = context.user_data.get("start_param")
+        # Deep-link actions (فقط یک‌بار مصرف تا در دستورات بعدی /start تکرار نشود)
+        param = context.user_data.pop("start_param", None)
         if param and update.message:
             # /start att-{id}-{mode}
             if param.startswith("att-"):
@@ -427,6 +427,20 @@ class MainMenuHandler(BaseUserHandler):
 
     async def back_msg(self, update: Update, context: CustomContext):
         """بازگشت به منوی اصلی از طریق پیام"""
+        chat = update.effective_chat
+        chat_type = chat.type if chat else "private"
+        if chat_type in ("group", "supergroup") and update.message:
+            from telegram import ReplyKeyboardRemove
+
+            try:
+                # حذف کیبورد ریپلای از پایین صفحه چت گروه
+                await update.message.reply_text(
+                    "🔄",
+                    reply_markup=ReplyKeyboardRemove(selective=True),
+                    reply_to_message_id=update.message.message_id,
+                )
+            except Exception:
+                pass
         return await self.start(update, context)
 
     async def main_menu(self, update: Update, context: CustomContext):

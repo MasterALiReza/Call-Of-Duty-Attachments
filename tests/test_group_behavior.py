@@ -16,6 +16,7 @@ def mock_db():
     db.channels.get_all = AsyncMock(return_value=[])
     db.cms.get_required_channels = AsyncMock(return_value=[])
     db.users.get_language = AsyncMock(return_value="fa")
+    db.users.get_user_language = AsyncMock(return_value="fa")
     return db
 
 
@@ -103,6 +104,7 @@ async def test_weapon_handler_suppresses_reply_keyboard_in_groups(mock_db):
     query.data = "wpn_AK-47"
     query.answer = AsyncMock()
     query.message = MagicMock()
+    query.message.reply_to_message = None
     query.message.reply_text = AsyncMock()
     query.message.edit_text = AsyncMock()
 
@@ -280,3 +282,91 @@ async def test_group_channel_gate_shows_alert(mock_db):
     assert kwargs.get("show_alert") is True
     assert "@test_channel" in args[0]
     dummy_func.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_button_ownership_traverses_bot_reply_chain(mock_db):
+    chat = Chat(id=-1001234567890, type="supergroup")
+    user_alice = User(id=111, is_bot=False, first_name="Alice")
+    bot_user = User(id=99999, is_bot=True, first_name="Bot")
+
+    # Alice's original /start message
+    user_message = MagicMock(spec=Message)
+    user_message.from_user = user_alice
+    user_message.sender_chat = None
+    user_message.reply_to_message = None
+
+    # M1: Bot text message replying to Alice
+    bot_m1 = MagicMock(spec=Message)
+    bot_m1.from_user = bot_user
+    bot_m1.reply_to_message = user_message
+
+    # M2: Bot photo message replying to M1
+    bot_m2 = MagicMock(spec=Message)
+    bot_m2.from_user = bot_user
+    bot_m2.reply_to_message = bot_m1
+
+    # Alice clicks back on M2
+    query = MagicMock(spec=CallbackQuery)
+    query.data = "all_AR__AK47"
+    query.message = bot_m2
+    query.answer = AsyncMock()
+
+    update = MagicMock(spec=Update)
+    update.effective_chat = chat
+    update.effective_user = user_alice
+    update.callback_query = query
+
+    context = MagicMock()
+    context.bot.id = 99999
+    context.bot_data = {"database": mock_db}
+    context.bot.get_chat_member = AsyncMock()
+
+    dummy_func = AsyncMock()
+    decorated = require_channel_membership(dummy_func)
+
+    await decorated(update, context)
+
+    # Alice should be allowed since she is the root owner
+    dummy_func.assert_called_once_with(update, context)
+
+
+@pytest.mark.asyncio
+async def test_group_back_message_removes_sticky_reply_keyboard(mock_db):
+    from handlers.user.modules.navigation.main_menu import MainMenuHandler
+    from telegram import ReplyKeyboardRemove
+
+    handler = MainMenuHandler(mock_db)
+
+    chat = Chat(id=-1001234567890, type="supergroup")
+    user = User(id=111, is_bot=False, first_name="Alice")
+
+    message = MagicMock(spec=Message)
+    message.message_id = 555
+    message.chat = chat
+    message.from_user = user
+    message.sender_chat = None
+    message.reply_text = AsyncMock()
+    message.reply_html = AsyncMock()
+
+    update = MagicMock(spec=Update)
+    update.effective_chat = chat
+    update.effective_user = user
+    update.message = message
+
+    context = MagicMock()
+    context.args = []
+    context.user_data = {}
+    context.bot.username = "test_bot"
+    context.bot_data = {"database": mock_db}
+
+    await handler.back_msg(update, context)
+
+    # In groups, back_msg must remove the reply keyboard selectively and then start()
+    message.reply_text.assert_called_once()
+    args, kwargs = message.reply_text.call_args
+    assert isinstance(kwargs.get("reply_markup"), ReplyKeyboardRemove)
+    assert kwargs.get("reply_to_message_id") == 555
+    # And start was called which replied with HTML
+    message.reply_html.assert_called_once()
+

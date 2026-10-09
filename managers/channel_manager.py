@@ -429,9 +429,21 @@ def require_channel_membership(func):
                         if update.callback_query.message
                         else None
                     )
-                    if reply_to:
+                    curr = reply_to
+                    # اگر پیام ریپلای ربات است، زنجیره ریپلای‌ها را به عقب دنبال می‌کنیم تا به پیام اولیه کاربر یا کانال برسیم
+                    depth = 0
+                    while (
+                        curr
+                        and getattr(curr, "reply_to_message", None) is not None
+                        and getattr(getattr(curr, "from_user", None), "is_bot", None) is True
+                        and depth < 10
+                    ):
+                        curr = curr.reply_to_message
+                        depth += 1
+
+                    if curr:
                         owner_id = (
-                            reply_to.from_user.id if reply_to.from_user else None
+                            curr.from_user.id if curr.from_user else None
                         )
 
                         # ۱. بررسی ادمین ربات (ادمین‌های ربات همیشه مجازند)
@@ -445,7 +457,7 @@ def require_channel_membership(func):
                         # ۲. بررسی اینکه آیا پیام توسط کانال یا ادمین ناشناس ارسال شده
                         is_channel_or_anon = (
                             owner_id in (1087968824, 136817688, 777000)
-                            or getattr(reply_to, "sender_chat", None) is not None
+                            or getattr(curr, "sender_chat", None) is not None
                         )
 
                         # ۳. اگر پیام توسط کانال/ناشناس فرستاده شده، ادمین‌های گروه مجازند
@@ -466,9 +478,15 @@ def require_channel_membership(func):
                                     f"Error checking group admin status: {e}"
                                 )
 
+                        # اگر پیام ریشه هنوز متعلق به ربات است یا مشخص نیست، مسدود نکنیم
+                        is_bot_origin = (
+                            curr.from_user and curr.from_user.id == context.bot.id
+                        )
+
                         # اگر کاربر مالک نیست و ادمین هم نیست، دسترسی مسدود می‌شود
                         if (
-                            owner_id != user_id
+                            not is_bot_origin
+                            and owner_id != user_id
                             and not is_bot_admin
                             and not is_group_admin
                         ):

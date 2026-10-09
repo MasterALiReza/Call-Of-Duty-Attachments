@@ -228,7 +228,7 @@ class UserHandlerRegistry(BaseHandlerRegistry):
         )
         self.application.add_handler(
             MessageHandler(
-                filters.Regex(build_regex_for_key("menu.buttons.back")) & p_filter,
+                filters.Regex(build_regex_for_key("menu.buttons.back")),
                 self.main_menu_handler.back_msg,
             )
         )
