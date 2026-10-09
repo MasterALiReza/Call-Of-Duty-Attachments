@@ -29,7 +29,8 @@ async def test_group_start_does_not_send_reply_keyboard(mock_db):
     message.message_id = 99
     message.chat = chat
     message.from_user = user
-    message.reply_text = AsyncMock()
+    message.sender_chat = None
+    message.reply_html = AsyncMock()
 
     update = MagicMock(spec=Update)
     update.effective_chat = chat
@@ -46,13 +47,49 @@ async def test_group_start_does_not_send_reply_keyboard(mock_db):
     await handler.start(update, context)
 
     # Verify message was replied to with reply_to_message_id
-    message.reply_text.assert_called_once()
-    _, kwargs = message.reply_text.call_args
+    message.reply_html.assert_called_once()
+    _, kwargs = message.reply_html.call_args
     assert kwargs.get("reply_to_message_id") == 99
     # Ensure reply_markup is InlineKeyboardMarkup, NOT ReplyKeyboardMarkup
     from telegram import InlineKeyboardMarkup, ReplyKeyboardMarkup
     assert isinstance(kwargs.get("reply_markup"), InlineKeyboardMarkup)
     assert not isinstance(kwargs.get("reply_markup"), ReplyKeyboardMarkup)
+
+
+@pytest.mark.asyncio
+async def test_group_start_with_channel_sender(mock_db):
+    handler = MainMenuHandler(mock_db)
+
+    chat = Chat(id=-1001234567890, type="supergroup")
+    channel_chat = Chat(id=-100987654321, type="channel", title="Wexort Channel")
+    user = User(id=136817688, is_bot=False, first_name="Channel_Bot")
+
+    message = MagicMock(spec=Message)
+    message.message_id = 101
+    message.chat = chat
+    message.from_user = user
+    message.sender_chat = channel_chat
+    message.reply_html = AsyncMock()
+
+    update = MagicMock(spec=Update)
+    update.effective_chat = chat
+    update.effective_user = user
+    update.message = message
+
+    context = MagicMock()
+    context.args = []
+    context.user_data = {}
+    context.bot.username = "test_bot"
+    context.bot_data = {"database": mock_db}
+
+    # Calling start directly
+    await handler.start(update, context)
+
+    # Should safely reply without Markdown parse error
+    message.reply_html.assert_called_once()
+    args, kwargs = message.reply_html.call_args
+    assert "Wexort Channel" in args[0]
+    assert kwargs.get("reply_to_message_id") == 101
 
 
 @pytest.mark.asyncio
@@ -95,6 +132,7 @@ async def test_button_ownership_isolation_in_groups(mock_db):
 
     original_message = MagicMock(spec=Message)
     original_message.from_user = user_alice
+    original_message.sender_chat = None
 
     bot_message = MagicMock(spec=Message)
     bot_message.reply_to_message = original_message
@@ -133,6 +171,7 @@ async def test_button_ownership_allows_owner(mock_db):
 
     original_message = MagicMock(spec=Message)
     original_message.from_user = user_alice
+    original_message.sender_chat = None
 
     bot_message = MagicMock(spec=Message)
     bot_message.reply_to_message = original_message
@@ -161,9 +200,51 @@ async def test_button_ownership_allows_owner(mock_db):
 
 
 @pytest.mark.asyncio
-async def test_group_channel_gate_shows_alert(mock_db):
+async def test_button_ownership_allows_bot_admin(mock_db):
     chat = Chat(id=-1001234567890, type="supergroup")
-    user = User(id=999, is_bot=False, first_name="NonMember")
+    user_alice = User(id=111, is_bot=False, first_name="Alice")
+    admin_user = User(id=999, is_bot=False, first_name="Admin")
+
+    # DB confirms user 999 is bot admin
+    mock_db.users.is_admin = AsyncMock(return_value=True)
+
+    original_message = MagicMock(spec=Message)
+    original_message.from_user = user_alice
+    original_message.sender_chat = None
+
+    bot_message = MagicMock(spec=Message)
+    bot_message.reply_to_message = original_message
+
+    query = MagicMock(spec=CallbackQuery)
+    query.data = "categories"
+    query.message = bot_message
+    query.answer = AsyncMock()
+
+    update = MagicMock(spec=Update)
+    update.effective_chat = chat
+    update.effective_user = admin_user  # Admin clicks Alice's menu
+    update.callback_query = query
+
+    context = MagicMock()
+    context.bot_data = {"database": mock_db}
+    context.bot.get_chat_member = AsyncMock()
+
+    dummy_func = AsyncMock()
+    decorated = require_channel_membership(dummy_func)
+
+    await decorated(update, context)
+
+    # Bot admin is allowed to proceed
+    dummy_func.assert_called_once_with(update, context)
+
+
+@pytest.mark.asyncio
+async def test_group_channel_gate_shows_alert(mock_db):
+    from managers.channel_manager import invalidate_user_cache
+    invalidate_user_cache(88888)
+
+    chat = Chat(id=-1001234567890, type="supergroup")
+    user = User(id=88888, is_bot=False, first_name="NonMember")
 
     query = MagicMock(spec=CallbackQuery)
     query.data = "categories"
@@ -174,6 +255,7 @@ async def test_group_channel_gate_shows_alert(mock_db):
     update.effective_chat = chat
     update.effective_user = user
     update.callback_query = query
+    update.message = None
 
     # Database returns a required channel
     mock_db.cms.get_required_channels = AsyncMock(

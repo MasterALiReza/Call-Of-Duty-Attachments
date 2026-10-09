@@ -243,18 +243,29 @@ class MainMenuHandler(BaseUserHandler):
                 except Exception:
                     pass
             group_markup = await self.build_group_inline_keyboard(bot_username, lang)
-            user_first = update.effective_user.first_name or "کاربر"
+
+            import html as py_html
+
+            if update.message and getattr(update.message, "sender_chat", None):
+                sender_name = py_html.escape(
+                    update.message.sender_chat.title or "کانال"
+                )
+                user_mention = f"<b>{sender_name}</b>"
+            elif update.effective_user:
+                user_mention = update.effective_user.mention_html()
+            else:
+                user_mention = "<b>کاربر</b>"
+
             group_text = (
-                f"🎮 **{t('app.name', lang)}**\n"
+                f"🎮 <b>{t('app.name', lang)}</b>\n"
                 f"━━━━━━━━━━━━━━\n"
-                f"سلام [{user_first}](tg://user?id={user_id}) عزیز! خوش آمدید.\n"
+                f"سلام {user_mention} عزیز! خوش آمدید.\n"
                 "برای دریافت سریع اتچمنت‌ها یا جستجوی سلاح از گزینه‌های زیر استفاده کنید:"
             )
             if update.message:
-                await update.message.reply_text(
+                await update.message.reply_html(
                     group_text,
                     reply_markup=group_markup,
-                    parse_mode="Markdown",
                     reply_to_message_id=update.message.message_id,
                 )
             return

@@ -393,10 +393,22 @@ def require_channel_membership(func):
         # ایجاد ChannelManager
         channel_manager = ChannelManager(db)
 
-        # بررسی عضویت
-        is_member, not_joined = await channel_manager.check_user_membership(
-            user_id, context.bot
-        )
+        # اکانت‌های سیستمی تلگرام (کانال و ادمین ناشناس) در ارسال دستورات متنی از چک عضویت اجباری مستثنی هستند
+        is_system_sender = False
+        if update.message is not None and not getattr(update, "callback_query", None):
+            if (
+                user_id in (1087968824, 136817688, 777000)
+                or getattr(update.message, "sender_chat", None) is not None
+            ):
+                is_system_sender = True
+
+        if is_system_sender:
+            is_member = True
+            not_joined = []
+        else:
+            is_member, not_joined = await channel_manager.check_user_membership(
+                user_id, context.bot
+            )
 
         # اگر عضو همه کانال‌ها است، کنترل مالکیت دکمه در گروه و ادامه کار
         if is_member:
@@ -417,9 +429,49 @@ def require_channel_membership(func):
                         if update.callback_query.message
                         else None
                     )
-                    if reply_to and reply_to.from_user:
-                        owner_id = reply_to.from_user.id
-                        if owner_id != user_id:
+                    if reply_to:
+                        owner_id = (
+                            reply_to.from_user.id if reply_to.from_user else None
+                        )
+
+                        # ۱. بررسی ادمین ربات (ادمین‌های ربات همیشه مجازند)
+                        is_bot_admin = False
+                        try:
+                            if db and hasattr(db, "users"):
+                                is_bot_admin = await db.users.is_admin(user_id)
+                        except Exception:
+                            pass
+
+                        # ۲. بررسی اینکه آیا پیام توسط کانال یا ادمین ناشناس ارسال شده
+                        is_channel_or_anon = (
+                            owner_id in (1087968824, 136817688, 777000)
+                            or getattr(reply_to, "sender_chat", None) is not None
+                        )
+
+                        # ۳. اگر پیام توسط کانال/ناشناس فرستاده شده، ادمین‌های گروه مجازند
+                        is_group_admin = False
+                        if is_channel_or_anon:
+                            try:
+                                chat_id = update.effective_chat.id
+                                member = await context.bot.get_chat_member(
+                                    chat_id, user_id
+                                )
+                                if member and member.status in (
+                                    "creator",
+                                    "administrator",
+                                ):
+                                    is_group_admin = True
+                            except Exception as e:
+                                logger.debug(
+                                    f"Error checking group admin status: {e}"
+                                )
+
+                        # اگر کاربر مالک نیست و ادمین هم نیست، دسترسی مسدود می‌شود
+                        if (
+                            owner_id != user_id
+                            and not is_bot_admin
+                            and not is_group_admin
+                        ):
                             await update.callback_query.answer(
                                 "⚠️ این منو متعلق به کاربر دیگری است. برای استفاده، خودتان دستور /start را بفرستید.",
                                 show_alert=True,
@@ -519,35 +571,79 @@ async def _send_main_menu(query, context: ContextTypes.DEFAULT_TYPE, db, user_id
     except Exception:
         lang = DEFAULT_LANG
 
-    # ساخت کیبورد منوی اصلی اینلاین (۵ دکمه‌ای مدرن)
-    inline_keyboard = [
-        [
-            InlineKeyboardButton(
-                t("menu.buttons.get", lang), callback_data="categories"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                t("menu.buttons.meta_hub", lang), callback_data="nav_meta_hub"
-            ),
-            InlineKeyboardButton(
-                t("menu.buttons.ua", lang), callback_data="ua_menu"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                t("menu.buttons.search", lang), callback_data="search"
-            ),
-            InlineKeyboardButton(
-                t("menu.buttons.settings_hub", lang),
-                callback_data="nav_settings_hub",
-            ),
-        ],
-    ]
-    inline_markup = InlineKeyboardMarkup(inline_keyboard)
+    # بررسی نوع چت
+    chat = query.message.chat if query and query.message else None
+    chat_type = chat.type if chat else "private"
 
-    # ارسال پیام با کیبورد شیشه‌ای
-    welcome_text = t("welcome", lang, app_name=t("app.name", lang))
+    if chat_type in ("group", "supergroup"):
+        bot_username = context.bot.username or ""
+        if not bot_username:
+            try:
+                me = await context.bot.get_me()
+                bot_username = me.username or ""
+            except Exception:
+                pass
+        group_keyboard = [
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.get", lang), callback_data="categories"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.search", lang), callback_data="search"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.season_top", lang), callback_data="season_top"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.suggested", lang),
+                    callback_data="suggested_attachments",
+                ),
+            ],
+        ]
+        if bot_username:
+            group_keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "💬 ورود به پی‌وی ربات (امکانات کامل) ↗️",
+                        url=f"https://t.me/{bot_username}?start=from_group",
+                    )
+                ]
+            )
+        inline_markup = InlineKeyboardMarkup(group_keyboard)
+        welcome_text = (
+            f"🎮 *{t('app.name', lang)}* | نسخه گروه\n\n"
+            "عضویت شما با موفقیت تایید شد! برای دریافت اتچمنت‌ها از گزینه‌های زیر استفاده کنید:"
+        )
+    else:
+        # ساخت کیبورد منوی اصلی اینلاین (۵ دکمه‌ای مدرن) در پی‌وی
+        inline_keyboard = [
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.get", lang), callback_data="categories"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.meta_hub", lang), callback_data="nav_meta_hub"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.ua", lang), callback_data="ua_menu"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.search", lang), callback_data="search"
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.settings_hub", lang),
+                    callback_data="nav_settings_hub",
+                ),
+            ],
+        ]
+        inline_markup = InlineKeyboardMarkup(inline_keyboard)
+        welcome_text = t("welcome", lang, app_name=t("app.name", lang))
 
     # اگر کاربر ادمین است، کیبورد ریپلای پنل مدیریت را فعال کن
     try:
