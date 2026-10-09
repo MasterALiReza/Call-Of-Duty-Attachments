@@ -1280,4 +1280,14 @@ def test_locales_menu_buttons_start_with_emoji() -> None:
             assert v.strip() != ""
 
 
+def test_weapon_categories_in_persian_locale_are_english() -> None:
+    from utils.i18n import t
 
+    assert t("category.assault_rifle", "fa") == "Assault Rifle"
+    assert t("category.smg", "fa") == "SMG"
+    assert t("category.lmg", "fa") == "LMG"
+    assert t("category.sniper", "fa") == "Sniper"
+    assert t("category.marksman", "fa") == "Marksman"
+    assert t("category.shotgun", "fa") == "Shotgun"
+    assert t("category.pistol", "fa") == "Pistol"
+    assert t("category.launcher", "fa") == "Launcher"
