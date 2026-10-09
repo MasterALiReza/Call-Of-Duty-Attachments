@@ -14,6 +14,7 @@ def mock_db():
     db.settings.get_ua_setting = AsyncMock(return_value="1")
     db.channels.get_active_channels = AsyncMock(return_value=[])
     db.channels.get_all = AsyncMock(return_value=[])
+    db.cms.get_required_channels = AsyncMock(return_value=[])
     db.users.get_language = AsyncMock(return_value="fa")
     return db
 
@@ -21,7 +22,7 @@ def mock_db():
 @pytest.mark.asyncio
 async def test_group_start_does_not_send_reply_keyboard(mock_db):
     handler = MainMenuHandler(mock_db)
-    
+
     chat = Chat(id=-1001234567890, type="supergroup")
     user = User(id=111, is_bot=False, first_name="TestUser")
     message = MagicMock(spec=Message)
@@ -60,12 +61,13 @@ async def test_weapon_handler_suppresses_reply_keyboard_in_groups(mock_db):
 
     chat = Chat(id=-1001234567890, type="supergroup")
     user = User(id=111, is_bot=False, first_name="TestUser")
-    
+
     query = MagicMock(spec=CallbackQuery)
-    query.data = "weapon_AK-47_br"
+    query.data = "wpn_AK-47"
     query.answer = AsyncMock()
     query.message = MagicMock()
     query.message.reply_text = AsyncMock()
+    query.message.edit_text = AsyncMock()
 
     update = MagicMock(spec=Update)
     update.effective_chat = chat
@@ -73,14 +75,13 @@ async def test_weapon_handler_suppresses_reply_keyboard_in_groups(mock_db):
     update.callback_query = query
 
     context = MagicMock()
-    context.user_data = {}
+    context.user_data = {"selected_mode": "br", "current_category": "AR"}
     context.bot_data = {"database": mock_db}
 
-    mock_db.categories.get_weapon_by_name = AsyncMock(return_value={"id": 1, "name": "AK-47", "category": "Assault Rifle"})
     mock_db.attachments.get_weapon_attachments = AsyncMock(return_value=[])
 
-    # Calling select_weapon_mode_and_show
-    await handler.select_weapon_mode_and_show(update, context)
+    # Calling show_weapon_menu
+    await handler.show_weapon_menu(update, context)
 
     # In a group chat, reply_text with weapon reply keyboard must NOT be called
     query.message.reply_text.assert_not_called()
@@ -122,4 +123,78 @@ async def test_button_ownership_isolation_in_groups(mock_db):
     args, kwargs = query.answer.call_args
     assert kwargs.get("show_alert") is True
     assert "متعلق به کاربر دیگری است" in args[0]
+    dummy_func.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_button_ownership_allows_owner(mock_db):
+    chat = Chat(id=-1001234567890, type="supergroup")
+    user_alice = User(id=111, is_bot=False, first_name="Alice")
+
+    original_message = MagicMock(spec=Message)
+    original_message.from_user = user_alice
+
+    bot_message = MagicMock(spec=Message)
+    bot_message.reply_to_message = original_message
+
+    query = MagicMock(spec=CallbackQuery)
+    query.data = "categories"
+    query.message = bot_message
+    query.answer = AsyncMock()
+
+    update = MagicMock(spec=Update)
+    update.effective_chat = chat
+    update.effective_user = user_alice  # Alice clicks her own menu
+    update.callback_query = query
+
+    context = MagicMock()
+    context.bot_data = {"database": mock_db}
+    context.bot.get_chat_member = AsyncMock()
+
+    dummy_func = AsyncMock()
+    decorated = require_channel_membership(dummy_func)
+
+    await decorated(update, context)
+
+    # Alice is allowed to proceed
+    dummy_func.assert_called_once_with(update, context)
+
+
+@pytest.mark.asyncio
+async def test_group_channel_gate_shows_alert(mock_db):
+    chat = Chat(id=-1001234567890, type="supergroup")
+    user = User(id=999, is_bot=False, first_name="NonMember")
+
+    query = MagicMock(spec=CallbackQuery)
+    query.data = "categories"
+    query.message = MagicMock()
+    query.answer = AsyncMock()
+
+    update = MagicMock(spec=Update)
+    update.effective_chat = chat
+    update.effective_user = user
+    update.callback_query = query
+
+    # Database returns a required channel
+    mock_db.cms.get_required_channels = AsyncMock(
+        return_value=[{"channel_id": "-1001", "username": "test_channel"}]
+    )
+
+    context = MagicMock()
+    context.bot_data = {"database": mock_db}
+    # get_chat_member returns left status
+    member_mock = MagicMock()
+    member_mock.status = "left"
+    context.bot.get_chat_member = AsyncMock(return_value=member_mock)
+
+    dummy_func = AsyncMock()
+    decorated = require_channel_membership(dummy_func)
+
+    await decorated(update, context)
+
+    # In groups, non-members get a modal alert without polluting the chat
+    query.answer.assert_called_once()
+    args, kwargs = query.answer.call_args
+    assert kwargs.get("show_alert") is True
+    assert "@test_channel" in args[0]
     dummy_func.assert_not_called()

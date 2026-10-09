@@ -333,22 +333,21 @@ def require_channel_membership(func):
         self_or_update, update_or_context=None, context=None, *args, **kwargs
     ):
         # بررسی اینکه آیا این یک method است یا function
-        if update_or_context is None:
-            # این یک function است (نه method)
+        if hasattr(self_or_update, "effective_user"):
+            # این یک function است (update, context)
+            self = None
             update = self_or_update
-            context = context if context else args[0] if args else None
+            context = update_or_context
         else:
-            # این یک method است
+            # این یک method است (self, update, context)
             self = self_or_update
             update = update_or_context
-            if context is None:
-                context = args[0] if args else None
 
         # بررسی وجود user_id
-        if update.effective_user:
+        if update and update.effective_user:
             user_id = update.effective_user.id
         else:
-            if update_or_context is None:
+            if self is None:
                 return await func(update, context, *args, **kwargs)
             else:
                 return await func(self, update, context, *args, **kwargs)
@@ -358,12 +357,12 @@ def require_channel_membership(func):
         except Exception:
             chat_type = None
 
-        # دریافت database از context
-        db = (
-            context.bot_data.get("database")
-            if context and hasattr(context, "bot_data")
-            else None
-        )
+        # دریافت database از context یا self
+        db = None
+        if context and hasattr(context, "bot_data"):
+            db = context.bot_data.get("database")
+        if not db and self and hasattr(self, "db"):
+            db = self.db
         if not db:
             logger.error("Database not found in bot_data")
             # در صورت نبود دیتابیس، به‌جای باز گذاشتن گیت، پیام خطا نمایش داده می‌شود
@@ -427,7 +426,7 @@ def require_channel_membership(func):
                             )
                             return None
 
-            if update_or_context is None:
+            if self is None:
                 return await func(update, context, *args, **kwargs)
             else:
                 return await func(self, update, context, *args, **kwargs)
