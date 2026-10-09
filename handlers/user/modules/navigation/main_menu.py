@@ -67,24 +67,39 @@ class MainMenuHandler(BaseUserHandler):
     async def build_group_inline_keyboard(
         self, bot_username: str, lang: str
     ) -> InlineKeyboardMarkup:
-        """ساخت منوی سبک، شیشه‌ای و بدون اسپم اختصاصی سوپرگروه‌ها"""
+        """ساخت منوی گروه با ساختار و چیدمان یکسان با منوی اصلی به همراه دکمه ورود به پی‌وی"""
         keyboard = [
+            # ردیف ۱: برترهای فصل و متا (چپ) + دریافت اتچمنت (راست)
             [
+                InlineKeyboardButton(
+                    t("menu.buttons.meta_hub", lang), callback_data="nav_meta_hub"
+                ),
                 InlineKeyboardButton(
                     t("menu.buttons.get", lang), callback_data="categories"
                 ),
+            ],
+            # ردیف ۲: تنظیمات کالاف HUD/Sens (تمام‌عرض)
+            [
+                InlineKeyboardButton(
+                    t("menu.buttons.game_settings", lang),
+                    callback_data="game_settings_menu",
+                )
+            ],
+            # ردیف ۳: جستجوی سلاح (چپ) + لوداوت‌های کاربران (راست)
+            [
                 InlineKeyboardButton(
                     t("menu.buttons.search", lang), callback_data="search"
                 ),
+                InlineKeyboardButton(
+                    t("menu.buttons.ua", lang), callback_data="ua_menu"
+                ),
             ],
+            # ردیف ۴: پشتیبانی و تنظیمات (تمام‌عرض)
             [
                 InlineKeyboardButton(
-                    t("menu.buttons.season_top", lang), callback_data="season_top"
-                ),
-                InlineKeyboardButton(
-                    t("menu.buttons.suggested", lang),
-                    callback_data="suggested_attachments",
-                ),
+                    t("menu.buttons.settings_hub", lang),
+                    callback_data="nav_settings_hub",
+                )
             ],
         ]
         if bot_username:
