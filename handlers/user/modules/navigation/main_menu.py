@@ -29,11 +29,15 @@ class MainMenuHandler(BaseUserHandler):
     ) -> InlineKeyboardMarkup:
         """ساخت منوی اصلی شیشه‌ای ۵ دکمه‌ای مدرن و بهینه"""
         keyboard = [
-            # ردیف ۱: دریافت اتچمنت و بیلدها (BR / MP)
+            # ردیف ۱: دریافت اتچمنت + تنظیمات کالاف (HUD/Sens)
             [
                 InlineKeyboardButton(
                     t("menu.buttons.get", lang), callback_data="categories"
-                )
+                ),
+                InlineKeyboardButton(
+                    t("menu.buttons.game_settings", lang),
+                    callback_data="game_settings_menu",
+                ),
             ],
             # ردیف ۲: برترهای فصل و متا + لوداوت‌های کاربران
             [
@@ -44,7 +48,7 @@ class MainMenuHandler(BaseUserHandler):
                     t("menu.buttons.ua", lang), callback_data="ua_menu"
                 ),
             ],
-            # ردیف ۳: جستجوی هوشمند سلاح + تنظیمات و پشتیبانی
+            # ردیف ۳: جستجوی سلاح + تنظیمات و پشتیبانی
             [
                 InlineKeyboardButton(
                     t("menu.buttons.search", lang), callback_data="search"
